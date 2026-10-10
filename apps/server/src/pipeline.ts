@@ -97,7 +97,8 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
   const q = quickRes.json;
   const quick: QuickRead = {
     kind: q.kind ?? 'mixed', subject: q.subject ?? '', language: (q.language ?? 'en').split('-')[0], title: q.title ?? '', gist: q.gist ?? '',
-    figures: (Array.isArray(q.figures) ? q.figures : []).slice(0, 6).map((f: any, i: number) => ({ id: String(f.id || `fig${i + 1}`).replace(/[^A-Za-z0-9_-]/g, '_'), label: String(f.label ?? ''), kind: f.kind ?? 'other', box: toPageBox(f.box_2d ?? [0, 0, 1000, 1000], page.w, page.h) })),
+    // figure ids are normalised to fig1..figN: the scene prompt's examples use that convention, so anchors line up
+    figures: (Array.isArray(q.figures) ? q.figures : []).slice(0, 6).map((f: any, i: number) => ({ id: `fig${i + 1}`, label: String(f.label ?? ''), kind: f.kind ?? 'other', box: toPageBox(f.box_2d ?? [0, 0, 1000, 1000], page.w, page.h) })),
     characters: (Array.isArray(q.characters) ? q.characters : []).slice(0, 8).map((c: any) => ({ name: String(c.name ?? ''), look: String(c.look ?? '') })),
     spread: !!q.spread, confidence: Number(q.confidence ?? 0.5), opener: q.opener ?? '', bookTitle: q.bookTitle || undefined,
   };

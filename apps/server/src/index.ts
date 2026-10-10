@@ -10,6 +10,8 @@ import { config } from './config.js';
 import { runPipeline } from './pipeline.js';
 import { store } from './store.js';
 import { warmTracking } from './tracking.js';
+import { WebSocketServer } from 'ws';
+import { handleLiveSocket } from './live.js';
 import type { PipelineEvent } from '@living-book/scene';
 
 const app = new Hono();
@@ -77,4 +79,10 @@ if (fs.existsSync(webDist)) {
 }
 
 warmTracking().then(() => console.log('[tracking] worker pool warm')).catch((e) => console.warn('[tracking] pool failed', e));
-serve({ fetch: app.fetch, port: config.port }, (info) => console.log(`[server] listening on http://localhost:${info.port} (project ${config.project}, ${config.location})`));
+const server = serve({ fetch: app.fetch, port: config.port }, (info) => console.log(`[server] listening on http://localhost:${info.port} (project ${config.project}, ${config.location})`));
+// Voice Q&A: WebSocket proxy to the Gemini Live API at /api/live
+const wss = new WebSocketServer({ noServer: true });
+(server as any).on('upgrade', (req: any, socket: any, head: any) => {
+  if (!String(req.url).startsWith('/api/live')) { socket.destroy(); return; }
+  wss.handleUpgrade(req, socket, head, (ws) => { handleLiveSocket(ws).catch((e) => { console.error('[live]', e); try { ws.close(); } catch { /* ok */ } }); });
+});

@@ -8,6 +8,7 @@ import { Theatre } from '../components/Theatre';
 import { VerificationBadge } from '../components/VerificationBadge';
 import { CameraSession } from '../ar/camera';
 import { cornersToMatrix3d, type Corners, type TrackerState } from '../ar/PageTracker';
+import { LiveVoice } from '../audio/live';
 import type { Scene } from '@living-book/scene';
 
 type Props = { onBack: () => void };
@@ -49,6 +50,21 @@ export function ExperienceView({ onBack }: Props) {
   const lostSince = useRef<number | null>(null);
   const session = CameraSession.current;
   const arAvailable = !!session && session.tracker.state !== 'idle';
+  const experienceId = useStore((s) => s.id);
+  const liveRef = useRef<LiveVoice | null>(null);
+  const [voice, setVoice] = useState<'off' | 'connecting' | 'listening' | 'thinking' | 'speaking' | 'error'>('off');
+  const [voiceNote, setVoiceNote] = useState('');
+
+  async function toggleVoice() {
+    if (liveRef.current) { liveRef.current.stop(); liveRef.current = null; setVoice('off'); setVoiceNote(''); return; }
+    if (!experienceId) return;
+    const lv = new LiveVoice(experienceId, () => ({ ...(rendererRef.current?.runtime.values() ?? {}) }), {
+      onStatus: (st, detail) => { setVoice(st === 'closed' ? 'off' : st); if (st === 'error') setVoiceNote(detail ?? 'voice error'); if (st === 'closed') liveRef.current = null; },
+      onTranscript: (role, text) => setCaption(role === 'user' ? `You: ${text}` : text),
+    });
+    liveRef.current = lv;
+    try { await lv.start(); } catch (e: any) { setVoice('error'); setVoiceNote(String(e?.message || e)); liveRef.current = null; }
+  }
 
   // page image for crops and the photo/flat background
   useEffect(() => {
@@ -97,7 +113,9 @@ export function ExperienceView({ onBack }: Props) {
   }, [audio]);
   useEffect(() => { mixer.setMuted(muted); }, [muted]);
   useEffect(() => { if (status !== 'ready') return; const id = window.setTimeout(() => setTheatre(false), 2500); return () => clearTimeout(id); }, [status, setTheatre]);
-  useEffect(() => () => { rendererRef.current?.destroy(); mixer.destroy(); CameraSession.current?.stop(); }, []);
+  useEffect(() => () => { rendererRef.current?.destroy(); mixer.destroy(); CameraSession.current?.stop(); liveRef.current?.stop(); }, []);
+  // keep the tutor informed of slider changes
+  useEffect(() => { liveRef.current?.sendState(); }, [vars]);
 
   // ---- AR: live video + tracked warp; server detection data for re-acquisition ----
   useEffect(() => {
@@ -197,6 +215,7 @@ export function ExperienceView({ onBack }: Props) {
         <button className="icon" onClick={onBack} aria-label="Back">←</button>
         <div className="title">{quick?.title ?? 'Living Book'}</div>
         <VerificationBadge />
+        {status === 'ready' && <button className={`icon mic ${voice !== 'off' ? 'on' : ''} ${voice}`} onClick={toggleVoice} aria-label="Ask a question by voice" title={voiceNote}>{voice === 'off' ? '🎤' : voice === 'connecting' ? '…' : voice === 'speaking' ? '🗣' : voice === 'error' ? '!' : '●'}</button>}
         <button className="icon" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute' : 'Mute'}>{muted ? '🔇' : '🔊'}</button>
         <button className={`icon ${theatreOpen ? 'on' : ''}`} onClick={() => setTheatre(!theatreOpen)} aria-label="Agent theatre">⚙︎</button>
       </div>
