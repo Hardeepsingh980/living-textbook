@@ -327,15 +327,22 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         const plain = el.text.replace(/\{[^}]*\}/g, ' ');
         for (const m of plain.matchAll(/\d+(?:[.,]\d+)?/g)) { const n = Number(m[0].replace(',', '.')); if (!pageNums.has(String(n)) && !pageNums.has(n.toFixed(1)) && !pageNums.has(n.toFixed(2)) && n !== 0 && n !== 1) invented.push(`${el.id}: "${m[0]}"`); }
       }
-      for (const v of scene.vars) if (v.role === 'param' && v.init !== 0 && v.init !== 1 && !pageNums.has(String(v.init)) && !pageNums.has(v.init.toFixed(1))) invented.push(`${v.id} starts at ${v.init}`);
+      // a slider with a physical unit must start at a value printed on the page; unit-less "level" knobs (0..1, 0..100) are controls, not facts
+      const inventedVars: string[] = [];
+      for (const v of scene.vars) {
+        const qualitative = !v.unit || /%|level|amount|strength/i.test(v.unit ?? '') || (v.min >= 0 && v.max <= 100 && !v.unit);
+        if (v.role === 'param' && !qualitative && v.init !== 0 && v.init !== 1 && !pageNums.has(String(v.init)) && !pageNums.has(v.init.toFixed(1))) inventedVars.push(`${v.id} starts at ${v.init} ${v.unit ?? ''}`.trim());
+      }
       if (invented.length) {
-        // repair: strip the offending labels and let the verdict say why
+        // repair: numbers the reader would read as facts are removed from the scene, and the repair is reported
         const fixed = structuredClone(scene);
         const bad = new Set(invented.map((x) => x.split(':')[0]!));
         fixed.elements = fixed.elements.filter((e) => !(bad.has(e.id) && (e.type === 'label' || e.type === 'bubble')));
-        const n = normalizeScene(fixed); if (n.scene && fixed.elements.length < scene.elements.length) { scene = n.scene; repaired = true; }
-        unsupported.push(...invented.map((x) => `number not on the page: ${x}`));
+        const n = normalizeScene(fixed);
+        if (n.scene && fixed.elements.length < scene.elements.length) { scene = n.scene; repaired = true; checks.push({ name: 'numbers not on the page removed', method: 'faithfulness', pass: true, detail: invented.join('; ').slice(0, 200) }); }
+        else unsupported.push(...invented.map((x) => `number not on the page: ${x}`));
       }
+      if (inventedVars.length) unsupported.push(...inventedVars.map((x) => `slider value not on the page: ${x}`));
       const all = [...det, ...checks.filter((c) => c.method !== 'page-answer')];
       if (unsupported.length) all.push({ name: 'faithfulness', method: 'faithfulness', pass: false, detail: `not supported by the page: ${unsupported.slice(0, 3).join(' | ')}` });
       else if (!all.some((c) => c.method === 'faithfulness')) all.push({ name: 'faithfulness', method: 'faithfulness', pass: true, detail: 'labels, dialogue and narration are supported by the page text' });
