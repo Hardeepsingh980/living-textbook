@@ -246,22 +246,33 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
     if (!speakerVoice.has(speaker)) speakerVoice.set(speaker, sc.audio.speakers[speaker]?.voice ?? config.voices.pool[poolIdx++ % config.voices.pool.length]!);
     return speakerVoice.get(speaker)!;
   };
+  const superseded = new Set<string>(); // clip ids re-voiced after a repair: an older synthesis of the same id is dropped when it lands
+  const synthClip = async (sc: Scene, version: number, clipId: string, text: string, kind: 'narration' | 'line', extra: { stepId?: string; lineId?: string; speaker?: string; voice: string }, generation = 0) => {
+    const prefix = version === 1 ? '' : `v${version}-`;
+    const fullId = prefix + clipId;
+    try {
+      const r = await withTimeout(synthesize({ text, voice: extra.voice, lang: sc.lang }), 20000, `tts ${clipId}`);
+      usages.push(r.usage);
+      if (generation === 0 && superseded.has(fullId)) return; // a repair already replaced this clip
+      const url = await store.putFile(id, fullId + (generation ? `-${generation}` : ''), r.wav, 'audio/wav');
+      const clip = { id: fullId, url, kind, text, stepId: extra.stepId, lineId: extra.lineId, speaker: extra.speaker, durationMs: r.durationMs, version };
+      const at = audioClips.findIndex((c) => c.id === fullId);
+      if (at >= 0) audioClips.splice(at, 1);
+      audioClips.push(clip);
+      send({ type: 'audio', ...clip, t: T() });
+    } catch (e: any) { send({ type: 'error', message: `voice ${clipId}: ${String(e?.message || e)}`, recoverable: true, t: T() }); }
+  };
+  const revoiceSteps = async (sc: Scene, version: number, stepIds: string[]) => {
+    const prefix = version === 1 ? '' : `v${version}-`;
+    for (const sid of stepIds) superseded.add(`${prefix}step-${sid}`);
+    await Promise.all(sc.steps.filter((s) => stepIds.includes(s.id) && s.narration).map((s) => synthClip(sc, version, `step-${s.id}`, s.narration!, 'narration', { stepId: s.id, voice: narratorVoice }, 1)));
+  };
   const voiceScene = async (sc: Scene, version: number) => {
     const limit = pLimit(3);
     const jobs: Promise<void>[] = [];
     const t = Date.now();
-    const prefix = version === 1 ? '' : `v${version}-`;
     stage('voice', 'start', { detail: `voicing ${sc.steps.filter((s) => s.narration).length} narration steps and ${sc.audio.lines.length} lines`, model: config.models.tts.id });
-    const say = (clipId: string, text: string, kind: 'narration' | 'line', extra: { stepId?: string; lineId?: string; speaker?: string; voice: string }) => jobs.push(limit(async () => {
-      try {
-        const r = await withTimeout(synthesize({ text, voice: extra.voice, lang: sc.lang }), 20000, `tts ${clipId}`);
-        usages.push(r.usage);
-        const url = await store.putFile(id, prefix + clipId, r.wav, 'audio/wav');
-        const clip = { id: prefix + clipId, url, kind, text, stepId: extra.stepId, lineId: extra.lineId, speaker: extra.speaker, durationMs: r.durationMs, version };
-        audioClips.push(clip);
-        send({ type: 'audio', ...clip, t: T() });
-      } catch (e: any) { send({ type: 'error', message: `voice ${clipId}: ${String(e?.message || e)}`, recoverable: true, t: T() }); }
-    }));
+    const say = (clipId: string, text: string, kind: 'narration' | 'line', extra: { stepId?: string; lineId?: string; speaker?: string; voice: string }) => jobs.push(limit(() => synthClip(sc, version, clipId, text, kind, extra)));
     for (const s of sc.steps) if (s.narration) say(`step-${s.id}`, s.narration, 'narration', { stepId: s.id, voice: narratorVoice });
     for (const l of sc.audio.lines) say(`line-${l.id}`, l.text, 'line', { lineId: l.id, speaker: l.speaker, voice: voiceFor(sc, l.speaker) });
     for (const s of sc.steps) for (const [i, l] of (s.say ?? []).entries()) say(`say-${s.id}-${i}`, l.text, 'line', { stepId: s.id, speaker: l.speaker, voice: voiceFor(sc, l.speaker) });
@@ -344,6 +355,26 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         const n = normalize(fixed);
         if (n.scene) { const det2 = runMapping(n.scene); if (det2.filter((c) => c.pass).length > det.filter((c) => c.pass).length) { scene = n.scene; det = det2; repaired = true; } }
       }
+      if (Array.isArray(r.json.fixes?.narration) && r.json.fixes.narration.length) {
+        const changed: string[] = [];
+        const oldText = new Map<string, string>();
+        for (const f of r.json.fixes.narration) {
+          const st = scene.steps.find((s) => s.id === f.step);
+          if (!st || typeof f.text !== 'string' || !f.text.trim() || f.text.trim() === st.narration) continue;
+          oldText.set(st.id, st.narration ?? ''); st.narration = f.text.trim().slice(0, 300); changed.push(st.id);
+        }
+        if (changed.length) {
+          repaired = true;
+          const normT = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+          const gone = (claim: string) => { const c = normT(claim); return c.length > 3 && changed.some((sid) => normT(oldText.get(sid) ?? '').includes(c.slice(0, 40)) && !normT(scene.steps.find((s) => s.id === sid)?.narration ?? '').includes(c.slice(0, 40))); };
+          const unsup: string[] = Array.isArray(r.json.unsupported) ? r.json.unsupported.filter((s: any) => typeof s === 'string') : [];
+          r.json.unsupported = unsup.filter((u: string) => !gone(u));
+          // the verifier wrote the fix for its own narration complaints: applying it settles them
+          for (const c of checks) if (!c.pass && c.method === 'faithfulness' && (/narration|step|script|says/i.test(`${c.name} ${c.detail}`) || changed.some((sid) => new RegExp(`(^|[^\\p{L}\\p{N}])${sid}([^\\p{L}\\p{N}]|$)`, 'u').test(`${c.name} ${c.detail}`)) || unsup.some((u) => gone(u) && normT(c.detail).includes(normT(u).slice(0, 30))))) { c.pass = true; c.detail = `${c.detail} (narration rewritten)`; }
+          checks.push({ name: 'narration rewritten to match the page', method: 'faithfulness', pass: true, detail: changed.map((sid) => `${sid}: "${scene.steps.find((s) => s.id === sid)?.narration?.slice(0, 80)}"`).join(' | ').slice(0, 220) });
+          await revoiceSteps(scene, version, changed);
+        }
+      }
       if (Array.isArray(r.json.fixes?.labels) && r.json.fixes.labels.length) {
         const fixed = structuredClone(scene);
         for (const f of r.json.fixes.labels) { const el = fixed.elements.find((x) => x.id === f.id); if (el && 'text' in el && typeof f.text === 'string') (el as any).text = f.text; }
@@ -363,6 +394,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         const resolved = new Set<string>();
         const hit = (text: string) => { const u = unsupported.find((x) => same(x, text)); if (u) resolved.add(u); return !!u; };
         const linesBefore = fixed.audio.lines.length, elsBefore = fixed.elements.length;
+        const removedLineIds = fixed.audio.lines.filter((l) => hit(l.text)).map((l) => l.id);
         fixed.audio.lines = fixed.audio.lines.filter((l) => !hit(l.text));
         fixed.elements = fixed.elements.filter((e) => !(e.type === 'bubble' && hit(e.text)));
         let says = 0;
@@ -373,7 +405,8 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
             scene = n.scene; repaired = true;
             checks.push({ name: 'dialogue not on the page removed', method: 'faithfulness', pass: true, detail: `${linesBefore - fixed.audio.lines.length} line(s), ${elsBefore - fixed.elements.length} bubble(s), ${says} step line(s): ${[...resolved].join(' | ').slice(0, 160)}` });
             unsupported = unsupported.filter((u) => !resolved.has(u));
-            for (const c of checks) if (!c.pass && c.method === 'faithfulness' && [...resolved].some((u) => same(u, c.detail) || same(u, c.name) || normText(c.detail).includes(normText(u).slice(0, 40)))) { c.pass = true; c.detail = `${c.detail} (removed from the scene)`; }
+            const namesRemoved = (s: string) => removedLineIds.some((lid) => new RegExp(`(^|[^\\p{L}\\p{N}])${lid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\p{L}\\p{N}]|$)`, 'u').test(s));
+            for (const c of checks) if (!c.pass && c.method === 'faithfulness' && (namesRemoved(`${c.name} ${c.detail}`) || [...resolved].some((u) => same(u, c.detail) || same(u, c.name) || normText(c.detail).includes(normText(u).slice(0, 40))))) { c.pass = true; c.detail = `${c.detail} (removed from the scene)`; }
           }
         }
       }

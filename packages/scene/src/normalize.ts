@@ -164,7 +164,7 @@ export function normalizeScene(input: unknown, ctx: NormalizeContext = {}): Norm
     const box = cropsFor[key]!;
     swapped.set(a.id, box);
     issues.push({ level: 'warn', where: `assets.${a.id}`, message: `generated ${a.character} replaced by the printed drawing` });
-    return { id: a.id, type: 'crop', box: [...box] as BoxT, feather: 0.04 };
+    return { id: a.id, type: 'crop', box: [...box] as BoxT, feather: 0.04, tight: true };
   });
   const assetIds = new Set(scene.assets.map((a) => a.id));
   const anchorIds = new Set(Object.keys(scene.anchors));
@@ -202,6 +202,11 @@ export function normalizeScene(input: unknown, ctx: NormalizeContext = {}): Norm
       const an = scene.anchors[el.anchor]!; const [rx0, ry0, rx1, ry1] = el.region;
       if (rx1 <= an[2] - an[0] + 1 && ry1 <= an[3] - an[1] + 1) { el.region = [rx0 + an[0], ry0 + an[1], rx1 + an[0], ry1 + an[1]]; }
       el.anchor = undefined;
+    }
+    if (el.type === 'particles' && el.region && !el.anchor && !['rain', 'snow', 'confetti', 'leaves'].includes(el.preset)) {
+      // a region written in figure units without an anchor (it fits the figure's size but lands outside the figure on the page)
+      const main = Object.values(scene.anchors)[0];
+      if (main) { const bw = main[2] - main[0], bh = main[3] - main[1]; const [rx0, ry0, rx1, ry1] = el.region; const inFigure = rx0 >= main[0] - 2 && ry0 >= main[1] - 2 && rx1 <= main[2] + 2 && ry1 <= main[3] + 2; if (!inFigure && rx0 >= 0 && ry0 >= 0 && rx1 <= bw + 1 && ry1 <= bh + 1) { el.region = [rx0 + main[0], ry0 + main[1], rx1 + main[0], ry1 + main[1]]; issues.push({ level: 'warn', where, message: 'particle region looked figure-relative; moved onto the figure' }); } }
     }
     if (el.type === 'particles' && !el.region) {
       const box = el.anchor ? scene.anchors[el.anchor] : Object.values(scene.anchors)[0];

@@ -33,7 +33,7 @@ export const DerivedSchema = z.object({
 });
 
 export const AssetSchema = z.discriminatedUnion('type', [
-  z.object({ id: Id, type: z.literal('crop'), box: Box, anchor: z.string().max(64).optional(), feather: z.number().min(0).max(1).optional() }),
+  z.object({ id: Id, type: z.literal('crop'), box: Box, anchor: z.string().max(64).optional(), feather: z.number().min(0).max(1).optional(), tight: z.boolean().optional() }), // tight: keep only the main drawing inside the box (a character, not the caption beside it)
   z.object({
     id: Id, type: z.literal('gen'),
     prompt: z.string().min(3).max(600),

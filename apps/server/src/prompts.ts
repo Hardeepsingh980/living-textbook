@@ -119,7 +119,7 @@ export function verifySystem(): string {
  "checks":[{"name":"...","method":"page-answer"|"independent"|"faithfulness","expected":..,"got":..,"pass":true,"detail":"..."}],
  "mapping":[{"worked":0,"assign":{"h0":20,"g":9.8},"derived":"tland","answer":2.02,"unit":"s"}],   // how each worked example maps onto scene variables; "derived" MUST be an id from the scene's "derived" list whose value equals the printed answer when the inputs are assigned. If the scene computes no such value, omit that example from "mapping" and add an "independent" check instead (never map to a variable).
  "unsupported":["<exact label/narration text not supported by the page>"],
- "fixes":{"derived":[{"id":"h","expr":"..."}],"labels":[{"id":"lbl","text":"..."}]},   // corrections that make the scene faithful; empty if none needed
+ "fixes":{"derived":[{"id":"h","expr":"..."}],"labels":[{"id":"lbl","text":"..."}],"narration":[{"step":"s1","text":"..."}]},   // corrections that make the scene faithful; empty if none needed. narration: a step's narration rewritten WITHOUT the unsupported claim (same language, warmth and length; keep everything the page supports)
  "summary":"one sentence for the user"
 }
 Methods: page-answer = compare the scene's derived value (computed by us from "mapping") with the page's printed answer; independent = compute the expected value yourself from the page's formula and inputs when the page gives no answer; faithfulness = every label, bubble and narration sentence must be supported by the page text (paraphrase is fine, new facts/events/characters are not).`;

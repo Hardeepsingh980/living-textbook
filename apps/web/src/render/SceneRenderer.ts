@@ -109,7 +109,7 @@ export class SceneRenderer {
           const sx = iw / this.scene.page.w, sy = ih / this.scene.page.h;
           const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(fw * sx)); c.height = Math.max(1, Math.round(fh * sy));
           c.getContext('2d')!.drawImage(img as CanvasImageSource, fx * sx, fy * sy, fw * sx, fh * sy, 0, 0, c.width, c.height);
-          const keyed = keyCanvas(c, a.feather === 0 ? 0 : 1);
+          const keyed = keyCanvas(c, a.feather === 0 ? 0 : 1, !!a.tight);
           this.textures.set(a.id, keyed.texture);
           this.cropInfo.set(a.id, { box: [fx, fy, fx + fw, fy + fh], color: keyed.color });
         } else if (a.type === 'gen') {
@@ -263,8 +263,9 @@ export class SceneRenderer {
         else { g.roundRect(-w / 2, -h / 2, w, h, el.style === 'shout' ? 4 : 18).fill({ color: 0xffffff }).stroke({ color: 0x333333, width: 3 }); }
         if (r.points === undefined && el.tail) {
           const scope = this.runtime.values();
-          let tx = (typeof el.tail[0] === 'number' ? el.tail[0] : compile(String(el.tail[0]))(scope)) - r.x;
-          let ty = (typeof el.tail[1] === 'number' ? el.tail[1] : compile(String(el.tail[1]))(scope)) - r.y;
+          const an = el.anchor ? this.scene.anchors[el.anchor] : undefined; // the tail target is in the bubble's own frame
+          let tx = (typeof el.tail[0] === 'number' ? el.tail[0] : compile(String(el.tail[0]))(scope)) + (an ? an[0] : 0) - r.x;
+          let ty = (typeof el.tail[1] === 'number' ? el.tail[1] : compile(String(el.tail[1]))(scope)) + (an ? an[1] : 0) - r.y;
           if (Number.isFinite(tx) && Number.isFinite(ty)) {
             // keep the tail short: point towards the target but never further than 1.2× the bubble height
             const len = Math.hypot(tx, ty), max = h * 1.2;
@@ -476,7 +477,7 @@ async function loadKeyedTexture(url: string, key: boolean): Promise<Texture> {
 }
 
 /** Key out the background of a canvas: flood from the edges over pixels close to the border's median colour. `strength` 0 = off. */
-function keyCanvas(c: HTMLCanvasElement, strength: number): { texture: Texture; color: number } {
+function keyCanvas(c: HTMLCanvasElement, strength: number, tight = false): { texture: Texture; color: number } {
   if (!strength || c.width < 4 || c.height < 4) return { texture: Texture.from(c), color: 0xffffff };
   const ctx = c.getContext('2d', { willReadFrequently: true })!;
   const d = ctx.getImageData(0, 0, c.width, c.height); const p = d.data;
@@ -507,6 +508,26 @@ function keyCanvas(c: HTMLCanvasElement, strength: number): { texture: Texture; 
     const x = i % w, y = (i / w) | 0;
     const nb = (x > 0 && seen[i - 1]) || (x < w - 1 && seen[i + 1]) || (y > 0 && seen[i - w]) || (y < h - 1 && seen[i + w]);
     if (nb) { const dist = Math.max(Math.abs(p[i * 4]! - bg[0]!), Math.abs(p[i * 4 + 1]! - bg[1]!), Math.abs(p[i * 4 + 2]! - bg[2]!)); p[i * 4 + 3] = Math.round(255 * Math.min(1, Math.max(0.35, dist / 80))); }
+  }
+  if (tight) {
+    // keep the main drawing only: the largest opaque component, plus whatever overlaps its neighbourhood (an eye, a beak,
+    // a dropped piece of cheese); stray print such as a caption beside the character is cleared
+    const comp = new Int32Array(w * h).fill(-1);
+    const boxes: { n: number; x0: number; y0: number; x1: number; y1: number }[] = [];
+    const q: number[] = [];
+    for (let s0 = 0; s0 < w * h; s0++) {
+      if (comp[s0] !== -1 || p[s0 * 4 + 3]! <= 8) continue;
+      const k = boxes.length; boxes.push({ n: 0, x0: w, y0: h, x1: -1, y1: -1 }); q.push(s0); comp[s0] = k;
+      while (q.length) { const i = q.pop()!; const b = boxes[k]!; const x = i % w, y = (i / w) | 0; b.n++; if (x < b.x0) b.x0 = x; if (x > b.x1) b.x1 = x; if (y < b.y0) b.y0 = y; if (y > b.y1) b.y1 = y;
+        for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) if (j >= 0 && comp[j] === -1 && p[j * 4 + 3]! > 8) { comp[j] = k; q.push(j); } }
+    }
+    if (boxes.length > 1) {
+      const main = boxes.reduce((a, b) => (b.n > a.n ? b : a));
+      const mx = (main.x1 - main.x0) * 0.1 + 4, my = (main.y1 - main.y0) * 0.1 + 4;
+      // small pieces entirely below the drawing are a caption, not part of the character
+      const keep = boxes.map((b) => b === main || (b.x0 < main.x1 + mx && b.x1 > main.x0 - mx && b.y0 < main.y1 + my && b.y1 > main.y0 - my && !(b.n < main.n * 0.05 && b.y0 >= main.y1 - 2)));
+      for (let i = 0; i < w * h; i++) if (comp[i]! >= 0 && keep[comp[i]!] !== true) p[i * 4 + 3] = 0;
+    }
   }
   ctx.putImageData(d, 0, 0);
   // trim the transparent margins so the drawing fills the box the scene gives it
