@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.vite/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+coverage/
+.turbo/
+eval/output/
+eval/pages/private/
+*.local

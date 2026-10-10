@@ -1,0 +1,16 @@
+{
+  "name": "living-book",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Living Book turns any page of any book into a living, animated, AR experience with audio, generated at runtime by Google AI.",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@9.4.0",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter ./apps/* dev",
+    "build": "pnpm -r --filter ./packages/* --filter ./apps/* build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint"
+  }
+}
