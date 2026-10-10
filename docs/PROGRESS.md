@@ -2,6 +2,11 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-10 (late): rounds 4–5
+
+**Round 4 (schema leniency, entry-wise salvage, crop anchors, border-colour keying):** numeric checks all green, L-1 1.7 s, L-3 5.3 s, L-2 7.9 s, L-4 (first verified scene) 12.6 s p50. Visual judge overall 2.7 → **3.1** (clarity 3.2, placement 2.6, readability 3.1, liveliness 2.9, correctness 4.0, narration 3.7); Ohm's law 4.3 and Hindi free fall 4.0 rated "ship"; free fall 2 (readouts and plot crowd the figure on a page with no margins). Remaining faults: figure-relative coordinates written without an anchor, particle regions in figure units, rectangular cut-outs carrying their background.
+**Round 5 changes:** unanchored sprites/bubbles whose coordinates fit inside the main figure adopt it as anchor; anchored particle regions resolve to page units; cut-outs are keyed by their border colour; when free regions are scarce the builder uses at most two compact labels and no plot; qualitative knobs are not treated as invented numbers while invented numeric labels are stripped and reported as a repair.
+
 ## 2026-10-10 (night): evaluation rounds 2–3 and the root cause of thin scenes
 
 **Round 2 (gridded figure crop):** numeric checks all green (values 27/27, worked 7/7, page-answer 4/4, rendered 10/10, 0 unsupported) but the visual judge averaged 2.7/5; the grid fixed structural alignment (timeline markers now sit on the printed dots) while labels still covered text, one label carried invented numbers, and the boat showed a white placeholder.
