@@ -2,6 +2,18 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-10 (day 1, afternoon)
+
+**Deployed:** https://living-book-945707801757.asia-south1.run.app (Cloud Run, asia-south1, 4 vCPU / 4 GiB, one warm instance, service account `living-book-sa`). Durable store: Cloud Storage bucket `cheerio-app-living-book` + Firestore database `living-book` (Native mode). A full pipeline run against the deployed service took 17.3 s with verification passing; the tracking compile is slower there (9 s on 4 vCPUs) but off the critical path.
+
+**Story path works:** a synthetic "Fox and the Crow" page → kind=story (confidence 1), two generated character sprites (Gemini 3.1 Flash-Lite Image, 4.2 s, white background keyed out client-side), four steps with per-character lines (distinct voices), speech bubbles beside the speaker, forest ambience, verdict "faithful". $0.088 per page (images + ten voice clips).
+
+**Voice Q&A works:** browser → WebSocket proxy on the server → Gemini 3.8 Live (us-central1). The tutor is grounded in the extraction and the scene, calls a `get_current_state` tool for live slider values, and answered a "what if gravity were 20" question with first audio 1.5 s after the question.
+
+**AR in the real app:** camera session persists from framing to experience; tracker pre-warm 0.3 s, seeded tracking 0.6 s after capture (simulated camera), server detection data → re-acquisition 30–100 ms; AR falls back to photo mode after 2 s lost and returns when the page is found. Real-device numbers still pending.
+
+**Fixes worth remembering:** Firestore rejects `undefined` (ignoreUndefinedProperties); SSE writes must be chained and awaited before the stream closes; Vite dev server cannot serve MindAR sources (CJS `long`), so the web app is built with `vite build --watch` and served by the API server; the verifier must map worked answers to *derived* ids (the scene builder now adds a derived value per worked answer); figure ids are normalised to `fig1…` so anchors line up.
+
 ## 2026-10-10 (day 0 → day 1)
 
 **Working end to end (desktop, simulated page):** capture/upload → quick read → awakening → scene v1 → narration → extraction → verification → saved experience with a share URL. Pipeline p50 on the simulated free-fall page: ~16 s total, $0.017 per page; best run 13.0 s.

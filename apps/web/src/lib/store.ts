@@ -1,6 +1,6 @@
 // App state: the capture, the live pipeline events, and everything the experience view needs.
 import { create } from 'zustand';
-import type { PipelineEvent, Scene, QuickRead, Extraction, Verification, StageName, Issue, ExperienceRecord } from '@living-book/scene';
+import { fallbackScene, type PipelineEvent, type Scene, type QuickRead, type Extraction, type Verification, type StageName, type Issue, type ExperienceRecord } from '@living-book/scene';
 
 export type AudioClip = { id: string; url: string; kind: 'opener' | 'narration' | 'line'; text: string; stepId?: string; lineId?: string; speaker?: string; durationMs: number };
 export type StageState = { stage: StageName; status: 'start' | 'done' | 'error'; startedAt: number; endedAt?: number; detail?: string; model?: string; ms?: number };
@@ -73,8 +73,14 @@ export const useStore = create<ExperienceState & Actions>((set, get) => ({
         break;
       }
       case 'quick-partial': set({ quickPartial: { ...s.quickPartial, ...e.data }, events }); break;
-      case 'quick': set({ quick: e.data, quickPartial: e.data, events }); break;
-      case 'scene': set({ scene: e.data, sceneVersion: e.version, issues: e.issues, page: e.data.page, events, status: 'generating' }); break;
+      case 'quick': {
+        // awakening: a guaranteed scene built from the quick read alone, shown until the real scene arrives
+        const page = s.page && s.page.w === 1000 ? s.page : { w: 1000, h: Math.round(1000 * ((s.page?.h ?? 1414) / (s.page?.w ?? 1000))) };
+        const awakening = s.scene ? undefined : fallbackScene({ page, title: e.data.title, figures: e.data.figures.map((f) => f.box), lang: e.data.language, kind: 'summary' });
+        set({ quick: e.data, quickPartial: e.data, events, ...(awakening ? { scene: awakening, sceneVersion: 0, page } : {}) });
+        break;
+      }
+      case 'scene': if (e.version >= s.sceneVersion) set({ scene: e.data, sceneVersion: e.version, issues: e.issues, page: e.data.page, events }); else set({ events }); break;
       case 'extraction': set({ extraction: e.data, events }); break;
       case 'verification': set({ verification: e.data, events }); break;
       case 'audio': { const { type, t, ...clip } = e; set({ audio: [...s.audio, clip], events }); break; }
