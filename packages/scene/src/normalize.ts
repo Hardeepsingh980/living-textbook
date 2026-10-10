@@ -2,6 +2,8 @@
 // dropping only the offending parts and reporting every change as an issue.
 import { z } from 'zod';
 import { compile, isNumeric, ExprError } from './expr.js';
+import { layoutScene, motionReport, type InkMap } from './layout.js';
+import { SceneRuntime } from './runtime.js';
 import {
   SceneSchema, ElementSchema, VarSchema, DerivedSchema, AssetSchema, StepSchema, InteractionSchema,
   BUILTIN_SCOPE_NAMES, type Scene, type Element, type BoxT,
@@ -23,8 +25,14 @@ function salvageArray<T>(raw: unknown, schema: z.ZodType<T>, where: string, issu
   return out;
 }
 
+export type NormalizeContext = {
+  ink?: InkMap;                              // overlays are moved off printed text
+  dropTexts?: string[];                      // labels that merely repeat these (the page title) are dropped
+  characterCrops?: Record<string, BoxT>;     // printed characters (name → box): generated look-alikes become cut-outs of the printed drawing
+};
+
 /** Validate and repair a scene. Returns scene=null only if nothing usable remains. */
-export function normalizeScene(input: unknown): NormalizeResult {
+export function normalizeScene(input: unknown, ctx: NormalizeContext = {}): NormalizeResult {
   const issues: Issue[] = [];
   let raw: any = input;
   if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { return { scene: null, issues: [{ level: 'error', where: 'scene', message: 'not valid JSON' }] }; } }
@@ -143,6 +151,21 @@ export function normalizeScene(input: unknown): NormalizeResult {
     a.box = [bx0, by0, bx1, by1];
     return true;
   });
+  // a picture book's characters are already drawn on the page: a generated look-alike becomes a cut-out of the printed drawing
+  const cropsFor = ctx.characterCrops ?? {};
+  const normName = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const cropKeys = Object.keys(cropsFor).map((k) => [normName(k), k] as const);
+  const swapped = new Map<string, BoxT>();
+  let initScope: Record<string, number> | undefined;
+  scene.assets = scene.assets.map((a) => {
+    if (a.type !== 'gen' || !a.character) return a;
+    const key = cropKeys.find(([n]) => n && (n === normName(a.character!) || normName(a.character!).includes(n) || n.includes(normName(a.character!))))?.[1];
+    if (!key) return a;
+    const box = cropsFor[key]!;
+    swapped.set(a.id, box);
+    issues.push({ level: 'warn', where: `assets.${a.id}`, message: `generated ${a.character} replaced by the printed drawing` });
+    return { id: a.id, type: 'crop', box: [...box] as BoxT, feather: 0.04 };
+  });
   const assetIds = new Set(scene.assets.map((a) => a.id));
   const anchorIds = new Set(Object.keys(scene.anchors));
   scene.elements = scene.elements.filter((el) => {
@@ -158,6 +181,23 @@ export function normalizeScene(input: unknown): NormalizeResult {
       if (el.xdomain[0] >= el.xdomain[1]) { issues.push({ level: 'warn', where, message: 'plot dropped: empty x domain' }); return false; }
     }
     if (el.type === 'sprite' && !assetIds.has(el.asset)) { issues.push({ level: 'warn', where, message: `sprite dropped: unknown asset ${el.asset}` }); return false; }
+    const cropAsset = el.type === 'sprite' ? scene.assets.find((a) => a.id === el.asset && a.type === 'crop') : undefined;
+    if (el.type === 'sprite' && cropAsset && cropAsset.type === 'crop') {
+      // a cut-out starts exactly on the printed drawing it was cut from, at its printed size (the model tends to give the
+      // box's centre, or a guess); its motion is kept as offsets from there
+      const box = swapped.get(el.asset) ?? cropAsset.box, an = el.anchor ? scene.anchors[el.anchor] : undefined, ox = an ? an[0] : 0, oy = an ? an[1] : 0;
+      const bw = box[2] - box[0], bh = box[3] - box[1];
+      for (const a of el.anim) if ((a.prop === 'x' || a.prop === 'y') && !a.relative) { const base = a.prop === 'x' ? el.x : el.y; if (typeof base !== 'number') continue; if (typeof a.from === 'number') a.from -= base; if (typeof a.to === 'number') a.to -= base; if (a.keys) for (const k of a.keys) k.v -= base; a.relative = true; }
+      const target = [box[0] - ox, box[1] - oy] as const;
+      for (const axis of ['x', 'y'] as const) {
+        const v = el[axis];
+        if (typeof v === 'number') { el[axis] = target[axis === 'x' ? 0 : 1]; continue; }
+        // an expression keeps its motion but starts on the drawing: shift it by the difference at the initial state
+        try { initScope ??= new SceneRuntime(scene).values(); const start = compile(String(v))(initScope); const delta = target[axis === 'x' ? 0 : 1] - start; if (Number.isFinite(delta) && Math.abs(delta) > 0.5) el[axis] = `(${v}) + ${Math.round(delta)}`; } catch { el[axis] = target[axis === 'x' ? 0 : 1]; }
+      }
+      const rw = typeof el.w === 'number' ? el.w : null, rh = typeof el.h === 'number' ? el.h : null;
+      if (!(rw && rh && Math.abs(rw / rh - bw / bh) < 0.12 && rw >= bw * 0.9)) { el.w = bw; el.h = bh; } // keep a deliberate enlargement with the right proportions
+    }
     if (el.type === 'particles' && el.region && el.anchor && scene.anchors[el.anchor]) {
       const an = scene.anchors[el.anchor]!; const [rx0, ry0, rx1, ry1] = el.region;
       if (rx1 <= an[2] - an[0] + 1 && ry1 <= an[3] - an[1] + 1) { el.region = [rx0 + an[0], ry0 + an[1], rx1 + an[0], ry1 + an[1]]; }
@@ -174,10 +214,42 @@ export function normalizeScene(input: unknown): NormalizeResult {
       const main = Object.entries(scene.anchors)[0];
       if (main) { const [id, b] = main; const bw = b[2] - b[0], bh = b[3] - b[1]; const inFigure = el.x >= b[0] && el.x <= b[2] && el.y >= b[1] && el.y <= b[3]; if (!inFigure && el.x >= 0 && el.x <= bw && el.y >= 0 && el.y <= bh) { el.anchor = id; issues.push({ level: 'warn', where, message: `coordinates looked figure-relative; anchored to ${id}` }); } }
     }
-    if (el.type === 'shape' && ['line', 'arrow', 'polygon'].includes(el.shape) && (!el.points || el.points.length < 2)) { issues.push({ level: 'warn', where, message: `${el.shape} needs points; dropped` }); return false; }
+    if (el.type === 'shape' && ['line', 'arrow', 'polygon', 'square'].includes(el.shape) && (!el.points || el.points.length < 2)) { issues.push({ level: 'warn', where, message: `${el.shape} needs points; dropped` }); return false; }
+    if (el.type === 'shape' && el.away) el.away = [checkExpr(el.away[0], `${where}.away.x`), checkExpr(el.away[1], `${where}.away.y`)];
+    // "none"/"transparent" are not colours the renderer can use: they mean no fill or stroke
+    const noColor = (c: unknown) => typeof c === 'string' && /^(none|transparent|null|undefined|)$/i.test(c.trim());
+    if (el.type === 'shape') { if (noColor(el.fill)) el.fill = undefined; if (noColor(el.stroke)) el.stroke = undefined; if (!el.fill && !el.stroke) el.stroke = '#7fd3ff'; }
+    if (el.type === 'label') { if (noColor(el.bg)) el.bg = undefined; if (noColor(el.color)) el.color = '#1a1a1a'; }
+    if (el.type === 'label' || el.type === 'bubble') {
+      // a {template} must be a numeric expression the renderer can evaluate; anything else would print as code
+      for (const m of el.text.matchAll(/\{([^}]*)\}/g)) {
+        const expr = m[1]!.split(':')[0]!.trim();
+        let ok = !/['"]/.test(expr);
+        if (ok) { try { const c = compile(expr); ok = c.refs.every((r) => known.has(r)); } catch { ok = false; } }
+        if (!ok) { issues.push({ level: 'warn', where, message: `dropped: template {${expr.slice(0, 30)}} is not a numeric expression` }); return false; }
+      }
+    }
+    if (el.type === 'label' && el.bg) {
+      // readable contrast: light text on a light badge (or dark on dark) is corrected
+      const lum = (c: string) => { const m = c.replace('#', '').match(/^([0-9a-f]{6})/i); if (!m) return null; const n = parseInt(m[1]!, 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255; };
+      const lb = lum(el.bg), lc = lum(el.color);
+      if (lb !== null && lc !== null && Math.abs(lb - lc) < 0.35) el.color = lb > 0.5 ? '#1a1a1a' : '#ffffff';
+    }
+    if (el.type === 'path' && noColor(el.stroke)) el.stroke = '#e63946';
+    if (el.type === 'particles' && noColor(el.color)) el.color = undefined;
     return true;
   });
 
+  // electrons that were given no path follow the wire the scene draws (the first path, preferring the same figure)
+  for (const el of scene.elements) {
+    if (el.type !== 'particles' || el.preset !== 'electrons' || el.path) continue;
+    const wire = scene.elements.find((p) => p.type === 'path' && p.points.length >= 2 && p.points.every((pt) => typeof pt[0] === 'number' && typeof pt[1] === 'number'));
+    if (!wire || wire.type !== 'path') continue;
+    const an = wire.anchor ? scene.anchors[wire.anchor] : undefined, ox = an ? an[0] : 0, oy = an ? an[1] : 0;
+    el.path = wire.points.map((pt) => [Number(pt[0]) + ox, Number(pt[1]) + oy] as [number, number]);
+    if (wire.closed || (el.path.length > 2 && Math.hypot(el.path[0]![0] - el.path[el.path.length - 1]![0], el.path[0]![1] - el.path[el.path.length - 1]![1]) > 4)) el.path.push([...el.path[0]!] as [number, number]);
+    issues.push({ level: 'warn', where: `elements.${el.id}`, message: `electrons follow the drawn wire ${wire.id}` });
+  }
   const elementIds = new Set(scene.elements.map((e) => e.id));
   const lineIds = new Set(scene.audio.lines.map((l) => l.id));
   const stepIds = new Set(scene.steps.map((s) => s.id));
@@ -211,6 +283,22 @@ export function normalizeScene(input: unknown): NormalizeResult {
   for (const sp of Object.keys(scene.audio.speakers)) if (sp.length > 64) delete scene.audio.speakers[sp];
 
   if (scene.elements.length === 0) return { scene: null, issues: [...issues, { level: 'error', where: 'elements', message: 'no renderable elements remain' }] };
+  // 3. presentation repairs
+  // a label that only repeats the printed title adds nothing (the page already says it)
+  if (ctx.dropTexts?.length) {
+    const norm = (s: string) => s.toLowerCase().replace(/^[\s\d.:()-]+/, '').replace(/[^\p{L}]+/gu, ' ').trim(); // "4.5 The water cycle" and "The Water Cycle" are the same title
+    const avoid = new Set(ctx.dropTexts.map(norm).filter((s) => s.length > 2));
+    scene.elements = scene.elements.filter((el) => { if (el.type === 'label' && avoid.has(norm(el.text))) { issues.push({ level: 'warn', where: `elements.${el.id}`, message: 'label dropped: it only repeats the printed title' }); return false; } return true; });
+    if (scene.elements.length === 0) return { scene: null, issues: [...issues, { level: 'error', where: 'elements', message: 'no renderable elements remain' }] };
+  }
+  // a scene with little motion gets its still highlights breathing, so nothing on the page looks frozen
+  if (motionReport(scene).moving.length < 3) {
+    for (const el of scene.elements) {
+      if (el.type === 'shape' && !el.anim.length && (el.glow || el.stroke || el.fill)) el.anim.push({ prop: 'opacity', from: 0.55, to: 1, dur: 1.6, delay: 0, loop: 'pingpong', ease: 'inout', relative: false } as (typeof el.anim)[number]);
+    }
+  }
+  // layout: what the reader must read never sits on printed ink
+  if (ctx.ink) { try { layoutScene(scene, ctx.ink, issues); } catch (e) { issues.push({ level: 'warn', where: 'layout', message: `layout skipped: ${(e as Error).message}` }); } }
   return { scene, issues };
 }
 

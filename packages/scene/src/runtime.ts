@@ -8,6 +8,7 @@ export type ResolvedElement = {
   x: number; y: number; w: number | undefined; h: number | undefined;
   rot: number; opacity: number; scale: number; visible: boolean;
   points?: [number, number][];
+  away?: [number, number];     // squares: the side of the segment the construction must not be on
   marker?: number;
   speed?: number;
   rate?: number;
@@ -137,10 +138,11 @@ export class SceneRuntime {
         const key = anim.prop as keyof typeof base;
         const cur = base[key];
         if (anim.relative) { if (cur !== undefined) (base as any)[key] = cur + v; }
-        else (base as any)[key] = v;
+        else (base as any)[key] = v + (anchor && key === 'x' ? anchor[0] : anchor && key === 'y' ? anchor[1] : 0); // an absolute value keeps the element's frame of reference
       }
       void since;
       const r: ResolvedElement = { el, ...base, visible: true, highlighted: this.highlighted.has(el.id) };
+      if (el.type === 'shape' && el.away) r.away = [this.expr(el.away[0], scope) + (anchor ? anchor[0] : 0), this.expr(el.away[1], scope) + (anchor ? anchor[1] : 0)];
       if ('points' in el && Array.isArray(el.points)) r.points = el.points.map((p: any) => [this.expr(p[0], scope) + (anchor ? anchor[0] : 0), this.expr(p[1], scope) + (anchor ? anchor[1] : 0)] as [number, number]);
       if (el.type === 'plot' && el.marker !== undefined) r.marker = this.expr(el.marker, scope);
       if (el.type === 'particles') { r.speed = this.expr(el.speed, scope, 1); r.rate = this.expr(el.rate, scope, 40); }

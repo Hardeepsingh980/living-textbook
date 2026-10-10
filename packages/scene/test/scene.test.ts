@@ -16,7 +16,7 @@ const freeFall = {
     { id: 'cyc1', expr: 'cyc2 + 1' }, { id: 'cyc2', expr: 'cyc1 + 1' },
   ],
   anchors: { fig1: [100, 400, 500, 900] },
-  assets: [{ id: 'ball', type: 'crop', box: [120, 420, 180, 480] }],
+  assets: [{ id: 'ball', type: 'crop', box: [120, 400, 180, 460] }], // a cut-out starts on its printed box: anchor (100,400) + (20,0)
   elements: [
     { id: 'ball', type: 'sprite', asset: 'ball', anchor: 'fig1', x: 20, y: 'min(h, h0) * 10', w: 60, h: 60 },
     { id: 'lbl', type: 'label', text: 'h = {h:0.1} m', x: 500, y: 300, size: 30 },

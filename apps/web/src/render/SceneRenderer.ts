@@ -24,6 +24,9 @@ export class SceneRenderer {
   runtime: SceneRuntime;
   root = new Container();
   private layers = { under: new Container(), over: new Container(), fx: new Container() };
+  private cropInfo = new Map<string, { box: [number, number, number, number]; color: number }>(); // crop assets: where they came from, and the paper colour there
+  private covers = new Map<string, Sprite>();          // paper-coloured patches that hide a cut-out's printed original once it has moved away
+  private startedInside = new Map<string, boolean>();  // figure-anchored sprites that began inside their figure fade out when they leave it
   private nodes = new Map<string, Container>();
   private textures = new Map<string, Texture>();
   private particles = new Map<string, { list: Particle[]; acc: number }>();
@@ -106,7 +109,9 @@ export class SceneRenderer {
           const sx = iw / this.scene.page.w, sy = ih / this.scene.page.h;
           const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(fw * sx)); c.height = Math.max(1, Math.round(fh * sy));
           c.getContext('2d')!.drawImage(img as CanvasImageSource, fx * sx, fy * sy, fw * sx, fh * sy, 0, 0, c.width, c.height);
-          this.textures.set(a.id, keyCanvas(c, a.feather === 0 ? 0 : 1));
+          const keyed = keyCanvas(c, a.feather === 0 ? 0 : 1);
+          this.textures.set(a.id, keyed.texture);
+          this.cropInfo.set(a.id, { box: [fx, fy, fx + fw, fy + fh], color: keyed.color });
         } else if (a.type === 'gen') {
           const url = this.opts.assetUrls[a.id];
           if (url) { try { this.textures.set(a.id, await loadKeyedTexture(url, a.transparent)); } finally { this.pendingAssets--; } }
@@ -197,14 +202,38 @@ export class SceneRenderer {
         const s = node.getChildByLabel('sprite') as Sprite;
         const tex = this.textures.get(el.asset);
         if (tex && s.texture !== tex) { s.texture = tex; s.tint = 0xffffff; s.alpha = 1; s.visible = true; }
+        // the box the model asked for; the picture is fitted inside it without distortion
         const w = r.w ?? s.texture.width, h = r.h ?? (r.w ? (r.w * s.texture.height) / Math.max(1, s.texture.width) : s.texture.height);
-        s.width = w * r.scale * (el.flip ? -1 : 1); s.height = h * r.scale;
+        const tw = Math.max(1, s.texture.width), th = Math.max(1, s.texture.height), fit = Math.min(w / tw, h / th);
+        s.width = tw * fit * r.scale * (el.flip ? -1 : 1); s.height = th * fit * r.scale;
         if (el.tint) s.tint = el.tint;
         // liveliness: a sprite with no animation of its own still breathes a little
         let bobY = 0, bobR = 0;
         if (!el.anim.length) { const ph = hashId(el.id); const t = performance.now() / 1000; bobY = Math.sin(t * 1.4 + ph) * Math.min(10, h * 0.05); bobR = Math.sin(t * 0.9 + ph) * 0.02; }
         node.position.set(r.x + w / 2, r.y + h / 2 + bobY);
         node.rotation += bobR;
+        // a cut-out that has moved away from where it was printed leaves a paper-coloured patch behind, so the
+        // reader sees one object moving rather than a copy beside the original
+        const info = this.cropInfo.get(el.asset);
+        if (info) {
+          const [bx0, by0, bx1, by1] = info.box, bw = bx1 - bx0, bh = by1 - by0;
+          const away = Math.hypot(r.x + w / 2 - (bx0 + bw / 2), r.y + h / 2 + bobY - (by0 + bh / 2)) / Math.max(1, Math.max(bw, bh));
+          const grown = (w * r.scale) / Math.max(1, bw);
+          let cover = this.covers.get(el.asset);
+          if (!cover) { cover = new Sprite(coverTexture(bw, bh, info.color)); cover.position.set(bx0, by0); cover.width = bw; cover.height = bh; cover.zIndex = -1; this.layers.under.addChild(cover); this.covers.set(el.asset, cover); }
+          // only paper-like backgrounds get a patch: on an illustration a flat patch would look like a hole
+          const paper = ((info.color >> 16) * 0.299 + ((info.color >> 8) & 255) * 0.587 + (info.color & 255) * 0.114) / 255 > 0.82;
+          cover.visible = paper && (away > 0.12 || grown < 0.7);
+          cover.alpha = Math.min(1, Math.max(0, (away - 0.12) / 0.15) + (grown < 0.7 ? 1 : 0));
+        }
+        // a character that began inside its figure and now flies out of it fades away instead of landing on the text
+        const anchorBox = el.anchor ? this.scene.anchors[el.anchor] : undefined;
+        if (anchorBox) {
+          const [ax0, ay0, ax1, ay1] = anchorBox, cx = r.x + w / 2, cy = r.y + h / 2 + bobY;
+          const outside = Math.max(ax0 - cx, cx - ax1, ay0 - cy, cy - ay1, 0);
+          if (!this.startedInside.has(el.id)) this.startedInside.set(el.id, outside === 0);
+          if (this.startedInside.get(el.id)) node.alpha *= 1 - Math.min(1, outside / (Math.max(w, h) * 0.6));
+        }
         break;
       }
       case 'label': {
@@ -267,6 +296,16 @@ export class SceneRenderer {
       case 'ellipse': g.ellipse(r.x + w / 2, r.y + h / 2, w / 2, h / 2); break;
       case 'star': g.star(r.x + w / 2, r.y + w / 2, 5, w / 2, w / 4); break;
       case 'polygon': if (pts.length >= 3) g.poly(pts.flat()); break;
+      case 'square': {
+        // the square built on the segment P→Q, on the side away from `away` (default: to the left of the direction of travel)
+        if (pts.length >= 2) {
+          const p = pts[0]!, q = pts[1]!;
+          let nx = q[1] - p[1], ny = -(q[0] - p[0]);
+          if (r.away) { const mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2; if ((r.away[0] - mx) * nx + (r.away[1] - my) * ny > 0) { nx = -nx; ny = -ny; } }
+          g.poly([p[0], p[1], q[0], q[1], q[0] + nx, q[1] + ny, p[0] + nx, p[1] + ny]);
+        }
+        break;
+      }
       case 'line': case 'arrow': {
         if (pts.length >= 2) {
           g.moveTo(pts[0]![0], pts[0]![1]); for (const p of pts.slice(1)) g.lineTo(p[0], p[1]);
@@ -360,27 +399,28 @@ export class SceneRenderer {
     const preset = el.preset;
     const color = el.color ? Number(`0x${el.color.replace('#', '')}`) || 0xffffff : undefined;
     st.acc += (r.rate ?? 40) * dt;
-    while (st.acc >= 1 && st.list.length < 400) {
+    while (st.acc >= 1 && st.list.length < (preset === 'electrons' ? 40 : 400)) {
       st.acc -= 1;
       const g = new Graphics();
-      const size = 3 + Math.random() * 6;
+      const size = (3 + Math.random() * 6) * 2.2;
       const p: Particle = { x: x0 + Math.random() * (x1 - x0), y: y0 + Math.random() * (y1 - y0), vx: 0, vy: 0, life: 0, max: 1.5 + Math.random() * 1.5, size, spin: (Math.random() - 0.5) * 4, g };
       switch (preset) {
-        case 'rain': p.y = y0 - 10; p.vy = 500 + Math.random() * 200; p.vx = -40; p.max = (y1 - y0) / p.vy + 0.2; g.rect(-1, -10, 2, 18).fill({ color: color ?? 0x7fb3ff, alpha: 0.7 }); break;
+        case 'rain': p.y = y0 - 10; p.vy = 500 + Math.random() * 200; p.vx = -40; p.max = (y1 - y0) / p.vy + 0.2; g.rect(-2, -14, 4, 28).fill({ color: color ?? 0x5aa9ff, alpha: 0.85 }); break;
         case 'snow': p.y = y0 - 10; p.vy = 40 + Math.random() * 40; p.vx = 0; p.max = (y1 - y0) / p.vy; g.circle(0, 0, size * 0.6).fill({ color: color ?? 0xffffff, alpha: 0.9 }); break;
-        case 'bubbles': p.y = y1; p.vy = -(40 + Math.random() * 60); p.max = (y1 - y0) / -p.vy; g.circle(0, 0, size).stroke({ color: color ?? 0xffffff, width: 2, alpha: 0.8 }); break;
+        case 'bubbles': p.y = y1; p.vy = -(40 + Math.random() * 60); p.max = (y1 - y0) / -p.vy; g.circle(0, 0, size).fill({ color: color ?? 0xbfe6ff, alpha: 0.35 }).stroke({ color: color ?? 0xffffff, width: 3, alpha: 0.95 }); break;
         case 'smoke': p.vy = -(30 + Math.random() * 30); p.vx = (Math.random() - 0.5) * 20; p.max = 3; g.circle(0, 0, size * 2).fill({ color: color ?? 0x999999, alpha: 0.25 }); break;
         case 'fire': p.vy = -(80 + Math.random() * 80); p.vx = (Math.random() - 0.5) * 30; p.max = 0.8; g.circle(0, 0, size).fill({ color: color ?? (Math.random() < 0.5 ? 0xff7b00 : 0xffd166), alpha: 0.9 }); break;
         case 'confetti': p.y = y0; p.vy = 120 + Math.random() * 120; p.vx = (Math.random() - 0.5) * 120; p.max = 3; g.rect(-size / 2, -size / 4, size, size / 2).fill({ color: color ?? [0xe63946, 0xffd166, 0x2a9d8f, 0x457b9d][Math.floor(Math.random() * 4)]! }); break;
         case 'leaves': p.y = y0; p.vy = 50 + Math.random() * 40; p.vx = (Math.random() - 0.5) * 60; p.max = (y1 - y0) / p.vy; g.ellipse(0, 0, size, size * 0.5).fill({ color: color ?? 0x6a994e, alpha: 0.9 }); break;
         case 'stars': p.vx = 0; p.vy = 0; p.max = 1 + Math.random() * 2; g.star(0, 0, 5, size, size / 2).fill({ color: color ?? 0xfff3b0 }); break;
-        case 'dust': p.vx = (Math.random() - 0.5) * 20; p.vy = (Math.random() - 0.5) * 20; p.max = 3; g.circle(0, 0, 1.5).fill({ color: color ?? 0xffffff, alpha: 0.6 }); break;
-        case 'electrons': { p.pathT = Math.random(); p.max = 1e9; g.circle(0, 0, 5).fill({ color: color ?? 0x4cc9f0 }).stroke({ color: 0xffffff, width: 1 }); break; }
+        case 'dust': p.vx = (Math.random() - 0.5) * 20; p.vy = (Math.random() - 0.5) * 20; p.max = 3; g.circle(0, 0, 3.5).fill({ color: color ?? 0xffffff, alpha: 0.75 }); break;
+        case 'electrons': { p.pathT = Math.random(); p.max = 1e9; g.circle(0, 0, 11).fill({ color: color ?? 0x00c2ff }).stroke({ color: 0xffffff, width: 3 }); break; }
         case 'sparkle': default: p.vx = (Math.random() - 0.5) * 30; p.vy = -20 - Math.random() * 30; p.max = 1 + Math.random(); g.star(0, 0, 4, size, size / 3).fill({ color: color ?? 0xfff3b0, alpha: 0.95 }); break;
       }
       node.addChild(g); st.list.push(p);
     }
-    const path = el.path;
+    // electrons with no path of their own run round the border of their region (a circuit's loop, roughly)
+    const path = el.path ?? (preset === 'electrons' ? [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]] as [number, number][] : undefined);
     for (let i = st.list.length - 1; i >= 0; i--) {
       const p = st.list[i]!;
       p.life += dt;
@@ -398,7 +438,7 @@ export class SceneRenderer {
       p.g.position.set(p.x, p.y); p.g.rotation += p.spin * dt;
       p.g.alpha = preset === 'rain' ? 0.7 : preset === 'electrons' ? 1 : t < 0.2 ? t / 0.2 : 1 - Math.max(0, (t - 0.6) / 0.4);
       if (preset === 'stars') p.g.scale.set(0.6 + 0.4 * Math.sin(p.life * 6));
-      if (p.life >= p.max || p.y > y1 + 20 || p.y < y0 - 40) { node.removeChild(p.g); p.g.destroy(); st.list.splice(i, 1); }
+      if (p.life >= p.max || p.y > y1 + 20 || p.y < y0 - 40 || p.x < x0 - 30 || p.x > x1 + 30) { node.removeChild(p.g); p.g.destroy(); st.list.splice(i, 1); }
     }
   }
 
@@ -432,12 +472,12 @@ async function loadKeyedTexture(url: string, key: boolean): Promise<Texture> {
   await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('image load failed')); img.src = url; });
   const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
   c.getContext('2d', { willReadFrequently: true })!.drawImage(img, 0, 0);
-  return keyCanvas(c, 1);
+  return keyCanvas(c, 1).texture;
 }
 
 /** Key out the background of a canvas: flood from the edges over pixels close to the border's median colour. `strength` 0 = off. */
-function keyCanvas(c: HTMLCanvasElement, strength: number): Texture {
-  if (!strength || c.width < 4 || c.height < 4) return Texture.from(c);
+function keyCanvas(c: HTMLCanvasElement, strength: number): { texture: Texture; color: number } {
+  if (!strength || c.width < 4 || c.height < 4) return { texture: Texture.from(c), color: 0xffffff };
   const ctx = c.getContext('2d', { willReadFrequently: true })!;
   const d = ctx.getImageData(0, 0, c.width, c.height); const p = d.data;
   // the background is whatever colour the border is (white, off-white, a flat tint); key it by distance from the
@@ -449,9 +489,18 @@ function keyCanvas(c: HTMLCanvasElement, strength: number): Texture {
   const med = (k: number) => samples.map((s) => s[k]!).sort((a, b) => a - b)[Math.floor(samples.length / 2)]!;
   const bg = [med(0), med(1), med(2)];
   const TOL = 34;
-  const isBg = (i: number) => Math.abs(p[i * 4]! - bg[0]!) < TOL && Math.abs(p[i * 4 + 1]! - bg[1]!) < TOL && Math.abs(p[i * 4 + 2]! - bg[2]!) < TOL;
-  for (let x = 0; x < w; x++) { stack.push(x, (h - 1) * w + x); } for (let y = 0; y < h; y++) { stack.push(y * w, y * w + w - 1); }
-  while (stack.length) { const i = stack.pop()!; if (seen[i] || !isBg(i)) continue; seen[i] = 1; const x = i % w, y = (i / w) | 0; if (x > 0) stack.push(i - 1); if (x < w - 1) stack.push(i + 1); if (y > 0) stack.push(i - w); if (y < h - 1) stack.push(i + w); }
+  const near = (i: number, c: number[]) => Math.abs(p[i * 4]! - c[0]!) < TOL && Math.abs(p[i * 4 + 1]! - c[1]!) < TOL && Math.abs(p[i * 4 + 2]! - c[2]!) < TOL;
+  // flood from every border pixel with that pixel's own colour as the reference, so a cut-out that spans sky and
+  // sea loses both; the subject survives because its colours differ from whatever surrounds it
+  const seeds: number[] = [];
+  for (let x = 0; x < w; x++) { seeds.push(x, (h - 1) * w + x); } for (let y = 0; y < h; y++) { seeds.push(y * w, y * w + w - 1); }
+  for (const s0 of seeds) {
+    if (seen[s0]) continue;
+    const ref = [p[s0 * 4]!, p[s0 * 4 + 1]!, p[s0 * 4 + 2]!];
+    if (!near(s0, bg) && Math.max(Math.abs(ref[0]! - bg[0]!), Math.abs(ref[1]! - bg[1]!), Math.abs(ref[2]! - bg[2]!)) < 12) continue; // same as the median: handled by the main flood below
+    stack.push(s0);
+    while (stack.length) { const i = stack.pop()!; if (seen[i] || !near(i, ref)) continue; seen[i] = 1; const x = i % w, y = (i / w) | 0; if (x > 0) stack.push(i - 1); if (x < w - 1) stack.push(i + 1); if (y > 0) stack.push(i - w); if (y < h - 1) stack.push(i + w); }
+  }
   for (let i = 0; i < w * h; i++) {
     if (seen[i]) { p[i * 4 + 3] = 0; continue; }
     // soften the edge: pixels next to background get partial alpha based on brightness
@@ -460,6 +509,33 @@ function keyCanvas(c: HTMLCanvasElement, strength: number): Texture {
     if (nb) { const dist = Math.max(Math.abs(p[i * 4]! - bg[0]!), Math.abs(p[i * 4 + 1]! - bg[1]!), Math.abs(p[i * 4 + 2]! - bg[2]!)); p[i * 4 + 3] = Math.round(255 * Math.min(1, Math.max(0.35, dist / 80))); }
   }
   ctx.putImageData(d, 0, 0);
+  // trim the transparent margins so the drawing fills the box the scene gives it
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let i = 0; i < w * h; i++) if (p[i * 4 + 3]! > 8) { const x = i % w, y = (i / w) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  const color = (bg[0]! << 16) | (bg[1]! << 8) | bg[2]!;
+  if (x1 < 0) return { texture: Texture.from(c), color };
+  const pad = 2, tx = Math.max(0, x0 - pad), ty = Math.max(0, y0 - pad), tw = Math.min(w, x1 + pad + 1) - tx, th = Math.min(h, y1 + pad + 1) - ty;
+  if (tw < w * 0.92 || th < h * 0.92) {
+    const t = document.createElement('canvas'); t.width = tw; t.height = th;
+    t.getContext('2d')!.drawImage(c, tx, ty, tw, th, 0, 0, tw, th);
+    return { texture: Texture.from(t), color };
+  }
+  return { texture: Texture.from(c), color };
+}
+
+/** A paper-coloured patch with soft edges, sized like the cut-out it hides. */
+function coverTexture(w: number, h: number, color: number): Texture {
+  const c = document.createElement('canvas'); c.width = Math.max(2, Math.round(w)); c.height = Math.max(2, Math.round(h));
+  const ctx = c.getContext('2d')!;
+  const hex = `#${color.toString(16).padStart(6, '0')}`;
+  ctx.fillStyle = hex; ctx.fillRect(0, 0, c.width, c.height);
+  // feather the edge: erase a soft frame so the patch blends into the surrounding print
+  const f = Math.max(2, Math.round(Math.min(c.width, c.height) * 0.08));
+  ctx.globalCompositeOperation = 'destination-in';
+  const g = ctx.createLinearGradient(0, 0, 0, c.height); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(f / c.height, 'rgba(0,0,0,1)'); g.addColorStop(1 - f / c.height, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, c.width, c.height);
+  const g2 = ctx.createLinearGradient(0, 0, c.width, 0); g2.addColorStop(0, 'rgba(0,0,0,0)'); g2.addColorStop(f / c.width, 'rgba(0,0,0,1)'); g2.addColorStop(1 - f / c.width, 'rgba(0,0,0,1)'); g2.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g2; ctx.fillRect(0, 0, c.width, c.height);
   return Texture.from(c);
 }
 

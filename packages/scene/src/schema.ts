@@ -44,6 +44,19 @@ export const AssetSchema = z.discriminatedUnion('type', [
   z.object({ id: Id, type: z.literal('builtin'), name: z.string().max(64) }),
 ]);
 
+const KINDS = ['simulation', 'explainer', 'story', 'picture', 'timeline', 'summary'] as const;
+/** The model sometimes names the kind after the subject ("science", "physics", "fable"); map it to a scene kind instead of failing. */
+export const KindValue = z.preprocess((v) => {
+  const s = String(v ?? '').toLowerCase().trim();
+  if ((KINDS as readonly string[]).includes(s)) return s;
+  if (/sim|physic|chem|biolog|science|experiment|process|motion|lab|interactive/.test(s)) return 'simulation';
+  if (/story|narrat|tale|fable|fiction|drama/.test(s)) return 'story';
+  if (/picture|illustr|animation/.test(s)) return 'picture';
+  if (/timeline|history|chrono/.test(s)) return 'timeline';
+  if (/summary|overview|non-?fiction|info|reading/.test(s)) return 'summary';
+  return 'explainer';
+}, z.enum(KINDS));
+
 export const Ease = z.enum(['linear', 'in', 'out', 'inout', 'bounce', 'elastic', 'back']);
 export const AnimProp = z.enum(['x', 'y', 'w', 'h', 'rot', 'opacity', 'scale']);
 
@@ -99,8 +112,9 @@ export const LabelEl = z.object({
 });
 export const ShapeEl = z.object({
   ...ElementBase, type: z.literal('shape'),
-  shape: z.enum(['rect', 'circle', 'ellipse', 'line', 'arrow', 'polygon', 'star']),
+  shape: z.enum(['rect', 'circle', 'ellipse', 'line', 'arrow', 'polygon', 'star', 'square']),
   points: z.array(z.tuple([NumOrExpr, NumOrExpr])).max(64).optional(),
+  away: z.tuple([NumOrExpr, NumOrExpr]).optional(), // square: built on points[0]→points[1], on the side away from this point
   fill: Color.optional(),
   stroke: Color.optional(),
   strokeW: z.coerce.number().min(0).max(60).default(3),
@@ -191,7 +205,7 @@ export const StyleSchema = z.object({
 
 export const SceneSchema = z.object({
   v: z.literal(1),
-  kind: z.enum(['simulation', 'explainer', 'story', 'picture', 'timeline', 'summary']),
+  kind: KindValue,
   page: z.object({ w: z.number().positive(), h: z.number().positive() }),
   lang: z.string().max(16).default('en'),
   title: z.string().max(160).optional(),

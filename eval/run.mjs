@@ -48,12 +48,15 @@ function score(file, truth, events) {
   const pageAnswerChecks = (verification?.checks ?? []).filter((c) => c.method === 'page-answer');
   const unsupported = truth?.mustNotClaim ? truth.mustNotClaim.filter((s) => sceneText.includes(norm(s))) : [];
   const dialogueHits = truth?.dialogue ? truth.dialogue.filter((d) => sceneText.includes(norm(d))).length : null;
+  const lastScene = scenes[scenes.length - 1];
+  const layout = lastScene?.layout; const motion = lastScene?.motion; // deterministic placement and liveliness, measured by the server
   return {
     file, id: done?.experienceId, http: null, kind: quick?.kind, kindOk, language: quick?.language, langOk, confidence: quick?.confidence,
     elements: scene?.elements.length ?? 0, steps: scene?.steps.length ?? 0, renderOk: !!scene && scene.elements.length > 0,
     valueHits, valueTotal: truth?.values?.length ?? 0, workedHits, workedTotal: truth?.worked?.length ?? 0,
     pageAnswerPass: pageAnswerChecks.filter((c) => c.pass).length, pageAnswerTotal: pageAnswerChecks.length,
     verification: verification?.status ?? 'none', unsupported, dialogueHits, dialogueTotal: truth?.dialogue?.length ?? 0,
+    inkMean: layout?.mean, inkWorst: layout?.worst, moved: layout?.moved, dropped: layout?.dropped, moving: motion?.moving, movingTotal: motion?.total,
     L1: firstQuick, L2: firstScene, L3: firstAudio, L4: ready?.t ?? done?.t, L5: done?.t, read: stageDone('read'), build: stageDone('build'), understand: stageDone('understand'), verify: stageDone('verify'),
     cost: done?.costUsd, errors: events.filter((e) => e.type === 'error').map((e) => e.message.slice(0, 80)),
   };
@@ -68,7 +71,7 @@ for (const file of pages) {
       const { events, wall, http } = await runPage(file);
       const s = score(file, truth, events); s.http = http; s.wall = wall;
       results.push(s);
-      console.log(`${s.kind}/${s.language} L2 ${s.L2 ?? '-'} ms, done ${s.L4 ?? '-'} ms, verification ${s.verification}, $${(s.cost ?? 0).toFixed(3)}`);
+      console.log(`${s.kind}/${s.language} L2 ${s.L2 ?? '-'} ms, done ${s.L4 ?? '-'} ms, verification ${s.verification}, moving ${s.moving ?? '-'}/${s.movingTotal ?? '-'}, ink ${s.inkMean == null ? '-' : `${Math.round(s.inkMean * 100)}%/${Math.round(s.inkWorst * 100)}% (${s.moved} moved)`}, $${(s.cost ?? 0).toFixed(3)}`);
     } catch (e) { console.log('FAILED', e.message); results.push({ file, http: 0, errors: [String(e.message)] }); }
   }
 }
@@ -88,12 +91,14 @@ md += `| Page-answer checks passed (Q-2) | ${sum('pageAnswerPass')}/${sum('pageA
 md += `| Scenes rendered (Q-3) | ${ok.filter((r) => r.renderOk).length}/${ok.length} | ≥ 95 % |\n`;
 md += `| Unsupported claims found (Q-4) | ${ok.reduce((a, r) => a + (r.unsupported?.length ?? 0), 0)} | 0 |\n`;
 md += `| Story dialogue preserved | ${sum('dialogueHits')}/${sum('dialogueTotal')} | — |\n`;
+md += `| Overlays clear of printed ink (worst label < 10 % ink) | ${ok.filter((r) => typeof r.inkWorst === 'number' && r.inkWorst < 0.1).length}/${ok.filter((r) => typeof r.inkWorst === 'number').length} | all |\n`;
+md += `| Scenes with ≥ 3 moving elements | ${ok.filter((r) => (r.moving ?? 0) >= 3).length}/${ok.length} | all |\n`;
 md += `| Cost per page | $${(sum('cost') / Math.max(1, ok.length)).toFixed(3)} | reasonable |\n\n`;
 md += `## Latency (p50 / p90, from capture confirm)\n\n| Moment | p50 / p90 | Target | Hard limit |\n|---|---|---|---|\n`;
 md += `| L-1 first understanding | ${lat('L1')} | 1.5 s | 3 s |\n| L-2 first animated scene (awakening is client-side at L-1 + ~0.3 s; this row is the generated scene) | ${lat('L2')} | 5 s | 10 s |\n| L-3 narration starts | ${lat('L3')} | 6 s | 12 s |\n| L-4 complete with verification (scene v1) | ${lat('L4')} | 15 s | 30 s |\n| Richer scene v2 voiced and verified (upgrade at the next loop) | ${lat('L5')} | — | — |\n\n`;
 md += `| Stage done | p50 / p90 |\n|---|---|\n| read | ${lat('read')} |\n| build | ${lat('build')} |\n| understand | ${lat('understand')} |\n| verify | ${lat('verify')} |\n\n`;
-md += `## Per page\n\n| Page | Kind | Lang | Conf | Elements | Steps | Values | Worked | Page-answer | Verification | Unsupported | L-2 | L-4 | Cost | Errors |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n`;
-for (const r of results) md += `| ${r.file} | ${r.kind ?? '-'}${r.kindOk === false ? ' ✗' : ''} | ${r.language ?? '-'}${r.langOk === false ? ' ✗' : ''} | ${r.confidence ?? '-'} | ${r.elements ?? '-'} | ${r.steps ?? '-'} | ${r.valueHits ?? '-'}/${r.valueTotal ?? '-'} | ${r.workedHits ?? '-'}/${r.workedTotal ?? '-'} | ${r.pageAnswerPass ?? '-'}/${r.pageAnswerTotal ?? '-'} | ${r.verification ?? '-'} | ${(r.unsupported ?? []).join('; ') || '0'} | ${ms(r.L2)} | ${ms(r.L4)} | $${(r.cost ?? 0).toFixed(3)} | ${(r.errors ?? []).join('; ')} |\n`;
+md += `## Per page\n\n| Page | Kind | Lang | Conf | Elements | Steps | Moving | Ink under labels mean/worst (moved) | Values | Worked | Page-answer | Verification | Unsupported | L-2 | L-4 | Cost | Errors |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n`;
+for (const r of results) md += `| ${r.file} | ${r.kind ?? '-'}${r.kindOk === false ? ' ✗' : ''} | ${r.language ?? '-'}${r.langOk === false ? ' ✗' : ''} | ${r.confidence ?? '-'} | ${r.elements ?? '-'} | ${r.steps ?? '-'} | ${r.moving ?? '-'}/${r.movingTotal ?? '-'} | ${r.inkMean == null ? '-' : `${Math.round(r.inkMean * 100)} % / ${Math.round(r.inkWorst * 100)} % (${r.moved ?? 0}${r.dropped ? `, ${r.dropped} dropped` : ''})`} | ${r.valueHits ?? '-'}/${r.valueTotal ?? '-'} | ${r.workedHits ?? '-'}/${r.workedTotal ?? '-'} | ${r.pageAnswerPass ?? '-'}/${r.pageAnswerTotal ?? '-'} | ${r.verification ?? '-'} | ${(r.unsupported ?? []).join('; ') || '0'} | ${ms(r.L2)} | ${ms(r.L4)} | $${(r.cost ?? 0).toFixed(3)} | ${(r.errors ?? []).join('; ')} |\n`;
 await fs.writeFile(path.join(root, 'REPORT.md'), md);
 await fs.writeFile(path.join(outDir, 'results.json'), JSON.stringify(results, null, 1));
 console.log(`\nreport: eval/REPORT.md`);

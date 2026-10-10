@@ -1,6 +1,7 @@
 // Events streamed from the server pipeline to the client (and rendered by the agent theatre).
 import type { Scene, BoxT } from './schema.js';
 import type { Issue } from './normalize.js';
+import type { InkMap } from './layout.js';
 
 export type PageKind = 'science' | 'maths' | 'other-subject' | 'story' | 'picture-book' | 'non-fiction' | 'mixed' | 'unsupported';
 
@@ -12,7 +13,7 @@ export type QuickRead = {
   gist: string;            // one sentence
   figures: { id: string; label: string; box: BoxT; kind: 'diagram' | 'illustration' | 'photo' | 'table' | 'equation' | 'map' | 'other' }[];
   textBlocks?: BoxT[];
-  characters: { name: string; look: string }[];
+  characters: { name: string; look: string; box?: BoxT }[];   // box: where the character is drawn on the page, if it is
   spread: boolean;         // two-page spread detected
   confidence: number;      // 0..1
   opener: string;          // first narration sentence, in the page language
@@ -56,7 +57,7 @@ export type PipelineEvent =
   | { type: 'stage'; stage: StageName; status: 'start' | 'done' | 'error'; t: number; detail?: string; model?: string; ms?: number }
   | { type: 'quick-partial'; data: Partial<QuickRead>; t: number }
   | { type: 'quick'; data: QuickRead; t: number }
-  | { type: 'scene'; data: Scene; issues: Issue[]; version: number; t: number }
+  | { type: 'scene'; data: Scene; issues: Issue[]; version: number; t: number; layout?: { mean: number; worst: number; moved: number; dropped: number }; motion?: { moving: number; total: number } }
   | { type: 'extraction'; data: Extraction; t: number }
   | { type: 'audio'; id: string; url: string; kind: AudioClipKind; text: string; stepId?: string; lineId?: string; speaker?: string; durationMs: number; version?: number; t: number }
   | { type: 'asset'; id: string; url: string; t: number }
@@ -71,7 +72,7 @@ export type ExperienceRecord = {
   createdAt: string;
   ownerId: string;
   bookId?: string;
-  page: { w: number; h: number; imageUrl: string };
+  page: { w: number; h: number; imageUrl: string; ink?: InkMap };
   quick: QuickRead;
   extraction?: Extraction;
   scene: Scene;

@@ -131,7 +131,7 @@ export function ExperienceView({ onBack }: Props) {
     const narration = clipFor((a) => a.kind === 'narration' && a.stepId === s.id);
     if (narration) items.push({ clip: narration, onStart: () => setCaption(narration.text) });
     else if (s.narration) setCaption(s.narration);
-    (s.say ?? []).forEach((l, i) => { const c = clipFor((a) => a.id === `say-${s.id}-${i}`); if (c) items.push({ clip: c, onStart: () => { setCaption(`${l.speaker}: ${l.text}`); rendererRef.current?.sayBubble(l.el, l.text, c.durationMs); } }); });
+    (s.say ?? []).forEach((l, i) => { const c = clipFor((a) => a.id === `say-${s.id}-${i}` && a.text === l.text) ?? clipFor((a) => a.kind === 'line' && a.text === l.text); if (c) items.push({ clip: c, onStart: () => { setCaption(`${l.speaker}: ${l.text}`); rendererRef.current?.sayBubble(l.el, l.text, c.durationMs); } }); });
     if (!items.length) { scheduleAdvance(sc, index, (s.dur ?? 3) * 1000); return; }
     q.onIdle = () => scheduleAdvance(sc, index, (s.dur ?? 1) * 1000);
     q.enqueue(...items);
