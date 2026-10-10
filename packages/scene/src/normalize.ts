@@ -1,0 +1,213 @@
+// Validation and repair: turn whatever the model produced into a Scene that is guaranteed to render,
+// dropping only the offending parts and reporting every change as an issue.
+import { z } from 'zod';
+import { compile, isNumeric, ExprError } from './expr.js';
+import {
+  SceneSchema, ElementSchema, VarSchema, DerivedSchema, AssetSchema, StepSchema, InteractionSchema,
+  BUILTIN_SCOPE_NAMES, type Scene, type Element, type BoxT,
+} from './schema.js';
+
+export type Issue = { level: 'warn' | 'error'; where: string; message: string };
+export type NormalizeResult = { scene: Scene | null; issues: Issue[] };
+
+const EXPR_PROPS = ['x', 'y', 'w', 'h', 'rot', 'opacity', 'scale', 'visible', 'speed', 'marker'] as const;
+
+function salvageArray<T>(raw: unknown, schema: z.ZodType<T>, where: string, issues: Issue[]): T[] {
+  if (!Array.isArray(raw)) { if (raw !== undefined) issues.push({ level: 'warn', where, message: 'not an array; ignored' }); return []; }
+  const out: T[] = [];
+  raw.forEach((item, i) => {
+    const r = schema.safeParse(item);
+    if (r.success) out.push(r.data);
+    else issues.push({ level: 'warn', where: `${where}[${i}]`, message: r.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).slice(0, 3).join('; ') });
+  });
+  return out;
+}
+
+/** Validate and repair a scene. Returns scene=null only if nothing usable remains. */
+export function normalizeScene(input: unknown): NormalizeResult {
+  const issues: Issue[] = [];
+  let raw: any = input;
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { return { scene: null, issues: [{ level: 'error', where: 'scene', message: 'not valid JSON' }] }; } }
+  if (!raw || typeof raw !== 'object') return { scene: null, issues: [{ level: 'error', where: 'scene', message: 'not an object' }] };
+
+  // 1. structural: salvage each array element-wise, then parse the whole
+  const candidate = {
+    ...raw,
+    v: 1,
+    vars: salvageArray(raw.vars, VarSchema, 'vars', issues),
+    derived: salvageArray(raw.derived, DerivedSchema, 'derived', issues),
+    assets: salvageArray(raw.assets, AssetSchema, 'assets', issues),
+    elements: salvageArray(raw.elements, ElementSchema, 'elements', issues),
+    steps: salvageArray(raw.steps, StepSchema, 'steps', issues),
+    interactions: salvageArray(raw.interactions, InteractionSchema, 'interactions', issues),
+  };
+  if (!candidate.page || typeof candidate.page.w !== 'number' || typeof candidate.page.h !== 'number') {
+    candidate.page = { w: 1000, h: 1414 };
+    issues.push({ level: 'warn', where: 'page', message: 'missing page size; assumed 1000x1414' });
+  }
+  if (candidate.audio && typeof candidate.audio === 'object') {
+    const a = candidate.audio;
+    if (a.lines && !Array.isArray(a.lines)) delete a.lines;
+    if (a.sfx && !Array.isArray(a.sfx)) delete a.sfx;
+  }
+  let parsed = SceneSchema.safeParse(candidate);
+  if (!parsed.success) {
+    // last resort: strip optional sections one by one
+    for (const key of ['audio', 'style', 'anchors', 'interactions', 'steps'] as const) {
+      delete (candidate as any)[key];
+      parsed = SceneSchema.safeParse(candidate);
+      issues.push({ level: 'warn', where: key, message: 'dropped (invalid)' });
+      if (parsed.success) break;
+    }
+    if (!parsed.success) {
+      return { scene: null, issues: [...issues, { level: 'error', where: 'scene', message: parsed.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).slice(0, 5).join('; ') }] };
+    }
+  }
+  const scene = parsed.data;
+
+  // 2. semantic repairs
+  const dedupe = <T extends { id: string }>(arr: T[], where: string) => {
+    const seen = new Set<string>(); // ids are unique within a collection (an asset and an element may share a name)
+    return arr.filter((item) => {
+      if (seen.has(item.id)) { issues.push({ level: 'warn', where: `${where}.${item.id}`, message: 'duplicate id dropped' }); return false; }
+      seen.add(item.id); return true;
+    });
+  };
+  scene.vars = dedupe(scene.vars, 'vars');
+  scene.derived = dedupe(scene.derived, 'derived');
+  scene.assets = dedupe(scene.assets, 'assets');
+  scene.elements = dedupe(scene.elements, 'elements');
+  scene.steps = dedupe(scene.steps, 'steps');
+
+  for (const v of scene.vars) {
+    if (v.min > v.max) { [v.min, v.max] = [v.max, v.min]; issues.push({ level: 'warn', where: `vars.${v.id}`, message: 'min/max swapped' }); }
+    if (v.min === v.max) { v.max = v.min + 1; issues.push({ level: 'warn', where: `vars.${v.id}`, message: 'empty range widened' }); }
+    if (v.init < v.min || v.init > v.max) { v.init = Math.min(Math.max(v.init, v.min), v.max); issues.push({ level: 'warn', where: `vars.${v.id}`, message: 'init clamped into range' }); }
+  }
+  if (!scene.vars.some((v) => v.role === 'time') && scene.kind === 'simulation') {
+    scene.vars.push({ id: 't', label: 'time', min: 0, max: 10, init: 0, role: 'time', unit: 's' });
+    issues.push({ level: 'warn', where: 'vars', message: 'simulation had no time variable; added t (0..10 s)' });
+  }
+
+  // known names for expressions
+  const known = new Set<string>([...BUILTIN_SCOPE_NAMES, ...scene.vars.map((v) => v.id)]);
+  // derived: compile, check refs, order by dependencies, drop cycles/unknowns
+  const derivedOk: typeof scene.derived = [];
+  const pending = [...scene.derived];
+  const derivedIds = new Set(scene.derived.map((d) => d.id));
+  let progress = true;
+  while (pending.length && progress) {
+    progress = false;
+    for (let i = 0; i < pending.length; i++) {
+      const d = pending[i]!;
+      let refs: string[];
+      try { refs = compile(d.expr).refs; } catch (e) { issues.push({ level: 'warn', where: `derived.${d.id}`, message: `dropped: ${(e as ExprError).message}` }); pending.splice(i, 1); i--; progress = true; continue; }
+      const unknown = refs.filter((r) => !known.has(r) && !derivedIds.has(r));
+      if (unknown.length) { issues.push({ level: 'warn', where: `derived.${d.id}`, message: `dropped: unknown name(s) ${unknown.join(', ')}` }); pending.splice(i, 1); i--; derivedIds.delete(d.id); progress = true; continue; }
+      if (refs.every((r) => known.has(r))) { derivedOk.push(d); known.add(d.id); pending.splice(i, 1); i--; progress = true; }
+    }
+  }
+  for (const d of pending) issues.push({ level: 'warn', where: `derived.${d.id}`, message: 'dropped: circular dependency' });
+  scene.derived = derivedOk;
+
+  const checkExpr = (value: unknown, where: string): number | string => {
+    if (isNumeric(value)) return value;
+    if (typeof value !== 'string') return 0;
+    if (/^\s*-?\d+(\.\d+)?\s*$/.test(value)) return Number(value);
+    try {
+      const c = compile(value);
+      const unknown = c.refs.filter((r) => !known.has(r));
+      if (unknown.length) { issues.push({ level: 'warn', where, message: `unknown name(s) ${unknown.join(', ')} in "${value}"; using 0` }); return 0; }
+      return value;
+    } catch (e) { issues.push({ level: 'warn', where, message: `invalid expression "${value}": ${(e as Error).message}; using 0` }); return 0; }
+  };
+
+  const assetIds = new Set(scene.assets.map((a) => a.id));
+  const anchorIds = new Set(Object.keys(scene.anchors));
+  scene.elements = scene.elements.filter((el) => {
+    const where = `elements.${el.id}`;
+    for (const p of EXPR_PROPS) if (p in el) (el as any)[p] = checkExpr((el as any)[p], `${where}.${p}`);
+    if ('points' in el && Array.isArray(el.points)) {
+      (el as any).points = el.points.map((pt: [unknown, unknown], i: number) => [checkExpr(pt[0], `${where}.points[${i}].x`), checkExpr(pt[1], `${where}.points[${i}].y`)]);
+    }
+    if (el.type === 'plot') {
+      try { const c = compile(el.fn); const unknown = c.refs.filter((r) => r !== 'x' && !known.has(r)); if (unknown.length) throw new ExprError(`unknown name(s) ${unknown.join(', ')}`); }
+      catch (e) { issues.push({ level: 'warn', where, message: `plot dropped: ${(e as Error).message}` }); return false; }
+      if (el.xdomain[0] >= el.xdomain[1]) { issues.push({ level: 'warn', where, message: 'plot dropped: empty x domain' }); return false; }
+    }
+    if (el.type === 'sprite' && !assetIds.has(el.asset)) { issues.push({ level: 'warn', where, message: `sprite dropped: unknown asset ${el.asset}` }); return false; }
+    if (el.anchor && !anchorIds.has(el.anchor)) { issues.push({ level: 'warn', where, message: `unknown anchor ${el.anchor}; using page origin` }); el.anchor = undefined; }
+    if (el.type === 'shape' && ['line', 'arrow', 'polygon'].includes(el.shape) && (!el.points || el.points.length < 2)) { issues.push({ level: 'warn', where, message: `${el.shape} needs points; dropped` }); return false; }
+    return true;
+  });
+
+  const elementIds = new Set(scene.elements.map((e) => e.id));
+  const lineIds = new Set(scene.audio.lines.map((l) => l.id));
+  const stepIds = new Set(scene.steps.map((s) => s.id));
+  const cleanAction = (a: any, where: string) => {
+    if (!a) return;
+    if (a.say && !lineIds.has(a.say)) { issues.push({ level: 'warn', where, message: `unknown line ${a.say} removed` }); delete a.say; }
+    if (a.step && !stepIds.has(a.step)) { issues.push({ level: 'warn', where, message: `unknown step ${a.step} removed` }); delete a.step; }
+    if (a.toggle) a.toggle = a.toggle.filter((id: string) => elementIds.has(id));
+    if (a.anim) a.anim = a.anim.filter((x: any) => elementIds.has(x.el));
+    if (a.set) for (const k of Object.keys(a.set)) if (!scene.vars.some((v) => v.id === k)) { delete a.set[k]; issues.push({ level: 'warn', where, message: `set of unknown var ${k} removed` }); }
+  };
+  for (const el of scene.elements) cleanAction(el.tap, `elements.${el.id}.tap`);
+  for (const s of scene.steps) {
+    if (s.show) s.show = s.show.filter((id) => elementIds.has(id));
+    if (s.hide) s.hide = s.hide.filter((id) => elementIds.has(id));
+    if (s.highlight) s.highlight = s.highlight.filter((id) => elementIds.has(id) || anchorIds.has(id));
+    if (s.set) for (const k of Object.keys(s.set)) if (!scene.vars.some((v) => v.id === k)) { delete s.set[k]; issues.push({ level: 'warn', where: `steps.${s.id}`, message: `set of unknown var ${k} removed` }); }
+    if (s.say) s.say = s.say.filter((l) => !l.el || elementIds.has(l.el));
+  }
+  scene.interactions = scene.interactions.filter((it) => {
+    if (it.type === 'slider' && !scene.vars.some((v) => v.id === it.var && v.role !== 'time')) { issues.push({ level: 'warn', where: 'interactions', message: `slider for unknown var ${it.var} dropped` }); return false; }
+    if (it.type === 'tap' && !elementIds.has(it.el)) { issues.push({ level: 'warn', where: 'interactions', message: `tap on unknown element ${it.el} dropped` }); return false; }
+    if (it.type === 'tap' || it.type === 'button') cleanAction(it.action, 'interactions');
+    return true;
+  });
+  // every adjustable param gets a slider unless the model said otherwise
+  if (scene.kind === 'simulation' && !scene.interactions.some((i) => i.type === 'slider')) {
+    for (const v of scene.vars.filter((v) => v.role === 'param').slice(0, 4)) scene.interactions.push({ type: 'slider', var: v.id, label: v.label });
+  }
+  scene.audio.lines = scene.audio.lines.filter((l) => !l.el || elementIds.has(l.el));
+  for (const sp of Object.keys(scene.audio.speakers)) if (sp.length > 64) delete scene.audio.speakers[sp];
+
+  if (scene.elements.length === 0) return { scene: null, issues: [...issues, { level: 'error', where: 'elements', message: 'no renderable elements remain' }] };
+  return { scene, issues };
+}
+
+/** A guaranteed-renderable scene built only from the quick pass: page cut-outs that lift and bob, a title, sparkle. */
+export function fallbackScene(opts: { page: { w: number; h: number }; title?: string; figures?: BoxT[]; lang?: string; kind?: Scene['kind'] }): Scene {
+  const { page } = opts;
+  const figures = (opts.figures ?? []).slice(0, 6);
+  const assets: Scene['assets'] = figures.map((box, i) => ({ id: `fig${i}`, type: 'crop', box, feather: 0.06 }));
+  const elements: Element[] = [];
+  figures.forEach((box, i) => {
+    const [x0, y0, x1, y1] = box;
+    elements.push({
+      id: `glow${i}`, type: 'shape', shape: 'rect', x: x0 - 8, y: y0 - 8, w: x1 - x0 + 16, h: y1 - y0 + 16, rot: 0, opacity: 0.0, scale: 1, z: 0, visible: 1,
+      layer: 'under', fill: 'rgba(120,200,255,0.25)', stroke: '#7fd3ff', strokeW: 3, radius: 14, glow: true,
+      anim: [{ prop: 'opacity', from: 0, to: 1, dur: 1.2, delay: 0.3 + i * 0.15, loop: false, ease: 'out', relative: false }],
+    } as Element);
+    elements.push({
+      id: `cut${i}`, type: 'sprite', asset: `fig${i}`, x: x0, y: y0, w: x1 - x0, h: y1 - y0, rot: 0, opacity: 1, scale: 1, z: 2, visible: 1, layer: 'over', flip: false,
+      anim: [
+        { prop: 'y', from: 0, to: -14, dur: 1.8, delay: 0.6 + i * 0.2, loop: 'pingpong', ease: 'inout', relative: true },
+        { prop: 'scale', from: 1, to: 1.04, dur: 1.8, delay: 0.6 + i * 0.2, loop: 'pingpong', ease: 'inout', relative: false },
+      ],
+    } as Element);
+  });
+  elements.push({
+    id: 'spark', type: 'particles', preset: 'sparkle', x: 0, y: 0, rot: 0, opacity: 1, scale: 1, z: 3, visible: 1, layer: 'over', rate: 25, speed: 1,
+    region: [0, 0, page.w, page.h], anim: [],
+  } as Element);
+  if (opts.title) {
+    elements.push({
+      id: 'title', type: 'label', text: opts.title, x: page.w / 2, y: 70, rot: 0, opacity: 0, scale: 1, z: 4, visible: 1, layer: 'over',
+      size: 40, color: '#ffffff', bg: 'rgba(20,24,48,0.78)', align: 'center', maxW: page.w * 0.9, weight: 'bold',
+      anim: [{ prop: 'opacity', from: 0, to: 1, dur: 0.8, delay: 0.2, loop: false, ease: 'out', relative: false }, { prop: 'y', from: 90, to: 70, dur: 0.8, delay: 0.2, loop: false, ease: 'out', relative: false }],
+    } as Element);
+  }
+  return SceneSchema.parse({ v: 1, kind: opts.kind ?? 'summary', page, lang: opts.lang ?? 'en', title: opts.title, assets, elements });
+}
