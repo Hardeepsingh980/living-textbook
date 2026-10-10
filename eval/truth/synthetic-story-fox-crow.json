@@ -1,0 +1,6 @@
+{
+  "kind": "story", "language": "en",
+  "characters": ["Fox", "Crow"],
+  "dialogue": ["Good morning, beautiful bird!", "Will you sing for me?", "Thank you", "That was all I wanted"],
+  "mustNotClaim": ["wolf", "grapes", "the crow flew away with the cheese", "the fox climbed the tree"]
+}

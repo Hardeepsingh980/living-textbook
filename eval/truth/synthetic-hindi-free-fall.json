@@ -1,0 +1,6 @@
+{
+  "kind": "science", "language": "hi",
+  "values": [{"name": "g", "value": 9.8}, {"name": "h", "value": 20}, {"name": "t", "value": 2.02}, {"name": "v", "value": 19.8}],
+  "worked": [{"answer": 2.02, "unit": "s"}, {"answer": 19.8, "unit": "m/s"}],
+  "mustNotClaim": ["Newton", "Moon"]
+}

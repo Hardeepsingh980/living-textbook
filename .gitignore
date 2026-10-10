@@ -12,3 +12,5 @@ coverage/
 eval/output/
 eval/pages/private/
 *.local
+eval/output/
+eval/pages/private/
