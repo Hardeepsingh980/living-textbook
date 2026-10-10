@@ -1,0 +1,36 @@
+{
+  "name": "@living-book/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.mjs",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/index.mjs --packages=external --alias:@living-book/scene=../../packages/scene/src/index.ts && esbuild src/tracking-worker.mjs --bundle --platform=node --format=esm --target=node24 --outfile=dist/tracking-worker.mjs --packages=external",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "9.3.1",
+    "@google-cloud/storage": "8.4.0",
+    "@google/genai": "2.28.0",
+    "@hono/node-server": "^2.1.4",
+    "@living-book/scene": "workspace:*",
+    "@msgpack/msgpack": "2.8.0",
+    "@tensorflow/tfjs": "4.22.0",
+    "google-auth-library": "^11.2.0",
+    "hono": "4.13.13",
+    "mind-ar": "1.2.5",
+    "sharp": "0.35.5",
+    "ws": "^8.19.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/ws": "^8.18.0",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.3"
+  }
+}
