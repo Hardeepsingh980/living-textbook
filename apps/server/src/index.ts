@@ -50,6 +50,17 @@ app.get('/api/experiences/:id', async (c) => {
   return c.json(c.req.query('events') ? rec : rest, 200, { 'Cache-Control': 'private, max-age=60' });
 });
 
+/** AR metrics from the phone (fps, losses, re-acquisitions); appended to the experience for evaluation. */
+app.post('/api/experiences/:id/metrics', async (c) => {
+  const rec = await store.getRecord(c.req.param('id'));
+  if (!rec) return c.json({ error: 'not found' }, 404);
+  let m: any; try { m = await c.req.json(); } catch { return c.json({ error: 'bad json' }, 400); }
+  const list = [...((rec as any).arMetrics ?? []), m].slice(-50);
+  await store.putRecord({ ...rec, arMetrics: list } as any);
+  console.log(`[ar] ${rec.id.slice(0, 8)} ${m.state} ${m.fps} fps ${m.trackedPts} pts losses ${m.losses} reacq ${m.reacquisitions} tracked ${m.framesTracked} lost ${m.framesLost}${m.final ? ' (final)' : ''}`);
+  return c.json({ ok: true, n: list.length });
+});
+
 app.get('/api/library', async (c) => {
   const ownerId = c.req.header('x-owner-id') || 'anonymous';
   const recs = await store.listRecords(ownerId);

@@ -1,6 +1,6 @@
 # Living Book — Technical Plan
 
-Status: **v1.0 for approval (2026-10-10, 14:15)** — all three research reports (Google models, mobile web AR, hackathon rules) are folded in; model latencies were measured from `cheerio-app`. No application code has been written; awaiting Hardeep's go-ahead.
+Status: **v1.1 (2026-10-10, evening)** — approved 2026-10-10 14:20 and being executed. Changes after Hardeep's first phone test: the product is **AR-only** (the photo presentation is an internal fallback, no mode switcher), the UI follows one design language with a line-icon set and **no emoji**, playback is continuous (speech queue, looping steps, self-running simulations), the richer scene is swapped in at the next loop, and quality is measured by the evaluation loop in `eval/` (pipeline checks → headless screenshots → Gemini visual judge). Progress and measurements live in [PROGRESS.md](PROGRESS.md).
 
 Companion document: [PRD.md](PRD.md).
 
@@ -58,7 +58,7 @@ Later       Tap the mic: "what if gravity were on the Moon?" → spoken answer i
             the page and in the current slider values.
 ```
 
-Three presentations share one renderer and one spec: **AR** (warped onto the physical page), **Photo** (warped onto the frozen capture when tracking is unavailable), **Flat** (full-screen; projectors, desktop, shared links).
+One presentation: **AR** (the page layer warped onto the physical page). When the page is out of view the same layer sits on the frozen capture until the page is found again; shared links and uploads without a camera use that photo presentation as well. There is no mode switcher.
 
 ---
 

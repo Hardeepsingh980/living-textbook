@@ -203,6 +203,20 @@ export function ExperienceView({ onBack }: Props) {
     };
     return () => { session.tracker.onCorners = null; };
   }, [session, arAvailable, scene, arLive]);
+  // AR metrics for evaluation: every 10 s and when leaving, the tracker's counters are stored with the experience
+  useEffect(() => {
+    if (!session || !arAvailable || !experienceId) return;
+    const send = (final = false) => {
+      const t = session.tracker;
+      const body = JSON.stringify({ at: Date.now(), final, fps: t.fps, state: t.state, trackedPts: t.trackedPts, kf: t.kf, ...t.metrics, ua: navigator.userAgent.slice(0, 120), video: `${session.vw}x${session.vh}` });
+      try { if (final && navigator.sendBeacon) navigator.sendBeacon(`/api/experiences/${experienceId}/metrics`, new Blob([body], { type: 'application/json' })); else void fetch(`/api/experiences/${experienceId}/metrics`, { method: 'POST', body, headers: { 'content-type': 'application/json' }, keepalive: true }); } catch { /* best effort */ }
+    };
+    const id = window.setInterval(() => send(false), 10000);
+    const onHide = () => { if (document.visibilityState === 'hidden') send(true); };
+    document.addEventListener('visibilitychange', onHide);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onHide); send(true); };
+  }, [session, arAvailable, experienceId]);
+
   useEffect(() => {
     if (!session || !trackingInfo?.url || !arAvailable) return;
     fetch(trackingInfo.url).then((r) => r.arrayBuffer()).then((b) => session.tracker.loadDetectionData(b)).catch(() => {});
@@ -227,7 +241,7 @@ export function ExperienceView({ onBack }: Props) {
   const touchKnob = (id: string) => { setKnob(id); if (knobTimer.current) clearTimeout(knobTimer.current); knobTimer.current = window.setTimeout(() => setKnob(null), 5000); };
 
   return (
-    <div className={`experience ${onPhoto ? 'on-photo' : 'on-camera'}`}>
+    <div className={`experience ${onPhoto ? 'on-photo' : 'on-camera'} ${!scene || sceneVersion < 1 ? 'found' : ''}`}>
       <div ref={stageRef} className="stage" onClick={() => mixer.unlock()}>
         {pageImageUrl && <img className="page-photo" src={pageImageUrl} alt="" style={{ transform: fitTransform, width: scene?.page.w, height: scene?.page.h, opacity: onPhoto ? 1 : 0 }} />}
         <div ref={layerRef} className="page-layer" style={{ width: scene?.page.w, height: scene?.page.h, ...(onPhoto ? { transform: fitTransform } : {}) }}>
