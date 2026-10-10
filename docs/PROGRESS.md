@@ -2,6 +2,13 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-10 (night): evaluation rounds 2–3 and the root cause of thin scenes
+
+**Round 2 (gridded figure crop):** numeric checks all green (values 27/27, worked 7/7, page-answer 4/4, rendered 10/10, 0 unsupported) but the visual judge averaged 2.7/5; the grid fixed structural alignment (timeline markers now sit on the printed dots) while labels still covered text, one label carried invented numbers, and the boat showed a white placeholder.
+**Round 3 (free regions, no re-printed labels, animate on the printed structure, numeric-faithfulness check, geometry constructions):** clarity 2.8→3.1, correctness 3.6→3.8, placement 2.3→2.4, overall 2.7. Story dialogue preserved 5/5.
+
+**Root causes found while reading the per-element validation issues:** (1) strict schema fields silently dropped most elements — JSON booleans for `visible`, loop values like "true"/"infinite", particle `rate` written as an expression, string booleans for `flip`; (2) a single malformed `anchors` entry made the whole-scene parse fail and the salvage path deleted the anchors section, unanchoring every element; (3) crop boxes were written in figure-relative units while the schema expected page units (the "white placeholder boat" was a crop of the sky); (4) generated PNGs have near-white, not pure white, backgrounds. All four are fixed: tolerant coercions, entry-wise salvage, crop assets accept an `anchor`, and the renderer keys by the border's median colour. Round 4 measures the effect.
+
 ## 2026-10-10 (evening): feedback round and the evaluation loop
 
 **Hardeep's phone test** found: unstable tracking, visuals not matching the page, narration reading its style directive aloud and getting cut off, a cluttered UI, and an experience that stopped after one pass. Decisions: AR-only (no Photo/Flat toggles), no emoji, a consistent design language, continuous playback, ten example experiences evaluated as a whole.
