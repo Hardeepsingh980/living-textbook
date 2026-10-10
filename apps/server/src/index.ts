@@ -28,14 +28,16 @@ app.post('/api/experiences', async (c) => {
   const bookId = c.req.header('x-book-id') || undefined;
   const id = randomUUID();
   return streamSSE(c, async (stream) => {
-    const write = (e: PipelineEvent) => stream.writeSSE({ event: e.type, data: JSON.stringify(e) });
-    const keepAlive = setInterval(() => { stream.writeSSE({ event: 'ping', data: String(Date.now()) }).catch(() => {}); }, 15000);
+    // writes are chained so the stream only closes after the last event has been flushed
+    let chain: Promise<void> = Promise.resolve();
+    const write = (e: PipelineEvent) => { chain = chain.then(() => stream.writeSSE({ event: e.type, data: JSON.stringify(e) })).catch(() => {}); return chain; };
+    const keepAlive = setInterval(() => { chain = chain.then(() => stream.writeSSE({ event: 'ping', data: String(Date.now()) })).catch(() => {}); }, 15000);
     try {
       await runPipeline({ id, image, mime, ownerId, bookId }, (e) => { void write(e); });
     } catch (e: any) {
       console.error('[pipeline] fatal', e);
-      await write({ type: 'error', message: String(e?.message || e), recoverable: false, t: 0 });
-    } finally { clearInterval(keepAlive); }
+      void write({ type: 'error', message: String(e?.message || e), recoverable: false, t: 0 });
+    } finally { clearInterval(keepAlive); await chain; }
   });
 });
 

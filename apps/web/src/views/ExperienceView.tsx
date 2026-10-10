@@ -88,6 +88,8 @@ export function ExperienceView({ onBack }: Props) {
   }, [audio]);
 
   useEffect(() => { mixer.setMuted(muted); }, [muted]);
+  // once everything is in, get the theatre out of the way (it stays one tap away)
+  useEffect(() => { if (status !== 'ready') return; const id = window.setTimeout(() => setTheatre(false), 2500); return () => clearTimeout(id); }, [status, setTheatre]);
   useEffect(() => () => { rendererRef.current?.destroy(); mixer.destroy(); }, []);
 
   async function speak(clip: AudioClip) {
@@ -120,8 +122,12 @@ export function ExperienceView({ onBack }: Props) {
     const st = stageRef.current; if (!st || !scene) return;
     const cw = st.clientWidth, ch = st.clientHeight;
     const { w, h } = scene.page;
-    const scale = mode === 'photo' ? Math.max(cw / w, ch / h) : Math.min(cw / w, ch / h);
-    setFit({ scale, x: (cw - w * scale) / 2, y: (ch - h * scale) / 2 });
+    if (mode === 'photo') { const scale = Math.max(cw / w, ch / h); setFit({ scale, x: (cw - w * scale) / 2, y: (ch - h * scale) / 2 }); return; }
+    // flat: keep the page clear of the top bar and the bottom controls
+    const top = 64, bottom = Math.min(260, ch * 0.34);
+    const avail = Math.max(120, ch - top - bottom);
+    const scale = Math.min(cw / w, avail / h);
+    setFit({ scale, x: (cw - w * scale) / 2, y: top + (avail - h * scale) / 2 });
   }, [scene, mode]);
   useEffect(() => { computeFit(); window.addEventListener('resize', computeFit); return () => window.removeEventListener('resize', computeFit); }, [computeFit]);
 

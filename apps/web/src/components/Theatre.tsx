@@ -44,7 +44,7 @@ export function Theatre({ compact = false }: { compact?: boolean }) {
           return (
             <li key={s.stage} className={`theatre-row ${s.status}`}>
               <span className="dot" />
-              <span className="stage">{LABELS[s.stage]?.title ?? s.stage}</span>
+              <span className="stage-name">{LABELS[s.stage]?.title ?? s.stage}</span>
               <span className="detail">{running ? (LABELS[s.stage]?.verb ?? s.detail) : s.detail}{s.model && !compact ? <em> · {s.model}</em> : null}</span>
               <span className="time">{fmt(Math.max(0, dur))}</span>
             </li>

@@ -66,7 +66,7 @@ button:disabled { opacity: 0.4; }
 .theatre-row .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .theatre-row.start .dot { background: var(--accent); animation: pulse 1s infinite; }
 .theatre-row.done .dot { background: var(--ok); } .theatre-row.error .dot { background: var(--bad); }
-.theatre-row .stage { font-weight: 800; } .theatre-row .detail { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .theatre-row .detail em { font-style: normal; opacity: 0.7; }
+.theatre-row .stage-name { font-weight: 800; } .theatre-row .detail { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .theatre-row .detail em { font-style: normal; opacity: 0.7; }
 .theatre-row .time { font-variant-numeric: tabular-nums; color: var(--muted); }
 @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.5); opacity: 0.6; } }
 
