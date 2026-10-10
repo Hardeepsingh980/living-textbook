@@ -247,6 +247,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         for (const m of Array.isArray(r.json.mapping) ? r.json.mapping : []) {
           const w = ex.worked[m.worked];
           if (!w || !m.derived || typeof m.answer !== 'number') continue;
+          if (!sc.derived.some((d) => d.id === m.derived)) { out.push({ name: `worked example ${m.worked + 1}`, method: 'page-answer', expected: `${m.answer} ${m.unit ?? w.unit ?? ''}`.trim(), got: 'not computed', pass: false, detail: `the scene does not compute "${m.derived}"; nothing to compare` }); continue; }
           const vals = rt.evaluateWith(m.assign ?? {});
           const got = vals[m.derived];
           if (got === undefined) { out.push({ name: `worked example ${m.worked + 1}`, method: 'page-answer', expected: m.answer, got: 'n/a', pass: false, detail: `scene has no value "${m.derived}"` }); continue; }

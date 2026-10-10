@@ -85,7 +85,8 @@ Hard rules:
 3. One clear focal point per step; smooth motion (use anim pingpong/loop for idle motion, expressions bound to t for physics).
 4. Narration: 1-2 short sentences per step in ${quick.language}, friendly, concrete, child-safe. Total narration ≤ 90 words.
 5. Expressions must only use declared vars, derived ids, t, W, H. Derived ids must not reference themselves.
-6. Use "crop" assets for printed figures and "gen" assets only for story/picture characters and backgrounds (never copy a copyrighted illustration; describe an original character inspired by the page).`;
+6. Use "crop" assets for printed figures and "gen" assets only for story/picture characters and backgrounds (never copy a copyrighted illustration; describe an original character inspired by the page).
+7. For every worked example or numeric answer printed on the page, include a derived value that computes that answer from the page's inputs (e.g. "tland": "sqrt(2*h0/g)"), and a label that shows it with {tland:0.01}. This is how the result gets verified against the page.`;
 }
 
 export const EXTRACT_SYSTEM = `You are the careful reader in Living Book. Transcribe and structure one photographed book page. JSON only.
@@ -108,7 +109,7 @@ export function verifySystem(): string {
   return `You are the verifier in Living Book. You receive (1) the structured extraction of a book page and (2) a LivingScene JSON that was generated from it. Check the scene against the page. JSON only:
 {
  "checks":[{"name":"...","method":"page-answer"|"independent"|"faithfulness","expected":..,"got":..,"pass":true,"detail":"..."}],
- "mapping":[{"worked":0,"assign":{"h0":20,"g":9.8},"derived":"tland","answer":2.02,"unit":"s"}],   // how each worked example maps onto scene variables and the derived id that should equal its answer (empty if none)
+ "mapping":[{"worked":0,"assign":{"h0":20,"g":9.8},"derived":"tland","answer":2.02,"unit":"s"}],   // how each worked example maps onto scene variables; "derived" MUST be an id from the scene's "derived" list whose value equals the printed answer when the inputs are assigned. If the scene computes no such value, omit that example from "mapping" and add an "independent" check instead (never map to a variable).
  "unsupported":["<exact label/narration text not supported by the page>"],
  "fixes":{"derived":[{"id":"h","expr":"..."}],"labels":[{"id":"lbl","text":"..."}]},   // corrections that make the scene faithful; empty if none needed
  "summary":"one sentence for the user"
