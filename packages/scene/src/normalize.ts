@@ -126,6 +126,7 @@ export function normalizeScene(input: unknown): NormalizeResult {
   const anchorIds = new Set(Object.keys(scene.anchors));
   scene.elements = scene.elements.filter((el) => {
     const where = `elements.${el.id}`;
+    if (el.visible === 0 || el.visible === 'false' || el.visible === '0') { el.visible = 1; el.hidden = true; }
     for (const p of EXPR_PROPS) if (p in el) (el as any)[p] = checkExpr((el as any)[p], `${where}.${p}`);
     if ('points' in el && Array.isArray(el.points)) {
       (el as any).points = el.points.map((pt: [unknown, unknown], i: number) => [checkExpr(pt[0], `${where}.points[${i}].x`), checkExpr(pt[1], `${where}.points[${i}].y`)]);
@@ -186,7 +187,7 @@ export function fallbackScene(opts: { page: { w: number; h: number }; title?: st
   figures.forEach((box, i) => {
     const [x0, y0, x1, y1] = box;
     elements.push({
-      id: `glow${i}`, type: 'shape', shape: 'rect', x: x0 - 8, y: y0 - 8, w: x1 - x0 + 16, h: y1 - y0 + 16, rot: 0, opacity: 0.0, scale: 1, z: 0, visible: 1,
+      id: `glow${i}`, type: 'shape', shape: 'rect', x: x0 - 8, y: y0 - 8, w: x1 - x0 + 16, h: y1 - y0 + 16, rot: 0, opacity: 0.0, scale: 1, z: 0, visible: 1, hidden: false,
       layer: 'under', fill: 'rgba(120,200,255,0.25)', stroke: '#7fd3ff', strokeW: 3, radius: 14, glow: true,
       anim: [{ prop: 'opacity', from: 0, to: 1, dur: 1.2, delay: 0.3 + i * 0.15, loop: false, ease: 'out', relative: false }],
     } as Element);
@@ -199,12 +200,12 @@ export function fallbackScene(opts: { page: { w: number; h: number }; title?: st
     } as Element);
   });
   elements.push({
-    id: 'spark', type: 'particles', preset: 'sparkle', x: 0, y: 0, rot: 0, opacity: 1, scale: 1, z: 3, visible: 1, layer: 'over', rate: 25, speed: 1,
+    id: 'spark', type: 'particles', preset: 'sparkle', x: 0, y: 0, rot: 0, opacity: 1, scale: 1, z: 3, visible: 1, hidden: false, layer: 'over', rate: 25, speed: 1,
     region: [0, 0, page.w, page.h], anim: [],
   } as Element);
   if (opts.title) {
     elements.push({
-      id: 'title', type: 'label', text: opts.title, x: page.w / 2, y: 70, rot: 0, opacity: 0, scale: 1, z: 4, visible: 1, layer: 'over',
+      id: 'title', type: 'label', text: opts.title, x: page.w / 2, y: 70, rot: 0, opacity: 0, scale: 1, z: 4, visible: 1, hidden: false, layer: 'over',
       size: 40, color: '#ffffff', bg: 'rgba(20,24,48,0.78)', align: 'center', maxW: page.w * 0.9, weight: 'bold',
       anim: [{ prop: 'opacity', from: 0, to: 1, dur: 0.8, delay: 0.2, loop: false, ease: 'out', relative: false }, { prop: 'y', from: 90, to: 70, dur: 0.8, delay: 0.2, loop: false, ease: 'out', relative: false }],
     } as Element);

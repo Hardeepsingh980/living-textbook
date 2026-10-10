@@ -58,6 +58,31 @@ export class SceneRenderer {
     this.app.stage.on('pointertap', (ev) => this.handleTap(ev.global.x, ev.global.y));
   }
 
+  private lineBubble: { node: Container; until: number } | null = null;
+  /** Show a transient speech bubble next to an element while its line is spoken. */
+  sayBubble(elementId: string | undefined, text: string, durationMs: number) {
+    if (this.lineBubble) { this.lineBubble.node.destroy({ children: true }); this.lineBubble = null; }
+    if (!text) return;
+    const el = elementId ? this.scene.elements.find((e) => e.id === elementId) : undefined;
+    const node = new Container();
+    const t = new Text({ text, style: new TextStyle({ fontFamily: FONT[this.scene.style.font] ?? FONT.sans, fontSize: 26, fill: '#1a1a1a', wordWrap: true, wordWrapWidth: Math.min(this.scene.page.w * 0.55, 460), align: 'center', lineHeight: 32 }) });
+    t.resolution = 2; t.anchor.set(0.5);
+    const pad = 18, w = t.width + pad * 2, h = t.height + pad * 1.4;
+    const g = new Graphics().roundRect(-w / 2, -h / 2, w, h, 18).fill({ color: 0xffffff }).stroke({ color: 0x333333, width: 3 });
+    node.addChild(g, t);
+    let x = this.scene.page.w / 2, y = 120;
+    const target = el ? this.nodes.get(el.id) : undefined;
+    if (target) {
+      const b = target.getBounds();
+      x = Math.min(Math.max(b.x + b.width / 2, w / 2 + 10), this.scene.page.w - w / 2 - 10);
+      y = b.y - h / 2 - 16; if (y < h / 2 + 10) y = b.y + b.height + h / 2 + 16;
+      g.poly([-14, h / 2 - 2, 14, h / 2 - 2, 0, h / 2 + 22]).fill({ color: 0xffffff }).stroke({ color: 0x333333, width: 2 });
+    }
+    node.position.set(x, y); node.zIndex = 10000;
+    this.layers.fx.addChild(node);
+    this.lineBubble = { node, until: performance.now() + Math.max(2500, durationMs + 400) };
+  }
+
   /** Map a tap in page coordinates to the topmost tappable element. */
   handleTap(x: number, y: number) {
     let hit: string | null = null;
@@ -76,7 +101,7 @@ export class SceneRenderer {
           this.textures.set(a.id, tex);
         } else if (a.type === 'gen') {
           const url = this.opts.assetUrls[a.id];
-          if (url) this.textures.set(a.id, await Assets.load(url));
+          if (url) this.textures.set(a.id, await loadKeyedTexture(url, a.transparent));
         } else if (a.type === 'builtin') {
           this.textures.set(a.id, builtinTexture(this.app, a.name));
         }
@@ -87,7 +112,8 @@ export class SceneRenderer {
   /** Swap in a generated asset that arrived after init. */
   async addAsset(id: string, url: string) {
     try {
-      const tex = await Assets.load(url);
+      const a = this.scene.assets.find((x) => x.id === id);
+      const tex = await loadKeyedTexture(url, a?.type === 'gen' ? a.transparent : false);
       this.textures.set(id, tex);
       for (const el of this.scene.elements) if (el.type === 'sprite' && el.asset === id) { const n = this.nodes.get(el.id); if (n) { n.destroy({ children: true }); this.nodes.delete(el.id); } }
     } catch (e) { console.warn('asset load failed', id, e); }
@@ -117,6 +143,7 @@ export class SceneRenderer {
     for (const [id, node] of this.nodes) if (!seen.has(id)) node.visible = false; else node.visible = true;
     this.layers.under.sortableChildren = this.layers.over.sortableChildren = true;
     this.updateHighlights(now);
+    if (this.lineBubble && performance.now() > this.lineBubble.until) { this.lineBubble.node.destroy({ children: true }); this.lineBubble = null; }
     this.frames++; if (now - this.fpsT >= 1) { this.fps = Math.round(this.frames / (now - this.fpsT)); this.frames = 0; this.fpsT = now; }
   }
 
@@ -369,6 +396,32 @@ export class SceneRenderer {
     this.destroyed = true;
     try { this.app?.destroy(false, { children: true }); } catch { /* already gone */ }
   }
+}
+
+/** Generated images arrive on a plain white background (no alpha from the image models); key the white out with a
+ *  soft threshold so sprites sit on the page without a box. */
+async function loadKeyedTexture(url: string, key: boolean): Promise<Texture> {
+  if (!key) return Assets.load(url);
+  const img = new Image(); img.crossOrigin = 'anonymous';
+  await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('image load failed')); img.src = url; });
+  const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const ctx = c.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(img, 0, 0);
+  const d = ctx.getImageData(0, 0, c.width, c.height); const p = d.data;
+  // flood from the borders so white inside the subject (eyes, teeth) stays opaque
+  const w = c.width, h = c.height, seen = new Uint8Array(w * h), stack: number[] = [];
+  const isBg = (i: number) => p[i * 4]! > 232 && p[i * 4 + 1]! > 232 && p[i * 4 + 2]! > 232;
+  for (let x = 0; x < w; x++) { stack.push(x, (h - 1) * w + x); } for (let y = 0; y < h; y++) { stack.push(y * w, y * w + w - 1); }
+  while (stack.length) { const i = stack.pop()!; if (seen[i] || !isBg(i)) continue; seen[i] = 1; const x = i % w, y = (i / w) | 0; if (x > 0) stack.push(i - 1); if (x < w - 1) stack.push(i + 1); if (y > 0) stack.push(i - w); if (y < h - 1) stack.push(i + w); }
+  for (let i = 0; i < w * h; i++) {
+    if (seen[i]) { p[i * 4 + 3] = 0; continue; }
+    // soften the edge: pixels next to background get partial alpha based on brightness
+    const x = i % w, y = (i / w) | 0;
+    const nb = (x > 0 && seen[i - 1]) || (x < w - 1 && seen[i + 1]) || (y > 0 && seen[i - w]) || (y < h - 1 && seen[i + w]);
+    if (nb) { const lum = (p[i * 4]! + p[i * 4 + 1]! + p[i * 4 + 2]!) / 3; p[i * 4 + 3] = Math.round(255 * Math.min(1, Math.max(0.35, (255 - lum) / 60))); }
+  }
+  ctx.putImageData(d, 0, 0);
+  return Texture.from(c);
 }
 
 /** Simple procedural textures for builtin assets so a missing library never breaks a scene. */

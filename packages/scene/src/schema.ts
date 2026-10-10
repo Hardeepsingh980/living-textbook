@@ -74,6 +74,7 @@ const ElementBase = {
   z: z.number().default(0),
   anchor: z.string().max(64).optional(), // anchor id: x/y become offsets from that box's top-left
   visible: NumOrExpr.default(1),
+  hidden: z.boolean().default(false),   // start hidden; a step's "show" reveals it
   anim: z.array(AnimSchema).max(8).default([]),
   tap: ActionSchema.optional(),
   layer: z.enum(['under', 'over']).default('over'), // 'under' sits beneath page cut-outs

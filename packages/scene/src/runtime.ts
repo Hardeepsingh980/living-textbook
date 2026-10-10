@@ -71,7 +71,7 @@ export class SceneRuntime {
     for (const v of scene.vars) { this.vars[v.id] = v.init; if (v.role === 'time' && !this.timeVar) this.timeVar = v.id; }
     for (const d of scene.derived) { try { this.derivedFns.push({ id: d.id, fn: compile(d.expr) }); } catch { /* normalize() already dropped invalid ones */ } }
     const now = 0;
-    for (const el of scene.elements) this.shownAt.set(el.id, now);
+    for (const el of scene.elements) { this.shownAt.set(el.id, now); if (el.hidden) this.hidden.add(el.id); }
     if (scene.steps.length) this.goToStep(0, true);
   }
 

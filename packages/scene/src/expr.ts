@@ -14,7 +14,7 @@ type Tok =
 
 const OPS = ['<=', '>=', '==', '!=', '&&', '||', '+', '-', '*', '/', '%', '^', '<', '>', '!', '?', ':'];
 
-export const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E, tau: Math.PI * 2 };
+export const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E, tau: Math.PI * 2, true: 1, false: 0 };
 
 export const FUNCTIONS: Record<string, { arity: number | [number, number]; fn: (...a: number[]) => number }> = {
   sin: { arity: 1, fn: Math.sin }, cos: { arity: 1, fn: Math.cos }, tan: { arity: 1, fn: Math.tan },

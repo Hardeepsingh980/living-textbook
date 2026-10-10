@@ -132,6 +132,11 @@ export function ExperienceView({ onBack }: Props) {
   async function speak(clip: AudioClip) {
     const text = clip.speaker ? `${clip.speaker}: ${clip.text}` : clip.text;
     setCaption(text);
+    if (clip.kind === 'line') {
+      const sc = useStore.getState().scene;
+      const el = clip.lineId ? sc?.audio.lines.find((l) => l.id === clip.lineId)?.el : clip.stepId ? sc?.steps.find((s) => s.id === clip.stepId)?.say?.find((l) => l.speaker === clip.speaker)?.el : undefined;
+      rendererRef.current?.sayBubble(el, clip.text, clip.durationMs);
+    }
     try { await mixer.say(clip.id, clip.url); } catch (e) { console.warn('audio failed', e); }
     setCaption((c) => (c === text ? '' : c));
   }
