@@ -104,14 +104,19 @@ export async function generateJson<T = any>(opts: GenJsonOptions): Promise<GenJs
     const u: Usage = { model: modelId, inTokens, outTokens, thoughtTokens, costUsd: costOf(modelId, inTokens, outTokens + thoughtTokens), ms: Date.now() - t0, ttfbMs: ttfb };
     return { json: extractJson(text) as T, text, usage: u };
   };
-  try { return await run(m.id); }
-  catch (e: any) {
-    const msg = String(e?.message || e);
-    if (/not found|unsupported|404|429|RESOURCE_EXHAUSTED|503/i.test(msg) && m.fallback !== m.id) {
-      console.warn(`[gemini] ${opts.label ?? opts.model}: ${m.id} failed (${msg.slice(0, 120)}); retrying with ${m.fallback}`);
-      return run(m.fallback);
+  // Dynamic shared quota can answer 429 under platform load: retry once quickly with jitter, then switch model.
+  for (let attempt = 0; ; attempt++) {
+    try { return await run(m.id); }
+    catch (e: any) {
+      const msg = String(e?.message || e);
+      const transient = /429|RESOURCE_EXHAUSTED|503|UNAVAILABLE/i.test(msg);
+      if (transient && attempt === 0) { await new Promise((r) => setTimeout(r, 150 + Math.random() * 350)); console.warn(`[gemini] ${opts.label ?? opts.model}: ${m.id} 429; retrying once`); continue; }
+      if ((transient || /not found|unsupported|404/i.test(msg)) && m.fallback !== m.id) {
+        console.warn(`[gemini] ${opts.label ?? opts.model}: ${m.id} failed (${msg.slice(0, 120)}); switching to ${m.fallback}`);
+        return run(m.fallback);
+      }
+      throw e;
     }
-    throw e;
   }
 }
 

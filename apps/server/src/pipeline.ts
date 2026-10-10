@@ -59,8 +59,11 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
   const pageUrl = await store.putFile(id, 'page', pageJpeg, 'image/jpeg');
   stage('upload', 'done', { ms: Date.now() - tUp, detail: `${page.w}×${page.h}` });
 
-  // ---- track: compile detection data in parallel with everything else ----
+  // ---- track: compile detection data (needed only for re-acquisition, so it waits for the quick read to avoid CPU contention) ----
+  let releaseTracking!: () => void;
+  const trackingGate = new Promise<void>((r) => { releaseTracking = r; });
   const trackingP = (async () => {
+    await trackingGate;
     stage('track', 'start', { detail: 'learning what the page looks like, for anchoring' });
     const t = Date.now();
     try {
@@ -79,7 +82,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
   let partialSent = 0;
   const quickRes = await withTimeout(generateJson<any>({
     model: 'quick', system: QUICK_SYSTEM, schema: QUICK_SCHEMA, parts: [imagePart(quickJpeg), { text: 'Read this page.' }],
-    maxTokens: 700, thinking: 'minimal', mediaResolution: 'medium', temperature: 0.2, label: 'quick',
+    maxTokens: 700, thinking: 'minimal', mediaResolution: 'low', temperature: 0.2, label: 'quick', // 768 px + low: first token ≈1.4 s, done ≈2 s (measured 2026-10-10)
     onText: (so) => {
       const got: Partial<QuickRead> = {};
       for (const key of ['kind', 'subject', 'language', 'title', 'gist'] as const) {
@@ -99,7 +102,9 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
     spread: !!q.spread, confidence: Number(q.confidence ?? 0.5), opener: q.opener ?? '', bookTitle: q.bookTitle || undefined,
   };
   stage('read', 'done', { ms: Date.now() - tRead, detail: `${quick.kind} · ${quick.subject} · ${quick.language}`, model: quickRes.usage.model });
+  console.log(`[read] ttfb ${quickRes.usage.ttfbMs} ms, total ${quickRes.usage.ms} ms, in ${quickRes.usage.inTokens} out ${quickRes.usage.outTokens}, image ${quickJpeg.length} bytes`);
   send({ type: 'quick', data: quick, t: T() });
+  releaseTracking();
 
   // ---- voice the opener right away ----
   const narratorVoice = config.voices.narrator[quick.language as 'en' | 'hi'] ?? config.voices.narrator.en;

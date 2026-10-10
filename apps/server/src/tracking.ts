@@ -5,7 +5,8 @@ import * as msgpack from '@msgpack/msgpack';
 import { buildImageList, buildTrackingImageList } from 'mind-ar/src/image-target/image-list.js';
 import { extractTrackingFeatures } from 'mind-ar/src/image-target/tracker/extract-utils.js';
 
-const N = Math.max(2, Math.min(os.cpus().length, 8));
+const N = Math.max(2, Math.min(os.cpus().length - 2, 6)); // leave cores for the event loop and streaming
+const MAX_LEVEL_WIDTH = Number(process.env.TRACK_MAX_LEVEL || 640);
 let pool: Worker[] | null = null;
 let ready: Promise<void> | null = null;
 
@@ -26,7 +27,9 @@ export async function compileTracking(grey: Uint8Array, width: number, height: n
   const t0 = Date.now();
   const target = { data: grey, width, height };
   const tracking = extractTrackingFeatures(buildTrackingImageList(target), () => {});
-  const imageList = buildImageList(target);
+  // The two largest pyramid levels cost ~60% of the compile and only help when the camera is very close;
+  // keyframe scales stay relative to the full target, so marker units are unchanged.
+  const imageList = buildImageList(target).filter((img: any) => img.width <= MAX_LEVEL_WIDTH);
   const levels = imageList.map((img: any, i: number) => ({ img, i })).sort((a: any, b: any) => b.img.width - a.img.width);
   const results: any[] = new Array(imageList.length);
   let next = 0;
