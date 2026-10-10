@@ -60,7 +60,7 @@ export const SCENE_LANGUAGE = `LivingScene v1 (JSON). Coordinates are page units
 
 export function sceneSystem(quick: QuickRead, page: { w: number; h: number }): string {
   const kindGuide: Record<string, string> = {
-    science: `Build a SIMULATION of the page's main concept. Variables take the page's own values as "init" (worked example inputs where present), with sensible ranges. Derived values implement the page's formula exactly. Animate the physical object (prefer a "crop" asset of the printed figure) with positions bound to derived values and the time variable; add a plot when a relationship is the point. Labels show live values with {expr:fmt}. 3-5 steps: setup → run (play:true) → observe result → what-if. Sliders for the key parameters.`,
+    science: `Build a SIMULATION of the page's main concept. Variables take the page's own values as "init" (worked example inputs where present), with sensible ranges and a time variable whose max is the duration of the event. Derived values implement the page's formula exactly. The moving object (a shape or a single cut-out) travels across the figure box with its position bound to the derived values and t, leaving a trail ("path") or with a velocity arrow whose length is bound to the speed; add a small plot when a relationship is the point; sparkle or dust particles at the moment of impact/landing ("visible" bound to t). Labels show live values with {expr:fmt}. Steps: setup → run (play:true) → observe the result (the verified number) → what-if (a slider). Sliders for the key parameters.`,
     maths: `Build a SIMULATION or EXPLAINER: variables for the quantities in the page's example, derived values for each line of the worked solution, a plot for functions/graphs, shapes for geometry anchored on the printed figure. Steps walk through the solution one line at a time with the matching label shown.`,
     'other-subject': `Build an EXPLAINER of the process, system, map, timeline or event on the page: a sequence of 4-6 steps that show, highlight and label the parts (anchored on the printed figure where there is one), arrows and paths for flows, a timeline element for dated events, particles for weather/water/energy. Facts only from the page.`,
     story: `Build a STORY scene of this page's moment: a generated background asset (type gen, prompt from the page's setting), one generated sprite per character (type gen, use the character looks given), gentle idle animations (bob, sway), speech bubbles with the page's dialogue, 3-5 steps that play the page's events in order with narration drawn from the page text, each character's lines in "audio.lines" with a tap to replay. Mood ambience.`,
@@ -69,24 +69,26 @@ export function sceneSystem(quick: QuickRead, page: { w: number; h: number }): s
     mixed: `Pick the page's main purpose and follow that kind's guidance; secondary content gets at most one step.`,
     unsupported: `Produce a gentle SUMMARY scene: a title label, sparkle particles and one step of narration saying what could be read.`,
   };
-  return `You are the scene builder in Living Book. From a photo of a book page you compose a short, beautiful, interactive animated experience that appears on top of the physical page. Output JSON only, in the LivingScene language below. Be compact (≤ 1200 tokens): few, well-chosen elements; short ids; no comments.
+  return `You are the scene builder in Living Book. From a photo of a book page you compose a lively, beautiful, interactive animated experience that appears ON TOP of the physical page through the phone camera (augmented reality). Output JSON only, in the LivingScene language below. Compact JSON (≤ 1400 tokens): short ids, no comments, but never a static or empty scene.
 
 ${SCENE_LANGUAGE}
 
 Page: W=${page.w}, H=${page.h}. Language of all text, labels and narration: ${quick.language}.
-Page figures already located (page units, use as anchors and crop boxes): ${JSON.stringify(quick.figures.map((f) => ({ id: f.id, label: f.label, kind: f.kind, box: f.box.map(Math.round) })))}
+Page figures already located (page units). Each is an anchor: with "anchor":"<id>", an element's x,y are RELATIVE to that box's top-left and must stay inside 0..boxW × 0..boxH (sizes given here): ${JSON.stringify(quick.figures.map((f) => ({ id: f.id, label: f.label, kind: f.kind, box: f.box.map(Math.round), boxW: Math.round(f.box[2] - f.box[0]), boxH: Math.round(f.box[3] - f.box[1]) })))}
 Characters: ${JSON.stringify(quick.characters)}
 
 Guidance for kind "${quick.kind}": ${kindGuide[quick.kind] ?? kindGuide.mixed}
 
-Hard rules:
-1. Faithful to the page: every number, formula, name, event and line of dialogue must come from the page. Invent nothing. If the page has no numbers, do not add any.
-2. Anchor to the page: place elements on or next to the printed figure they relate to using "anchor" and crop assets; keep labels inside the page (0..W, 0..H) and readable (size ≥ 24).
-3. One clear focal point per step; smooth motion (use anim pingpong/loop for idle motion, expressions bound to t for physics).
-4. Narration: 1-2 short sentences per step in ${quick.language}, friendly, concrete, child-safe. Total narration ≤ 90 words.
-5. Expressions must only use declared vars, derived ids, t, W, H. Derived ids must not reference themselves.
-6. Use "crop" assets for printed figures and "gen" assets only for story/picture characters and backgrounds (never copy a copyrighted illustration; describe an original character inspired by the page).
-7. For every worked example or numeric answer printed on the page, include a derived value that computes that answer from the page's inputs (e.g. "tland": "sqrt(2*h0/g)"), and a label that shows it with {tland:0.01}. This is how the result gets verified against the page.`;
+Composition rules (the reader is often a child; the experience must feel alive and be correct):
+1. ALIVE: at least 5 elements, and at least 3 of them move: expressions bound to t (physics), "anim" (bob, sway, pulse, travel along a path, draw-on arrows), or particles. Every scene has a continuous idle motion so it never looks frozen.
+2. SELF-RUNNING: for simulations the time variable has a sensible range (the duration of the event, e.g. the fall time) and the first step sets "play": true. The motion must visibly show the concept (a ball that actually falls across the figure, a wave that travels, electrons that flow, a planet that orbits).
+3. PLACEMENT: the printed figure box(es) are the stage: anchor moving objects INSIDE the figure box using "anchor" with coordinates relative to its top-left and sizes that fit it. Put labels in the figure's own empty areas or in the page margins, never on top of body text. Use "crop" assets only for a single printed object (a ball, a boat, a cell) that should move; do not animate a whole diagram as one sprite. Draw simple objects with "shape" when the figure does not contain a clean cut-out.
+4. FAITHFUL: every number, formula, name, event and line of dialogue must come from the page. Invent nothing. If the page has no numbers, do not add any.
+5. READABLE: labels size ≥ 26 with a "bg" colour, ≤ 6 words, live values via {expr:fmt}; at most one label per idea.
+6. NARRATION: 1–2 short sentences per step in ${quick.language}, warm, concrete, child-safe; 3–6 steps that build the idea; total ≤ 110 words. Each step changes something visible ("show", "set", "highlight", "focus").
+7. EXPRESSIONS: only declared vars, derived ids, t, W, H; a derived id never references itself; use ${'`'}true${'`'}/${'`'}false${'`'} only in "visible".
+8. STORIES: one generated background or none, one generated sprite per character (use the character looks given), characters placed in the illustration box, gentle idle motion, speech bubbles only for short lines (≤ 12 words), lines in "audio.lines" with an "el" so a tap replays them.
+9. VERIFIABLE: for every worked example or numeric answer printed on the page include a derived value that computes it from the page's inputs (e.g. "tland": "sqrt(2*h0/g)") and a label that shows it with {tland:0.01}.`;
 }
 
 export const EXTRACT_SYSTEM = `You are the careful reader in Living Book. Transcribe and structure one photographed book page. JSON only.

@@ -156,7 +156,8 @@ export async function synthesize(opts: { text: string; voice?: string; style?: s
     let ttfb: number | undefined;
     const chunks: Buffer[] = [];
     let usage: any = null;
-    const prompt = `${opts.style ? opts.style.trim().replace(/[.:]?$/, ':') + ' ' : ''}${opts.text}`;
+    // Measured 2026-10-10: both 3.8 TTS models read a leading style directive aloud, so the text is sent verbatim.
+    const prompt = opts.text.trim();
     const stream = await ai.models.generateContentStream({
       model: modelId,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],

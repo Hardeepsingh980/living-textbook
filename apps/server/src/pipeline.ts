@@ -109,13 +109,12 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
 
   // ---- voice the opener right away ----
   const narratorVoice = config.voices.narrator[quick.language as 'en' | 'hi'] ?? config.voices.narrator.en;
-  const narratorStyle = 'Say this warmly and clearly, like a friendly teacher';
   const openerP = (async () => {
     if (!quick.opener) return;
     stage('voice', 'start', { detail: 'voicing the opener', model: config.models.tts.id });
     const t = Date.now();
     try {
-      const r = await withTimeout(synthesize({ text: quick.opener, voice: narratorVoice, style: narratorStyle, lang: quick.language }), 15000, 'opener tts');
+      const r = await withTimeout(synthesize({ text: quick.opener, voice: narratorVoice, lang: quick.language }), 15000, 'opener tts');
       usages.push(r.usage);
       const url = await store.putFile(id, 'opener', r.wav, 'audio/wav');
       const clip = { id: 'opener', url, kind: 'opener' as const, text: quick.opener, durationMs: r.durationMs };
@@ -125,17 +124,19 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
     } catch (e: any) { stage('voice', 'error', { detail: String(e?.message || e) }); }
   })();
 
-  // ---- build: scene (with one repair retry and a guaranteed fallback) ----
+  // ---- build: scene v1 fast (with one repair retry and a guaranteed fallback); scene v2 richer, in parallel ----
+  const system = sceneSystem(quick, page);
+  const sceneParts = [imagePart(pageJpeg), { text: `Quick read of the page: ${JSON.stringify({ kind: quick.kind, subject: quick.subject, title: quick.title, gist: quick.gist })}\nCompose the LivingScene JSON now.` }];
+  const anchorsFromQuick = Object.fromEntries(quick.figures.map((f) => [f.id, f.box]));
   const sceneP = (async (): Promise<{ scene: Scene; issues: Issue[]; version: number }> => {
     stage('build', 'start', { detail: 'composing the experience', model: config.models.scene.id });
     const t = Date.now();
-    const system = sceneSystem(quick, page);
-    const parts = [imagePart(pageJpeg), { text: `Quick read of the page: ${JSON.stringify({ kind: quick.kind, subject: quick.subject, title: quick.title, gist: quick.gist })}\nCompose the LivingScene JSON now.` }];
+    const parts = sceneParts;
     let issues: Issue[] = [];
     try {
-      const r1 = await withTimeout(generateJson({ model: 'scene', system, parts, maxTokens: 2200, thinking: 'minimal', mediaResolution: 'medium', temperature: 0.5, label: 'scene' }), 30000, 'scene');
+      const r1 = await withTimeout(generateJson({ model: 'scene', system, parts, maxTokens: 2600, thinking: 'minimal', mediaResolution: 'medium', temperature: 0.5, label: 'scene' }), 30000, 'scene');
       usages.push(r1.usage);
-      const n1 = normalizeScene({ ...r1.json, page, v: 1, anchors: { ...Object.fromEntries(quick.figures.map((f) => [f.id, f.box])), ...(r1.json.anchors ?? {}) } });
+      const n1 = normalizeScene({ ...r1.json, page, v: 1, anchors: { ...anchorsFromQuick, ...(r1.json.anchors ?? {}) } });
       issues = n1.issues;
       if (n1.scene) {
         stage('build', 'done', { ms: Date.now() - t, detail: `${n1.scene.elements.length} elements, ${n1.scene.steps.length} steps${issues.length ? `, ${issues.length} repairs` : ''}`, model: r1.usage.model });
@@ -143,7 +144,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
       }
       const r2 = await withTimeout(generateJson({ model: 'scene', system, parts: [...parts, { text: `Your previous output was invalid: ${issues.slice(0, 6).map((i) => `${i.where}: ${i.message}`).join('; ')}. Output a corrected LivingScene JSON.` }], maxTokens: 2200, thinking: 'low', mediaResolution: 'medium', temperature: 0.3, label: 'scene-repair' }), 30000, 'scene repair');
       usages.push(r2.usage);
-      const n2 = normalizeScene({ ...r2.json, page, v: 1 });
+      const n2 = normalizeScene({ ...r2.json, page, v: 1, anchors: { ...anchorsFromQuick, ...(r2.json.anchors ?? {}) } });
       if (n2.scene) { stage('build', 'done', { ms: Date.now() - t, detail: `repaired: ${n2.scene.elements.length} elements`, model: r2.usage.model }); return { scene: n2.scene, issues: [...issues, ...n2.issues], version: 1 }; }
       issues = [...issues, ...n2.issues];
     } catch (e: any) { issues.push({ level: 'error', where: 'build', message: String(e?.message || e) }); }
@@ -170,48 +171,67 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
     } catch (e: any) { stage('understand', 'error', { detail: String(e?.message || e) }); return undefined; }
   })();
 
+  // scene v2: the richer model, swapped in by the client at the next loop (upgrade in place, never a blank wait)
+  const richP = (async (): Promise<Scene | undefined> => {
+    if (quick.kind === 'unsupported') return undefined;
+    const t = Date.now();
+    try {
+      const r = await withTimeout(generateJson({ model: 'sceneRich', system: system + '\nThis is the detailed version: use the full element budget (6–10 elements, 4–6 steps) while staying compact in syntax.', parts: sceneParts, maxTokens: 3800, thinking: 'minimal', mediaResolution: 'medium', temperature: 0.5, label: 'scene-rich' }), 40000, 'scene rich');
+      usages.push(r.usage);
+      const n = normalizeScene({ ...r.json, page, v: 1, anchors: { ...anchorsFromQuick, ...(r.json.anchors ?? {}) } });
+      if (!n.scene) { console.warn('[build] rich scene invalid:', n.issues.slice(0, 3).map((i) => i.message).join('; ')); return undefined; }
+      stage('build', 'done', { ms: Date.now() - t, detail: `richer version: ${n.scene.elements.length} elements, ${n.scene.steps.length} steps`, model: r.usage.model });
+      send({ type: 'scene', data: n.scene, issues: n.issues, version: 2, t: T() });
+      return n.scene;
+    } catch (e: any) { console.warn('[build] rich scene failed:', String(e?.message || e).slice(0, 160)); return undefined; }
+  })();
+
   const built = await sceneP;
   let scene = built.scene;
   send({ type: 'scene', data: scene, issues: built.issues, version: built.version, t: T() });
 
-  // ---- voice: narration per step + character lines ----
-  const voiceP = (async () => {
+  // ---- voice: narration per step + character lines, for each scene version ----
+  const speakerVoice = new Map<string, string>();
+  let poolIdx = 0;
+  const voiceFor = (sc: Scene, speaker: string) => {
+    if (!speakerVoice.has(speaker)) speakerVoice.set(speaker, sc.audio.speakers[speaker]?.voice ?? config.voices.pool[poolIdx++ % config.voices.pool.length]!);
+    return speakerVoice.get(speaker)!;
+  };
+  const voiceScene = async (sc: Scene, version: number) => {
     const limit = pLimit(3);
     const jobs: Promise<void>[] = [];
-    const speakerVoice = new Map<string, string>();
-    let poolIdx = 0;
-    const voiceFor = (speaker: string) => {
-      if (!speakerVoice.has(speaker)) speakerVoice.set(speaker, scene.audio.speakers[speaker]?.voice ?? config.voices.pool[poolIdx++ % config.voices.pool.length]!);
-      return speakerVoice.get(speaker)!;
-    };
     const t = Date.now();
-    stage('voice', 'start', { detail: `voicing ${scene.steps.filter((s) => s.narration).length} narration steps and ${scene.audio.lines.length} lines`, model: config.models.tts.id });
-    const say = (clipId: string, text: string, kind: 'narration' | 'line', extra: { stepId?: string; lineId?: string; speaker?: string; voice: string; style?: string }) => jobs.push(limit(async () => {
+    const prefix = version === 1 ? '' : `v${version}-`;
+    stage('voice', 'start', { detail: `voicing ${sc.steps.filter((s) => s.narration).length} narration steps and ${sc.audio.lines.length} lines`, model: config.models.tts.id });
+    const say = (clipId: string, text: string, kind: 'narration' | 'line', extra: { stepId?: string; lineId?: string; speaker?: string; voice: string }) => jobs.push(limit(async () => {
       try {
-        const r = await withTimeout(synthesize({ text, voice: extra.voice, style: extra.style, lang: scene.lang }), 20000, `tts ${clipId}`);
+        const r = await withTimeout(synthesize({ text, voice: extra.voice, lang: sc.lang }), 20000, `tts ${clipId}`);
         usages.push(r.usage);
-        const url = await store.putFile(id, clipId, r.wav, 'audio/wav');
-        const clip = { id: clipId, url, kind, text, stepId: extra.stepId, lineId: extra.lineId, speaker: extra.speaker, durationMs: r.durationMs };
+        const url = await store.putFile(id, prefix + clipId, r.wav, 'audio/wav');
+        const clip = { id: prefix + clipId, url, kind, text, stepId: extra.stepId, lineId: extra.lineId, speaker: extra.speaker, durationMs: r.durationMs, version };
         audioClips.push(clip);
         send({ type: 'audio', ...clip, t: T() });
       } catch (e: any) { send({ type: 'error', message: `voice ${clipId}: ${String(e?.message || e)}`, recoverable: true, t: T() }); }
     }));
-    const nStyle = scene.audio.narrator?.style ? `Say this ${scene.audio.narrator.style}` : narratorStyle;
-    for (const s of scene.steps) if (s.narration) say(`step-${s.id}`, s.narration, 'narration', { stepId: s.id, voice: narratorVoice, style: nStyle });
-    for (const l of scene.audio.lines) say(`line-${l.id}`, l.text, 'line', { lineId: l.id, speaker: l.speaker, voice: voiceFor(l.speaker), style: scene.audio.speakers[l.speaker]?.style ? `Say this ${scene.audio.speakers[l.speaker]!.style}` : `Say this in character as ${l.speaker}` });
-    for (const s of scene.steps) for (const [i, l] of (s.say ?? []).entries()) say(`say-${s.id}-${i}`, l.text, 'line', { stepId: s.id, speaker: l.speaker, voice: voiceFor(l.speaker), style: `Say this in character as ${l.speaker}` });
+    for (const s of sc.steps) if (s.narration) say(`step-${s.id}`, s.narration, 'narration', { stepId: s.id, voice: narratorVoice });
+    for (const l of sc.audio.lines) say(`line-${l.id}`, l.text, 'line', { lineId: l.id, speaker: l.speaker, voice: voiceFor(sc, l.speaker) });
+    for (const s of sc.steps) for (const [i, l] of (s.say ?? []).entries()) say(`say-${s.id}-${i}`, l.text, 'line', { stepId: s.id, speaker: l.speaker, voice: voiceFor(sc, l.speaker) });
     await Promise.all(jobs);
-    stage('voice', 'done', { ms: Date.now() - t, detail: `${audioClips.length} clips` });
-  })();
+    stage('voice', 'done', { ms: Date.now() - t, detail: `${jobs.length} clips (v${version})` });
+  };
+  const voiceP = voiceScene(scene, 1);
+  const richVoiceP = richP.then((sc) => (sc ? voiceScene(sc, 2) : undefined));
 
-  // ---- illustrate: generated assets ----
-  const illustrateP = (async () => {
-    const gens = scene.assets.filter((a) => a.type === 'gen');
+  // ---- illustrate: generated assets (v1 now, v2's extra ones when it lands) ----
+  const illustrated = new Set<string>();
+  const illustrate = async (sc: Scene) => {
+    const gens = sc.assets.filter((a) => a.type === 'gen' && !illustrated.has(a.id));
+    gens.forEach((a) => illustrated.add(a.id));
     if (!gens.length) return;
     stage('illustrate', 'start', { detail: `drawing ${gens.length} ${gens.length === 1 ? 'picture' : 'pictures'}`, model: config.models.image.id });
     const t = Date.now();
     const limit = pLimit(3);
-    const styleHint = scene.style?.mood ? `, ${scene.style.mood} mood` : '';
+    const styleHint = sc.style?.mood ? `, ${sc.style.mood} mood` : '';
     await Promise.all(gens.map((a) => limit(async () => {
       if (a.type !== 'gen') return;
       try {
@@ -224,13 +244,14 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         send({ type: 'asset', id: a.id, url, t: T() });
       } catch (e: any) { send({ type: 'error', message: `image ${a.id}: ${String(e?.message || e)}`, recoverable: true, t: T() }); }
     })));
-    stage('illustrate', 'done', { ms: Date.now() - t, detail: `${assets.length}/${gens.length} ready` });
-  })();
+    stage('illustrate', 'done', { ms: Date.now() - t, detail: `${assets.length}/${illustrated.size} ready` });
+  };
+  const illustrateP = illustrate(scene);
+  const richIllustrateP = richP.then((sc) => (sc ? illustrate(sc) : undefined));
 
   // ---- verify: against the page's own answers, independently, and for faithfulness ----
-  const verifyP = (async (): Promise<Verification | undefined> => {
-    const ex = await extractionP;
-    if (!ex) return { status: 'unverified', checks: [], repaired: false, summary: 'The page could not be read in detail, so nothing was checked.' };
+  const verifyScene = async (ex: Extraction, sc: Scene, version: number): Promise<{ v: Verification; scene: Scene }> => {
+    let scene = sc;
     stage('verify', 'start', { detail: 'checking values and facts against the page', model: config.models.verify.id });
     const t = Date.now();
     try {
@@ -277,24 +298,37 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
       const status: Verification['status'] = failed.length ? 'failed' : det.length ? 'verified-page' : all.some((c) => c.method === 'independent') ? 'checked-independently' : all.length ? 'faithful' : 'unverified';
       const v: Verification = { status, checks: all, repaired, summary: String(r.json.summary ?? (failed.length ? `${failed.length} check(s) failed` : 'All checks passed')) };
       stage('verify', 'done', { ms: Date.now() - t, detail: `${all.filter((c) => c.pass).length}/${all.length} checks passed${repaired ? ', scene repaired' : ''}`, model: r.usage.model });
-      if (repaired) send({ type: 'scene', data: scene, issues: [], version: 2, t: T() });
+      if (repaired) send({ type: 'scene', data: scene, issues: [], version, t: T() });
       send({ type: 'verification', data: v, t: T() });
-      return v;
+      return { v, scene };
     } catch (e: any) {
       stage('verify', 'error', { detail: String(e?.message || e) });
       const v: Verification = { status: 'unverified', checks: [], repaired: false, summary: 'Verification did not complete.' };
       send({ type: 'verification', data: v, t: T() });
-      return v;
+      return { v, scene };
     }
+  };
+  let richScene: Scene | undefined;
+  const verifyP = (async (): Promise<Verification | undefined> => {
+    const ex = await extractionP;
+    if (!ex) { const v: Verification = { status: 'unverified', checks: [], repaired: false, summary: 'The page could not be read in detail, so nothing was checked.' }; send({ type: 'verification', data: v, t: T() }); return v; }
+    const r1 = await verifyScene(ex, scene, 1);
+    scene = r1.scene;
+    const rich = await richP;
+    if (!rich) return r1.v;
+    const r2 = await verifyScene(ex, rich, 2);
+    richScene = r2.scene;
+    return r2.v;
   })();
 
-  const [tracking, verification] = await Promise.all([trackingP, verifyP, openerP, voiceP, illustrateP]);
+  const [tracking, verification] = await Promise.all([trackingP, verifyP, openerP, voiceP, illustrateP, richVoiceP, richIllustrateP]);
+  if (richScene) scene = richScene; // the saved experience opens straight into the richer version
   const costUsd = usages.reduce((a, u) => a + u.costUsd, 0);
   timings.total = T();
   stage('save', 'start');
   const record: ExperienceRecord = {
     id, createdAt: new Date(t0).toISOString(), ownerId: input.ownerId, bookId: input.bookId,
-    page: { ...page, imageUrl: pageUrl }, quick, extraction: await extractionP, scene, audio: audioClips, assets, tracking, verification,
+    page: { ...page, imageUrl: pageUrl }, quick, extraction: await extractionP, scene, sceneVersion: richScene ? 2 : 1, audio: audioClips, assets, tracking, verification,
     timings, costUsd, events: [],
   };
   await store.putRecord({ ...record, events });

@@ -47,7 +47,8 @@ export class SceneRenderer {
   async init(canvas: HTMLCanvasElement) {
     const { w, h } = this.scene.page;
     this.app = new Application();
-    await this.app.init({ canvas, width: w, height: h, backgroundAlpha: 0, antialias: true, resolution: 1, autoDensity: false, preference: 'webgl' });
+    // backing store at 0.75× page units keeps fill-rate reasonable on mid-range phones; CSS scales the canvas
+    await this.app.init({ canvas, width: w, height: h, backgroundAlpha: 0, antialias: true, resolution: 0.75, autoDensity: false, preference: 'webgl' });
     this.app.stage.addChild(this.root);
     this.root.addChild(this.layers.under, this.layers.over, this.layers.fx);
     if (this.opts.pageImage) this.pageTexture = Texture.from(this.opts.pageImage as any);
@@ -191,7 +192,11 @@ export class SceneRenderer {
         const w = r.w ?? s.texture.width, h = r.h ?? (r.w ? (r.w * s.texture.height) / Math.max(1, s.texture.width) : s.texture.height);
         s.width = w * r.scale * (el.flip ? -1 : 1); s.height = h * r.scale;
         if (el.tint) s.tint = el.tint;
-        node.position.set(r.x + w / 2, r.y + h / 2);
+        // liveliness: a sprite with no animation of its own still breathes a little
+        let bobY = 0, bobR = 0;
+        if (!el.anim.length) { const ph = hashId(el.id); const t = performance.now() / 1000; bobY = Math.sin(t * 1.4 + ph) * Math.min(10, h * 0.05); bobR = Math.sin(t * 0.9 + ph) * 0.02; }
+        node.position.set(r.x + w / 2, r.y + h / 2 + bobY);
+        node.rotation += bobR;
         break;
       }
       case 'label': {
@@ -404,6 +409,8 @@ export class SceneRenderer {
     try { this.app?.destroy(false, { children: true }); } catch { /* already gone */ }
   }
 }
+
+function hashId(id: string) { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 1000; return h / 1000 * Math.PI * 2; }
 
 /** Generated images arrive on a plain white background (no alpha from the image models); key the white out with a
  *  soft threshold so sprites sit on the page without a box. */

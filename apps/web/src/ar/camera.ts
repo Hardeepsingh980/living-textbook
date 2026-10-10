@@ -33,7 +33,20 @@ export class CameraSession {
     return { vw: this.vw, vh: this.vh };
   }
 
-  async prewarm() { if (this.tracker.state === 'idle') await this.tracker.prewarm(this.video, CANONICAL_WIDTH); }
+  prewarmP: Promise<void> | null = null;
+  async prewarm() { if (this.tracker.state === 'idle') { this.prewarmP = this.tracker.prewarm(this.video, CANONICAL_WIDTH); await this.prewarmP; } }
+
+  /** Greyscale canonical frame (same pixels the tracker would use) without touching the tracker. */
+  captureCanonical(): Uint8Array {
+    const tw = CANONICAL_WIDTH, th = Math.round(tw * this.vh / this.vw);
+    const c = document.createElement('canvas'); c.width = tw; c.height = th;
+    const ctx = c.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(this.video, 0, 0, tw, th);
+    const img = ctx.getImageData(0, 0, tw, th).data;
+    const grey = new Uint8Array(tw * th);
+    for (let i = 0, j = 0; i < grey.length; i++, j += 4) grey[i] = (img[j]! * 0.299 + img[j + 1]! * 0.587 + img[j + 2]! * 0.114) | 0;
+    return grey;
+  }
 
   /** Capture the current frame: full-resolution JPEG for the server, canonical grey for tracking, preview URL. */
   async capture(): Promise<{ blob: Blob; previewUrl: string; size: { w: number; h: number }; grey: Uint8Array | null }> {
@@ -41,9 +54,15 @@ export class CameraSession {
     full.getContext('2d')!.drawImage(this.video, 0, 0, this.vw, this.vh);
     const blob = await new Promise<Blob>((r) => full.toBlob((b) => r(b!), 'image/jpeg', 0.9));
     let grey: Uint8Array | null = null;
-    if (this.tracker.state === 'ready' || this.tracker.state === 'tracking' || this.tracker.state === 'lost' || this.tracker.state === 'searching') {
+    const st = this.tracker.state;
+    if (st === 'ready' || st === 'tracking' || st === 'lost' || st === 'searching') {
       grey = this.tracker.captureFrame().grey;
       void this.tracker.seedFromCapture(grey);
+    } else if (st === 'prewarming' && this.prewarmP) {
+      // the reader tapped before the kernels were ready: keep this frame and seed as soon as they are
+      const frame = this.captureCanonical();
+      grey = frame;
+      this.prewarmP.then(() => this.tracker.seedFromCapture(frame)).catch(() => {});
     }
     return { blob, previewUrl: URL.createObjectURL(blob), size: { w: this.vw, h: this.vh }, grey };
   }

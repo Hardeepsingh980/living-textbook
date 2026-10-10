@@ -19,7 +19,9 @@ export type MV = number[][];
 export type TrackerState = 'idle' | 'prewarming' | 'ready' | 'tracking' | 'lost' | 'searching';
 export type Corners = [number, number, number, number, number, number, number, number]; // x0,y0 … x3,y3 in video pixels
 
-const MISS_TOLERANCE = 6;
+const MISS_TOLERANCE = 10;        // frames of failed local tracking before we declare the page lost
+const SEARCH_EVERY_MS = 400;      // while lost without detection data: how often to try a pose search around the last pose
+const MIN_TRACK_POINTS = 6;       // below this the pose refinement is not trusted
 
 export class PageTracker {
   state: TrackerState = 'idle';
@@ -38,10 +40,17 @@ export class PageTracker {
   private hasMatching = false;
   private running = false;
   private busy = false;
+  private seeding = false;
   private pendingTrack: ((mv: MV | null) => void) | null = null;
   private pendingMatch: ((r: any) => void) | null = null;
   private reqId = 0;
-  private filter = makeOneEuro(0.001, 1000);
+  private filter = makeOneEuro(0.0015, 0.02); // tuned for corner coordinates in pixels (see makeOneEuro)
+  private input!: HTMLCanvasElement;           // tracking input: the video scaled down for speed
+  private inputCtx!: CanvasRenderingContext2D;
+  private inputScale = 1;                      // input px = video px × inputScale
+  private lastReacquireAt = 0;
+  private lastSearchAt = 0;
+  metrics = { losses: 0, reacquisitions: 0, searches: 0, searchHits: 0, framesTracked: 0, framesLost: 0 };
   trackedPts = 0;
   fps = 0; private frames = 0; private fpsT = 0;
   lostAt = 0;
@@ -59,28 +68,35 @@ export class PageTracker {
     this.state = 'prewarming';
     const t0 = performance.now();
     await tf.setBackend('webgl'); await tf.ready();
+    // tracking runs on a downscaled copy of the frame (≤ 720 px on the long side): 2-4× cheaper per frame on phones
+    this.inputScale = Math.min(1, 720 / Math.max(this.vw, this.vh));
+    const iw = Math.round(this.vw * this.inputScale), ih = Math.round(this.vh * this.inputScale);
+    this.input = document.createElement('canvas'); this.input.width = iw; this.input.height = ih;
+    this.input.setAttribute('width', String(iw)); this.input.setAttribute('height', String(ih));
+    this.inputCtx = this.input.getContext('2d', { willReadFrequently: false })!;
     const fovy = 45 * Math.PI / 180;
-    const f = (this.vh / 2) / Math.tan(fovy / 2);
-    this.K = [[f, 0, this.vw / 2], [0, f, this.vh / 2], [0, 0, 1]];
+    const f = (ih / 2) / Math.tan(fovy / 2);
+    this.K = [[f, 0, iw / 2], [0, f, ih / 2], [0, 0, 1]];
     this.targetW = targetW; this.targetH = Math.round(targetW * this.vh / this.vw);
-    this.loader = new InputLoader(this.vw, this.vh);
-    this.cropDetector = new CropDetector(this.vw, this.vh);
+    this.loader = new InputLoader(iw, ih);
+    this.cropDetector = new CropDetector(iw, ih);
     this.extractWorker = new ExtractWorker();
     const mw = new MindWorker();
     mw.onmessage = (e) => this.onMindMessage(e);
-    mw.postMessage({ type: 'setup', inputWidth: this.vw, inputHeight: this.vh, projectionTransform: this.K, debugMode: false, matchingDataList: [] });
+    mw.postMessage({ type: 'setup', inputWidth: iw, inputHeight: ih, projectionTransform: this.K, debugMode: false, matchingDataList: [] });
     this.mindWorker = mw;
     // sparse-blob dummy target of the canonical size: same shader sources as the real one, cheap to extract
     const grey = new Uint8Array(this.targetW * this.targetH).fill(235);
     let seed = 42; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
     for (let b = 0; b < 400; b++) { const cx = (rnd() * this.targetW) | 0, cy = (rnd() * this.targetH) | 0, r = 3 + rnd() * 10, v = (rnd() * 120) | 0; for (let y = Math.max(0, cy - r); y < Math.min(this.targetH, cy + r); y++) for (let x = Math.max(0, cx - r); x < Math.min(this.targetW, cx + r); x++) if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) grey[y * this.targetW + x] = v; }
     const { tracking } = await this.extract(grey);
-    const dummy = new Tracker([[this.targetW, this.targetH]], [tracking], this.K, this.vw, this.vh);
-    const inputT = this.loader.loadInput(video);
+    const dummy = new Tracker([[this.targetW, this.targetH]], [tracking], this.K, iw, ih);
+    this.drawInput();
+    const inputT = this.loader.loadInput(this.input);
     dummy.dummyRun(inputT); this.cropDetector.detect(inputT); this.cropDetector.detectMoving(inputT);
     inputT.dispose();
     this.state = 'ready';
-    this.log(`tracker prewarmed in ${Math.round(performance.now() - t0)} ms (video ${this.vw}x${this.vh}, target ${this.targetW}x${this.targetH})`);
+    this.log(`tracker prewarmed in ${Math.round(performance.now() - t0)} ms (video ${this.vw}x${this.vh}, tracking input ${iw}x${ih}, target ${this.targetW}x${this.targetH})`);
     this.running = true;
     void this.loop();
   }
@@ -109,11 +125,20 @@ export class PageTracker {
   /** Start tracking from the capture pose. */
   async seedFromCapture(grey: Uint8Array) {
     const t0 = performance.now();
+    this.seeding = true;
+    try { await this.seedInner(grey, t0); } finally { this.seeding = false; }
+  }
+  private async seedInner(grey: Uint8Array, t0: number) {
+    while (this.busy) await new Promise((r) => setTimeout(r, 5));
     const { tracking, ms, points } = await this.extract(grey);
-    this.tracker = new Tracker([[this.targetW, this.targetH]], [tracking], this.K, this.vw, this.vh);
-    const s = this.vw / this.targetW, f = this.K[0]![0]!;
+    this.tracker = new Tracker([[this.targetW, this.targetH]], [tracking], this.K, this.input.width, this.input.height);
+    const s = this.input.width / this.targetW, f = this.K[0]![0]!;
     this.seedMv = [[1, 0, 0, -this.targetW / 2], [0, 1, 0, -this.targetH / 2], [0, 0, 1, f / s]];
-    this.mv = this.seedMv; this.misses = 0; this.filter.reset();
+    this.mv = this.seedMv; this.misses = 0; this.filter.reset(); this.lostAt = performance.now();
+    // the hand has moved a little since the capture: look around the seed for the best starting pose
+    this.drawInput();
+    const inputT = this.loader.loadInput(this.input);
+    try { const best = await this.searchPose(inputT, this.seedMv, 2); if (best) this.mv = best; } finally { inputT.dispose(); }
     this.state = 'tracking';
     this.log(`templates ${points.join('/')} in ${ms} ms; tracking seeded ${Math.round(performance.now() - t0)} ms after capture`);
   }
@@ -123,7 +148,7 @@ export class PageTracker {
     const content: any = msgpackDecode(new Uint8Array(buffer));
     const matchingData = content?.dataList?.[0]?.matchingData;
     if (!matchingData || !this.mindWorker) return;
-    this.mindWorker.postMessage({ type: 'setup', inputWidth: this.vw, inputHeight: this.vh, projectionTransform: this.K, debugMode: false, matchingDataList: [matchingData] });
+    this.mindWorker.postMessage({ type: 'setup', inputWidth: this.input.width, inputHeight: this.input.height, projectionTransform: this.K, debugMode: false, matchingDataList: [matchingData] });
     this.hasMatching = true;
     this.log('detection data loaded; re-acquisition enabled');
   }
@@ -134,8 +159,35 @@ export class PageTracker {
   private project(mv: MV): Corners {
     const mvp = buildModelViewProjectionTransform(this.K, mv);
     const out: number[] = [];
-    for (const [x, y] of [[0, 0], [this.targetW, 0], [this.targetW, this.targetH], [0, this.targetH]]) { const p = computeScreenCoordiate(mvp, x, y, 0); out.push(p.x, p.y); }
+    for (const [x, y] of [[0, 0], [this.targetW, 0], [this.targetW, this.targetH], [0, this.targetH]]) { const p = computeScreenCoordiate(mvp, x, y, 0); out.push(p.x / this.inputScale, p.y / this.inputScale); }
     return out as Corners;
+  }
+
+  private drawInput() { this.inputCtx.drawImage(this.video, 0, 0, this.input.width, this.input.height); }
+
+  /** Try the local tracker from a grid of poses around `center` (translations and scales); return the pose with most matches. */
+  private async searchPose(inputT: any, center: MV, radius: number): Promise<MV | null> {
+    this.metrics.searches++;
+    const z = center[2]![3]!;
+    const stepPx = 0.08 * this.input.width; // 8 % of the frame per grid step (in target units via the depth ratio)
+    const f = this.K[0]![0]!;
+    const unit = stepPx * z / f; // target units that move the projection by stepPx
+    const candidates: MV[] = [];
+    for (let sy = -radius; sy <= radius; sy++) for (let sx = -radius; sx <= radius; sx++) for (const zs of [1, 0.88, 1.14]) {
+      if (zs !== 1 && (sx !== 0 || sy !== 0)) continue;
+      candidates.push([[center[0]![0]!, center[0]![1]!, center[0]![2]!, center[0]![3]! + sx * unit], [center[1]![0]!, center[1]![1]!, center[1]![2]!, center[1]![3]! + sy * unit], [center[2]![0]!, center[2]![1]!, center[2]![2]!, z * zs]]);
+    }
+    let best: { mv: MV; n: number } | null = null;
+    for (const mv of candidates) {
+      const r = this.tracker.track(inputT, mv, 0);
+      const n = r.worldCoords.length;
+      if (n >= MIN_TRACK_POINTS && (!best || n > best.n)) {
+        const refined = await this.workerTrackUpdate(mv, r.worldCoords, r.screenCoords);
+        if (refined) best = { mv: refined, n };
+      }
+    }
+    if (best) this.metrics.searchHits++;
+    return best?.mv ?? null;
   }
 
   private onMindMessage(e: MessageEvent) {
@@ -152,7 +204,7 @@ export class PageTracker {
 
   private async loop() {
     while (this.running) {
-      if (!this.busy && this.tracker && this.video.readyState >= 2) {
+      if (!this.busy && !this.seeding && this.tracker && this.video.readyState >= 2) {
         this.busy = true;
         try { await this.step(); } catch (e: any) { this.log(`tracker error: ${e?.message || e}`); this.state = 'lost'; }
         this.busy = false;
@@ -164,22 +216,34 @@ export class PageTracker {
   }
 
   private async step() {
-    const inputT = this.loader.loadInput(this.video);
+    this.drawInput();
+    const inputT = this.loader.loadInput(this.input);
     try {
       if (this.state === 'tracking' && this.mv) {
         const r = this.tracker.track(inputT, this.mv, 0);
         this.trackedPts = r.worldCoords.length;
         let next: MV | null = null;
-        if (r.worldCoords.length >= 4) next = await this.workerTrackUpdate(this.mv, r.worldCoords, r.screenCoords);
-        if (next) { this.mv = next; this.misses = 0; }
-        else if (++this.misses > MISS_TOLERANCE) { this.state = this.hasMatching ? 'searching' : 'lost'; this.lostAt = performance.now(); this.log(`lost (${this.trackedPts} pts)`); }
-      } else if (this.state !== 'tracking') {
+        if (r.worldCoords.length >= MIN_TRACK_POINTS) next = await this.workerTrackUpdate(this.mv, r.worldCoords, r.screenCoords);
+        if (next) { this.mv = next; this.misses = 0; this.metrics.framesTracked++; }
+        else if (++this.misses > MISS_TOLERANCE) { this.state = this.hasMatching ? 'searching' : 'lost'; this.lostAt = performance.now(); this.metrics.losses++; this.log(`lost (${this.trackedPts} pts)`); }
+      } else if (this.state !== 'tracking' && this.mv) {
+        this.metrics.framesLost++;
+        const now = performance.now();
+        let found: MV | null = null;
         if (this.hasMatching) {
           this.state = 'searching';
           const { featurePoints } = this.cropDetector.detectMoving(inputT);
           const res = await this.workerMatch(featurePoints);
-          if (res.targetIndex === 0 && res.modelViewTransform) { this.mv = res.modelViewTransform; this.state = 'tracking'; this.misses = 0; this.filter.reset(); this.log(`re-acquired after ${Math.round(performance.now() - this.lostAt)} ms`); }
-        } else this.state = 'lost';
+          if (res.targetIndex === 0 && res.modelViewTransform) found = res.modelViewTransform;
+        }
+        if (!found && now - this.lastSearchAt > SEARCH_EVERY_MS) { this.lastSearchAt = now; found = await this.searchPose(inputT, this.mv, 2); }
+        if (found) {
+          this.mv = found; this.state = 'tracking'; this.misses = 0; this.metrics.reacquisitions++;
+          const quick = now - this.lostAt < 800; // a brief dropout keeps the smoothing state so the layer does not jump
+          if (!quick) this.filter.reset();
+          this.lastReacquireAt = now;
+          this.log(`re-acquired after ${Math.round(now - this.lostAt)} ms`);
+        } else if (!this.hasMatching) this.state = 'lost';
       }
     } finally { inputT.dispose(); }
     if (this.state === 'tracking' && this.mv) this.onCorners?.(this.filter.filter(performance.now(), this.project(this.mv)) as Corners, this.state);
@@ -215,6 +279,8 @@ export function cornersToMatrix3d(W: number, H: number, p: number[]): string | n
   return `matrix3d(${h[0]},${h[3]},0,${h[6]}, ${h[1]},${h[4]},0,${h[7]}, 0,0,1,0, ${h[2]},${h[5]},0,1)`;
 }
 
+/** One-euro filter over an array of pixel coordinates. te is in ms: minCutoff 0.0015 ≈ 1.5 Hz smoothing at rest,
+ *  beta 0.02 per px/ms opens the cutoff quickly under real motion so the layer never lags the page. */
 function makeOneEuro(minCutoff: number, beta: number) {
   let xPrev: number[] | null = null, dxPrev: number[] = [], tPrev = 0;
   const alpha = (te: number, cutoff: number) => { const r = 2 * Math.PI * cutoff * te; return r / (r + 1); };

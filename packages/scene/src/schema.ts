@@ -46,8 +46,8 @@ export const AnimSchema = z.object({
   from: z.number().optional(),
   to: z.number().optional(),
   keys: z.array(z.object({ t: z.number().min(0).max(1), v: z.number() })).min(2).optional(),
-  dur: z.number().positive().max(120).default(1),
-  delay: z.number().min(0).max(120).default(0),
+  dur: z.coerce.number().positive().max(120).default(1),
+  delay: z.coerce.number().min(0).max(120).default(0),
   loop: z.union([z.boolean(), z.literal('pingpong')]).default(false),
   ease: Ease.default('inout'),
   relative: z.boolean().default(false), // from/to are offsets from the element's base value
@@ -71,7 +71,7 @@ const ElementBase = {
   rot: NumOrExpr.default(0),       // degrees
   opacity: NumOrExpr.default(1),
   scale: NumOrExpr.default(1),
-  z: z.number().default(0),
+  z: z.coerce.number().default(0),
   anchor: z.string().max(64).optional(), // anchor id: x/y become offsets from that box's top-left
   visible: NumOrExpr.default(1),
   hidden: z.boolean().default(false),   // start hidden; a step's "show" reveals it
@@ -84,11 +84,11 @@ export const SpriteEl = z.object({ ...ElementBase, type: z.literal('sprite'), as
 export const LabelEl = z.object({
   ...ElementBase, type: z.literal('label'),
   text: z.string().max(400),
-  size: z.number().min(8).max(200).default(28),
+  size: z.coerce.number().min(8).max(200).default(28),
   color: Color.default('#1a1a1a'),
   bg: Color.optional(),
   align: z.enum(['left', 'center', 'right']).default('center'),
-  maxW: z.number().positive().optional(),
+  maxW: z.coerce.number().positive().optional(),
   weight: z.enum(['normal', 'bold']).default('normal'),
 });
 export const ShapeEl = z.object({
@@ -97,15 +97,15 @@ export const ShapeEl = z.object({
   points: z.array(z.tuple([NumOrExpr, NumOrExpr])).max(64).optional(),
   fill: Color.optional(),
   stroke: Color.optional(),
-  strokeW: z.number().min(0).max(60).default(3),
-  radius: z.number().min(0).optional(),
+  strokeW: z.coerce.number().min(0).max(60).default(3),
+  radius: z.coerce.number().min(0).optional(),
   glow: z.boolean().default(false),
 });
 export const PathEl = z.object({
   ...ElementBase, type: z.literal('path'),
   points: z.array(z.tuple([NumOrExpr, NumOrExpr])).min(2).max(200),
   stroke: Color.default('#e63946'),
-  strokeW: z.number().min(1).max(60).default(4),
+  strokeW: z.coerce.number().min(1).max(60).default(4),
   draw: z.boolean().default(true),   // animate the stroke being drawn
   dashed: z.boolean().default(false),
   closed: z.boolean().default(false),
@@ -114,7 +114,7 @@ export const ParticlesEl = z.object({
   ...ElementBase, type: z.literal('particles'),
   preset: z.enum(['sparkle', 'rain', 'snow', 'bubbles', 'smoke', 'confetti', 'fire', 'leaves', 'stars', 'dust', 'electrons']),
   region: Box.optional(),
-  rate: z.number().min(0).max(500).default(40),
+  rate: z.coerce.number().min(0).max(500).default(40),
   color: Color.optional(),
   speed: NumOrExpr.default(1),
   path: z.array(z.tuple([z.number(), z.number()])).min(2).optional(), // for presets that flow along a path (e.g. electrons)
@@ -136,7 +136,7 @@ export const BubbleEl = z.object({
   speaker: z.string().max(64).optional(),
   tail: z.tuple([NumOrExpr, NumOrExpr]).optional(),
   style: z.enum(['speech', 'thought', 'shout', 'caption']).default('speech'),
-  size: z.number().min(10).max(120).default(26),
+  size: z.coerce.number().min(10).max(120).default(26),
 });
 export const TimelineEl = z.object({
   ...ElementBase, type: z.literal('timeline'),

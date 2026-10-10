@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import { fallbackScene, type PipelineEvent, type Scene, type QuickRead, type Extraction, type Verification, type StageName, type Issue, type ExperienceRecord } from '@living-book/scene';
 
-export type AudioClip = { id: string; url: string; kind: 'opener' | 'narration' | 'line'; text: string; stepId?: string; lineId?: string; speaker?: string; durationMs: number };
+export type AudioClip = { id: string; url: string; kind: 'opener' | 'narration' | 'line'; text: string; stepId?: string; lineId?: string; speaker?: string; durationMs: number; version?: number };
 export type StageState = { stage: StageName; status: 'start' | 'done' | 'error'; startedAt: number; endedAt?: number; detail?: string; model?: string; ms?: number };
 export type Mode = 'ar' | 'photo' | 'flat';
 
@@ -28,6 +28,8 @@ export type ExperienceState = {
   timings?: Record<string, number>;
   costUsd?: number;
   mode: Mode;
+  pendingScene?: Scene;           // a richer version waiting for the next loop
+  pendingVersion: number;
   captionsOn: boolean;
   muted: boolean;
   theatreOpen: boolean;
@@ -43,22 +45,24 @@ type Actions = {
   setMuted(m: boolean): void;
   setTheatre(open: boolean): void;
   fail(message: string): void;
+  applyPendingScene(): void;
 };
 
 const initial: ExperienceState = {
   status: 'idle', sceneVersion: 0, issues: [], audio: [], assets: {}, stages: [], events: [], startedAt: 0,
-  mode: 'flat', captionsOn: true, muted: false, theatreOpen: true,
+  mode: 'ar', captionsOn: true, muted: false, theatreOpen: false, pendingScene: undefined, pendingVersion: 0,
 };
 
 export const useStore = create<ExperienceState & Actions>((set, get) => ({
   ...initial,
   reset: () => set({ ...initial, mode: get().mode, captionsOn: get().captionsOn, muted: get().muted }),
-  beginGeneration: (pageImageUrl, page) => set({ ...initial, mode: get().mode, captionsOn: get().captionsOn, muted: get().muted, status: 'generating', pageImageUrl, page, startedAt: performance.now(), theatreOpen: true }),
+  beginGeneration: (pageImageUrl, page) => set({ ...initial, mode: get().mode, captionsOn: get().captionsOn, muted: get().muted, status: 'generating', pageImageUrl, page, startedAt: performance.now() }),
   fail: (message) => set({ status: 'error', error: message }),
   setMode: (mode) => set({ mode }),
   setCaptions: (captionsOn) => set({ captionsOn }),
   setMuted: (muted) => set({ muted }),
   setTheatre: (theatreOpen) => set({ theatreOpen }),
+  applyPendingScene: () => { const s = get(); if (s.pendingScene) set({ scene: s.pendingScene, sceneVersion: s.pendingVersion, pendingScene: undefined, pendingVersion: 0, page: s.pendingScene.page }); },
   applyEvent: (e) => {
     const s = get();
     const events = [...s.events, e];
@@ -80,7 +84,13 @@ export const useStore = create<ExperienceState & Actions>((set, get) => ({
         set({ quick: e.data, quickPartial: e.data, events, ...(awakening ? { scene: awakening, sceneVersion: 0, page } : {}) });
         break;
       }
-      case 'scene': if (e.version >= s.sceneVersion) set({ scene: e.data, sceneVersion: e.version, issues: e.issues, page: e.data.page, events }); else set({ events }); break;
+      case 'scene': {
+        // v0 awakening → v1 immediately; later versions wait for the next loop unless nothing is playing yet
+        if (e.version <= 1 || s.sceneVersion < 1) { if (e.version >= s.sceneVersion) set({ scene: e.data, sceneVersion: e.version, issues: e.issues, page: e.data.page, events, pendingScene: undefined, pendingVersion: 0 }); else set({ events }); }
+        else if (e.version > s.sceneVersion && e.version >= s.pendingVersion) set({ pendingScene: e.data, pendingVersion: e.version, events });
+        else set({ events });
+        break;
+      }
       case 'extraction': set({ extraction: e.data, events }); break;
       case 'verification': set({ verification: e.data, events }); break;
       case 'audio': { const { type, t, ...clip } = e; set({ audio: [...s.audio, clip], events }); break; }
@@ -93,7 +103,7 @@ export const useStore = create<ExperienceState & Actions>((set, get) => ({
   loadRecord: (rec) => set({
     ...initial, mode: get().mode, captionsOn: get().captionsOn, muted: get().muted,
     id: rec.id, status: 'ready', pageImageUrl: rec.page.imageUrl, page: { w: rec.page.w, h: rec.page.h }, quick: rec.quick, quickPartial: rec.quick,
-    scene: rec.scene, sceneVersion: 1, extraction: rec.extraction, verification: rec.verification, audio: rec.audio,
+    scene: rec.scene, sceneVersion: rec.sceneVersion ?? 1, extraction: rec.extraction, verification: rec.verification, audio: rec.audio,
     assets: Object.fromEntries(rec.assets.map((a) => [a.id, a.url])), tracking: rec.tracking, timings: rec.timings, costUsd: rec.costUsd, theatreOpen: false,
     stages: Object.entries(rec.timings).filter(([k]) => k !== 'total').map(([stage, ms]) => ({ stage: stage as StageName, status: 'done' as const, startedAt: 0, endedAt: ms, ms })),
   }),

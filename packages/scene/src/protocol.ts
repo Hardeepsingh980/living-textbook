@@ -57,7 +57,7 @@ export type PipelineEvent =
   | { type: 'quick'; data: QuickRead; t: number }
   | { type: 'scene'; data: Scene; issues: Issue[]; version: number; t: number }
   | { type: 'extraction'; data: Extraction; t: number }
-  | { type: 'audio'; id: string; url: string; kind: AudioClipKind; text: string; stepId?: string; lineId?: string; speaker?: string; durationMs: number; t: number }
+  | { type: 'audio'; id: string; url: string; kind: AudioClipKind; text: string; stepId?: string; lineId?: string; speaker?: string; durationMs: number; version?: number; t: number }
   | { type: 'asset'; id: string; url: string; t: number }
   | { type: 'tracking'; url: string; width: number; height: number; trackPts: number[]; t: number }
   | { type: 'verification'; data: Verification; t: number }
@@ -73,7 +73,8 @@ export type ExperienceRecord = {
   quick: QuickRead;
   extraction?: Extraction;
   scene: Scene;
-  audio: { id: string; url: string; kind: AudioClipKind; text: string; stepId?: string; lineId?: string; speaker?: string; durationMs: number }[];
+  sceneVersion?: number;          // which version the saved scene is (its clips carry the same version)
+  audio: { id: string; url: string; kind: AudioClipKind; text: string; stepId?: string; lineId?: string; speaker?: string; durationMs: number; version?: number }[];
   assets: { id: string; url: string }[];
   tracking?: { url: string; width: number; height: number; trackPts: number[] };
   verification?: Verification;

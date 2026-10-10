@@ -10,7 +10,8 @@ export const config = {
   pageWidth: 1000,
   models: {
     quick: { id: 'gemini-3.1-flash-lite', fallback: 'gemini-3.5-flash-lite' },
-    scene: { id: 'gemini-3.1-flash-lite', fallback: 'gemini-3.5-flash-lite' },
+    scene: { id: process.env.SCENE_MODEL || 'gemini-3.1-flash-lite', fallback: 'gemini-3.5-flash-lite' },      // scene v1: fast
+    sceneRich: { id: process.env.SCENE_RICH_MODEL || 'gemini-3.6-flash', fallback: 'gemini-3.8-flash' },   // scene v2: richer, swapped in at the next loop
     extract: { id: 'gemini-3.6-flash', fallback: 'gemini-3.8-flash' },
     verify: { id: 'gemini-3.8-flash', fallback: 'gemini-3.6-flash' },
     image: { id: 'gemini-3.1-flash-lite-image', fallback: 'gemini-nano-banana-2.1' },

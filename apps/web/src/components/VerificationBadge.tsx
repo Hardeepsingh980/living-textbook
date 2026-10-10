@@ -2,22 +2,23 @@ import { useState } from 'react';
 import { useStore } from '../lib/store';
 
 const LABEL: Record<string, { text: string; cls: string }> = {
-  'verified-page': { text: 'Verified against the page', cls: 'ok' },
+  'verified-page': { text: 'Checked against the page', cls: 'ok' },
   'checked-independently': { text: 'Checked independently', cls: 'ok' },
   faithful: { text: 'Faithful to the page', cls: 'ok' },
-  unverified: { text: 'Unverified', cls: 'warn' },
-  failed: { text: 'Check failed', cls: 'bad' },
+  unverified: { text: 'Not checked', cls: 'warn' },
+  failed: { text: 'A check did not pass', cls: 'bad' },
 };
 
-export function VerificationBadge() {
+export function VerificationBadge({ compact = false }: { compact?: boolean }) {
   const v = useStore((s) => s.verification);
   const status = useStore((s) => s.status);
   const [open, setOpen] = useState(false);
-  if (!v) return status === 'generating' ? <span className="badge pending">Checking…</span> : null;
+  if (!v) return status === 'generating' ? <span className="seal pending" title="Checking…">…</span> : null;
   const l = LABEL[v.status] ?? LABEL.unverified!;
+  const glyph = l.cls === 'ok' ? '✓' : l.cls === 'bad' ? '✗' : '?';
   return (
     <>
-      <button className={`badge ${l.cls}`} onClick={() => setOpen(true)}>{l.cls === 'ok' ? '✓ ' : l.cls === 'bad' ? '✗ ' : '? '}{l.text}</button>
+      <button className={`seal ${l.cls}`} onClick={() => setOpen(true)} aria-label={l.text} title={l.text}>{glyph}{compact ? '' : ` ${l.text}`}</button>
       {open && (
         <div className="sheet" onClick={() => setOpen(false)}>
           <div className="sheet-body" onClick={(e) => e.stopPropagation()}>
@@ -33,7 +34,7 @@ export function VerificationBadge() {
               ))}
               {v.checks.length === 0 && <li className="muted">Nothing on this page could be checked numerically.</li>}
             </ul>
-            <button className="pill" onClick={() => setOpen(false)}>Close</button>
+            <button className="primary" onClick={() => setOpen(false)}>Close</button>
           </div>
         </div>
       )}
