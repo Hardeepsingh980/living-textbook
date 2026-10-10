@@ -2,6 +2,18 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-10 (evening): feedback round and the evaluation loop
+
+**Hardeep's phone test** found: unstable tracking, visuals not matching the page, narration reading its style directive aloud and getting cut off, a cluttered UI, and an experience that stopped after one pass. Decisions: AR-only (no Photo/Flat toggles), no emoji, a consistent design language, continuous playback, ten example experiences evaluated as a whole.
+
+**Fixed:** both Gemini 3.8 TTS models speak a leading directive verbatim (proved by transcribing the clips), so narration text now goes to TTS unchanged; a speech queue plays opener → step narration → character lines in order, auto-advances steps and loops; simulations keep running and restart at the end of their time range; the richer scene (Gemini 3.6 Flash, v2) is generated in parallel with the fast one (Flash-Lite, v1) and swapped in at the next loop with its own narration clips; the UI is AR-only with a line-icon set, a progress pill while generating, knob chips for variables, a caption card and three round controls; the tracker runs on a 720 px input, searches a pose grid around the seed, keeps smoothing across short dropouts, re-validates against the detector every 1.5 s and upgrades its templates (14 → 49 points) in the background.
+
+**Evaluation loop (eval/):** `run.mjs` (pipeline + numeric checks + latency) → `shoot.mjs` (headless Chromium renders each experience in review mode, 3 moments) → `judge.mjs` (Gemini 3.8 Flash scores page + overlay screenshots + scene JSON on clarity, placement, readability, liveliness, correctness, narration).
+
+**Round 1 (10 synthetic pages, before the placement fixes):** kind 7/10 (geography and non-fiction were called "science"), language 10/10, worked answers 7/7, page-answer checks 3/3, scenes rendered 10/10, unsupported claims 0, p50 first understanding 1.7 s, narration 5.2 s, generated scene 7.9 s. Visual judge overall (1–5): Ohm's law 4 (ship), Fox and the Crow 4, Little Red Boat 3, Hindi free fall 3, timeline 3, rainbow 3, free fall 3, water cycle 2.8, Pythagoras 2 (redo). Seven of nine "most important fixes" were placement: overlays not aligned with the printed figure or covering printed labels.
+
+**Changes for round 2:** the scene builder now receives a crop of the main figure overlaid with a labelled coordinate grid (anchor-relative units) and is told to read positions from it; particles default to the figure region; labels and bubbles are clamped inside the page; story lines must be printed on the page word for word.
+
 ## 2026-10-10 (day 1, afternoon)
 
 **Deployed:** https://living-book-945707801757.asia-south1.run.app (Cloud Run, asia-south1, 4 vCPU / 4 GiB, one warm instance, service account `living-book-sa`). Durable store: Cloud Storage bucket `cheerio-app-living-book` + Firestore database `living-book` (Native mode). A full pipeline run against the deployed service took 17.3 s with verification passing; the tracking compile is slower there (9 s on 4 vCPUs) but off the critical path.

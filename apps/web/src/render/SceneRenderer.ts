@@ -208,7 +208,11 @@ export class SceneRenderer {
         if (el.bg) { const pad = el.size * 0.45; g.roundRect(-t.width / 2 - pad, -t.height / 2 - pad * 0.6, t.width + pad * 2, t.height + pad * 1.2, el.size * 0.4).fill({ color: el.bg }); }
         t.anchor.set(el.align === 'left' ? 0 : el.align === 'right' ? 1 : 0.5, 0.5);
         t.scale.set(r.scale);
-        node.position.set(r.x, r.y);
+        // keep the whole label on the page
+        const halfW = (t.width * r.scale) / 2 + el.size * 0.5, halfH = (t.height * r.scale) / 2 + el.size * 0.3;
+        const cx = el.align === 'left' ? r.x + halfW - el.size * 0.5 : el.align === 'right' ? r.x - halfW + el.size * 0.5 : r.x;
+        const px = Math.min(Math.max(cx, halfW), this.scene.page.w - halfW), py = Math.min(Math.max(r.y, halfH), this.scene.page.h - halfH);
+        node.position.set(px - (cx - r.x), py);
         break;
       }
       case 'bubble': {
@@ -232,7 +236,7 @@ export class SceneRenderer {
           }
         }
         t.anchor.set(0.5); t.style.fill = el.style === 'caption' ? '#ffffff' : '#1a1a1a';
-        node.position.set(r.x, r.y); node.scale.set(r.scale);
+        node.position.set(Math.min(Math.max(r.x, (w * r.scale) / 2 + 8), this.scene.page.w - (w * r.scale) / 2 - 8), Math.min(Math.max(r.y, (h * r.scale) / 2 + 8), this.scene.page.h - (h * r.scale) / 2 - 8)); node.scale.set(r.scale);
         break;
       }
       case 'shape': this.drawShape(node.getChildAt(0) as Graphics, el, r); node.position.set(0, 0); break;

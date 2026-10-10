@@ -7,6 +7,7 @@ import {
   type Scene, type QuickRead, type Extraction, type PipelineEvent, type ExperienceRecord, type Verification, type VerificationCheck, type BoxT, type Issue, type StageName,
 } from '@living-book/scene';
 import { generateJson, generateImage, synthesize, imagePart, type Usage } from './gemini.js';
+import type { Part } from '@google/genai';
 import { QUICK_SYSTEM, QUICK_SCHEMA, sceneSystem, EXTRACT_SYSTEM, verifySystem, extractionDigest } from './prompts.js';
 import { compileTracking } from './tracking.js';
 import { store } from './store.js';
@@ -126,7 +127,28 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
 
   // ---- build: scene v1 fast (with one repair retry and a guaranteed fallback); scene v2 richer, in parallel ----
   const system = sceneSystem(quick, page);
-  const sceneParts = [imagePart(pageJpeg), { text: `Quick read of the page: ${JSON.stringify({ kind: quick.kind, subject: quick.subject, title: quick.title, gist: quick.gist })}\nCompose the LivingScene JSON now.` }];
+  // the main figure, cropped and overlaid with a labelled grid in anchor-relative units, so coordinates are read, not guessed
+  const gridParts: Part[] = [];
+  const mainFig = quick.figures[0];
+  if (mainFig) {
+    try {
+      const [x0, y0, x1, y1] = mainFig.box;
+      const bw = Math.max(40, x1 - x0), bh = Math.max(40, y1 - y0);
+      const scale = Math.min(2, 900 / Math.max(bw, bh));
+      const crop = await sharp(pageJpeg).extract({ left: Math.max(0, x0), top: Math.max(0, y0), width: Math.min(page.w - Math.max(0, x0), bw), height: Math.min(page.h - Math.max(0, y0), bh) }).resize({ width: Math.round(bw * scale) }).png().toBuffer();
+      const cw = Math.round(bw * scale), ch = Math.round(bh * scale);
+      let g = '';
+      for (let i = 0; i <= 10; i++) {
+        const gx = Math.round((cw * i) / 10), gy = Math.round((ch * i) / 10);
+        g += `<line x1="${gx}" y1="0" x2="${gx}" y2="${ch}" stroke="#ff2d55" stroke-width="1" stroke-opacity="0.7"/><line x1="0" y1="${gy}" x2="${cw}" y2="${gy}" stroke="#ff2d55" stroke-width="1" stroke-opacity="0.7"/>`;
+        if (i < 10) g += `<text x="${gx + 3}" y="14" font-size="13" font-family="sans-serif" fill="#ff2d55">${Math.round((bw * i) / 10)}</text><text x="3" y="${gy + 15}" font-size="13" font-family="sans-serif" fill="#ff2d55">${Math.round((bh * i) / 10)}</text>`;
+      }
+      const grid = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${cw}" height="${ch}">${g}</svg>`);
+      const gridded = await sharp(crop).composite([{ input: grid, top: 0, left: 0 }]).jpeg({ quality: 85 }).toBuffer();
+      gridParts.push({ text: `Figure ${mainFig.id} ("${mainFig.label}") cropped, with a grid in anchor-relative units: x 0..${bw} left→right, y 0..${bh} top→bottom (grid lines every 10 %). Use these units for elements anchored to ${mainFig.id}.` }, imagePart(gridded));
+    } catch (e: any) { console.warn('[build] grid crop failed', String(e?.message || e)); }
+  }
+  const sceneParts = [imagePart(pageJpeg), ...gridParts, { text: `Quick read of the page: ${JSON.stringify({ kind: quick.kind, subject: quick.subject, title: quick.title, gist: quick.gist })}\nCompose the LivingScene JSON now.` }];
   const anchorsFromQuick = Object.fromEntries(quick.figures.map((f) => [f.id, f.box]));
   const sceneP = (async (): Promise<{ scene: Scene; issues: Issue[]; version: number }> => {
     stage('build', 'start', { detail: 'composing the experience', model: config.models.scene.id });
@@ -314,6 +336,8 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
     if (!ex) { const v: Verification = { status: 'unverified', checks: [], repaired: false, summary: 'The page could not be read in detail, so nothing was checked.' }; send({ type: 'verification', data: v, t: T() }); return v; }
     const r1 = await verifyScene(ex, scene, 1);
     scene = r1.scene;
+    timings.ready = T();
+    send({ type: 'ready', t: T(), experienceId: id });
     const rich = await richP;
     if (!rich) return r1.v;
     const r2 = await verifyScene(ex, rich, 2);

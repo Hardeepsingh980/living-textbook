@@ -96,6 +96,7 @@ export const useStore = create<ExperienceState & Actions>((set, get) => ({
       case 'audio': { const { type, t, ...clip } = e; set({ audio: [...s.audio, clip], events }); break; }
       case 'asset': set({ assets: { ...s.assets, [e.id]: e.url }, events }); break;
       case 'tracking': { const { type, t, ...tr } = e; set({ tracking: tr, events }); break; }
+      case 'ready': set({ status: 'ready', id: e.experienceId, events }); break;
       case 'done': set({ status: 'ready', id: e.experienceId, timings: e.timings, costUsd: e.costUsd, events }); break;
       case 'error': if (!e.recoverable) set({ status: 'error', error: e.message, events }); else set({ events }); break;
     }

@@ -213,7 +213,7 @@ export function ExperienceView({ onBack }: Props) {
   const computeFit = useCallback(() => {
     const st = stageRef.current; if (!st || !scene) return;
     const cw = st.clientWidth, ch = st.clientHeight, { w, h } = scene.page;
-    const scale = Math.max(cw / w, ch / h);
+    const scale = REVIEW ? Math.min(cw / w, ch / h) : Math.max(cw / w, ch / h); // review mode: the whole page for judging
     setFit({ scale, x: (cw - w * scale) / 2, y: (ch - h * scale) / 2 });
   }, [scene]);
   useEffect(() => { computeFit(); window.addEventListener('resize', computeFit); return () => window.removeEventListener('resize', computeFit); }, [computeFit]);

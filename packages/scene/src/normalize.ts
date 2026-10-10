@@ -137,6 +137,10 @@ export function normalizeScene(input: unknown): NormalizeResult {
       if (el.xdomain[0] >= el.xdomain[1]) { issues.push({ level: 'warn', where, message: 'plot dropped: empty x domain' }); return false; }
     }
     if (el.type === 'sprite' && !assetIds.has(el.asset)) { issues.push({ level: 'warn', where, message: `sprite dropped: unknown asset ${el.asset}` }); return false; }
+    if (el.type === 'particles' && !el.region) {
+      const box = el.anchor ? scene.anchors[el.anchor] : Object.values(scene.anchors)[0];
+      if (box && !['rain', 'snow'].includes(el.preset)) { el.region = [...box] as typeof box; el.anchor = undefined; }
+    }
     if (el.anchor && !anchorIds.has(el.anchor)) { issues.push({ level: 'warn', where, message: `unknown anchor ${el.anchor}; using page origin` }); el.anchor = undefined; }
     if (el.type === 'shape' && ['line', 'arrow', 'polygon'].includes(el.shape) && (!el.points || el.points.length < 2)) { issues.push({ level: 'warn', where, message: `${el.shape} needs points; dropped` }); return false; }
     return true;

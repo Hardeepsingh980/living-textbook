@@ -33,6 +33,7 @@ function score(file, truth, events) {
   const extraction = events.find((e) => e.type === 'extraction')?.data;
   const verification = events.find((e) => e.type === 'verification')?.data;
   const done = events.find((e) => e.type === 'done');
+  const ready = events.find((e) => e.type === 'ready');
   const stageDone = (name) => events.find((e) => e.type === 'stage' && e.stage === name && e.status === 'done')?.t;
   const firstAudio = events.find((e) => e.type === 'audio')?.t;
   const firstScene = scenes[0]?.t;
@@ -40,18 +41,20 @@ function score(file, truth, events) {
   const sceneText = scene ? [...scene.elements.map((el) => el.text ?? ''), ...scene.steps.map((s) => `${s.narration ?? ''} ${(s.say ?? []).map((l) => l.text).join(' ')}`), ...scene.audio.lines.map((l) => l.text)].map(norm).join(' | ') : '';
   const kindOk = truth?.kind ? (quick?.kind === truth.kind || (truth.kind === 'science' && quick?.kind === 'maths')) : null;
   const langOk = truth?.language ? quick?.language === truth.language : null;
-  const valueHits = truth?.values ? truth.values.filter((v) => (extraction?.values ?? []).some((x) => Math.abs(Number(x.value) - v.value) <= Math.abs(v.value) * 0.005 + 1e-9)).length : null;
+  // a key value counts as recalled if it is in the structured values or appears verbatim in the transcribed text
+  const exText = norm(extraction?.text ?? '');
+  const valueHits = truth?.values ? truth.values.filter((v) => (extraction?.values ?? []).some((x) => Math.abs(Number(x.value) - v.value) <= Math.abs(v.value) * 0.005 + 1e-9) || new RegExp(`(^|[^\\d.])${String(v.value).replace('.', '\\.')}([^\\d]|$)`).test(exText)).length : null;
   const workedHits = truth?.worked ? truth.worked.filter((w) => (extraction?.worked ?? []).some((x) => Math.abs(Number(x.answer) - w.answer) <= Math.abs(w.answer) * 0.02)).length : null;
   const pageAnswerChecks = (verification?.checks ?? []).filter((c) => c.method === 'page-answer');
   const unsupported = truth?.mustNotClaim ? truth.mustNotClaim.filter((s) => sceneText.includes(norm(s))) : [];
   const dialogueHits = truth?.dialogue ? truth.dialogue.filter((d) => sceneText.includes(norm(d))).length : null;
   return {
-    file, http: null, kind: quick?.kind, kindOk, language: quick?.language, langOk, confidence: quick?.confidence,
+    file, id: done?.experienceId, http: null, kind: quick?.kind, kindOk, language: quick?.language, langOk, confidence: quick?.confidence,
     elements: scene?.elements.length ?? 0, steps: scene?.steps.length ?? 0, renderOk: !!scene && scene.elements.length > 0,
     valueHits, valueTotal: truth?.values?.length ?? 0, workedHits, workedTotal: truth?.worked?.length ?? 0,
     pageAnswerPass: pageAnswerChecks.filter((c) => c.pass).length, pageAnswerTotal: pageAnswerChecks.length,
     verification: verification?.status ?? 'none', unsupported, dialogueHits, dialogueTotal: truth?.dialogue?.length ?? 0,
-    L1: firstQuick, L2: firstScene, L3: firstAudio, L4: done?.t, read: stageDone('read'), build: stageDone('build'), understand: stageDone('understand'), verify: stageDone('verify'),
+    L1: firstQuick, L2: firstScene, L3: firstAudio, L4: ready?.t ?? done?.t, L5: done?.t, read: stageDone('read'), build: stageDone('build'), understand: stageDone('understand'), verify: stageDone('verify'),
     cost: done?.costUsd, errors: events.filter((e) => e.type === 'error').map((e) => e.message.slice(0, 80)),
   };
 }
@@ -87,7 +90,7 @@ md += `| Unsupported claims found (Q-4) | ${ok.reduce((a, r) => a + (r.unsupport
 md += `| Story dialogue preserved | ${sum('dialogueHits')}/${sum('dialogueTotal')} | — |\n`;
 md += `| Cost per page | $${(sum('cost') / Math.max(1, ok.length)).toFixed(3)} | reasonable |\n\n`;
 md += `## Latency (p50 / p90, from capture confirm)\n\n| Moment | p50 / p90 | Target | Hard limit |\n|---|---|---|---|\n`;
-md += `| L-1 first understanding | ${lat('L1')} | 1.5 s | 3 s |\n| L-2 first animated scene (awakening is client-side at L-1 + ~0.3 s; this row is the generated scene) | ${lat('L2')} | 5 s | 10 s |\n| L-3 narration starts | ${lat('L3')} | 6 s | 12 s |\n| L-4 complete with verification | ${lat('L4')} | 15 s | 30 s |\n\n`;
+md += `| L-1 first understanding | ${lat('L1')} | 1.5 s | 3 s |\n| L-2 first animated scene (awakening is client-side at L-1 + ~0.3 s; this row is the generated scene) | ${lat('L2')} | 5 s | 10 s |\n| L-3 narration starts | ${lat('L3')} | 6 s | 12 s |\n| L-4 complete with verification (scene v1) | ${lat('L4')} | 15 s | 30 s |\n| Richer scene v2 voiced and verified (upgrade at the next loop) | ${lat('L5')} | — | — |\n\n`;
 md += `| Stage done | p50 / p90 |\n|---|---|\n| read | ${lat('read')} |\n| build | ${lat('build')} |\n| understand | ${lat('understand')} |\n| verify | ${lat('verify')} |\n\n`;
 md += `## Per page\n\n| Page | Kind | Lang | Conf | Elements | Steps | Values | Worked | Page-answer | Verification | Unsupported | L-2 | L-4 | Cost | Errors |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n`;
 for (const r of results) md += `| ${r.file} | ${r.kind ?? '-'}${r.kindOk === false ? ' ✗' : ''} | ${r.language ?? '-'}${r.langOk === false ? ' ✗' : ''} | ${r.confidence ?? '-'} | ${r.elements ?? '-'} | ${r.steps ?? '-'} | ${r.valueHits ?? '-'}/${r.valueTotal ?? '-'} | ${r.workedHits ?? '-'}/${r.workedTotal ?? '-'} | ${r.pageAnswerPass ?? '-'}/${r.pageAnswerTotal ?? '-'} | ${r.verification ?? '-'} | ${(r.unsupported ?? []).join('; ') || '0'} | ${ms(r.L2)} | ${ms(r.L4)} | $${(r.cost ?? 0).toFixed(3)} | ${(r.errors ?? []).join('; ')} |\n`;

@@ -42,7 +42,7 @@ export function App() {
     useStore.getState().setMode(session && session.tracker.state !== 'idle' ? 'ar' : 'photo');
     go({ name: 'experience' }, '/x/new');
     try {
-      await createExperience(blob, (e) => { applyEvent(e); if (e.type === 'done') history.replaceState(null, '', `/x/${e.experienceId}`); });
+      await createExperience(blob, (e) => { applyEvent(e); if (e.type === 'ready' || e.type === 'done') history.replaceState(null, '', `/x/${e.experienceId}`); });
     } catch (e: any) { fail(String(e?.message || e)); }
   }
 
