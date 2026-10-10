@@ -1,14 +1,17 @@
-// The experience: the page layer (PixiJS canvas) presented flat, on the frozen photo, or anchored in AR,
-// plus controls, captions, narration playback and the verification badge.
+// The experience: the page layer (PixiJS canvas) presented in AR (warped onto the live page), on the frozen
+// photo, or flat; plus controls, captions, narration playback and the verification badge.
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { useStore, type AudioClip } from '../lib/store';
+import { useStore, type AudioClip, type Mode } from '../lib/store';
 import { SceneRenderer } from '../render/SceneRenderer';
 import { mixer } from '../audio/mixer';
 import { Theatre } from '../components/Theatre';
 import { VerificationBadge } from '../components/VerificationBadge';
+import { CameraSession } from '../ar/camera';
+import { cornersToMatrix3d, type Corners, type TrackerState } from '../ar/PageTracker';
 import type { Scene } from '@living-book/scene';
 
 type Props = { onBack: () => void };
+const LOST_TO_PHOTO_MS = 2000;
 
 export function ExperienceView({ onBack }: Props) {
   const scene = useStore((s) => s.scene);
@@ -26,21 +29,28 @@ export function ExperienceView({ onBack }: Props) {
   const theatreOpen = useStore((s) => s.theatreOpen);
   const setTheatre = useStore((s) => s.setTheatre);
   const error = useStore((s) => s.error);
+  const trackingInfo = useStore((s) => s.tracking);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<SceneRenderer | null>(null);
   const [pageImg, setPageImg] = useState<HTMLImageElement | null>(null);
-  const [caption, setCaption] = useState<string>('');
+  const [caption, setCaption] = useState('');
   const [stepIndex, setStepIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [vars, setVars] = useState<Record<string, number>>({});
   const [fit, setFit] = useState({ scale: 1, x: 0, y: 0 });
+  const [arState, setArState] = useState<TrackerState>('idle');
+  const [arLive, setArLive] = useState(false); // tracking right now (else AR mode shows the photo fallback)
   const openerPlayed = useRef(false);
   const narratedSteps = useRef(new Set<string>());
   const stepTimer = useRef<number | null>(null);
+  const lostSince = useRef<number | null>(null);
+  const session = CameraSession.current;
+  const arAvailable = !!session && session.tracker.state !== 'idle';
 
-  // page image for crops and the photo mode background
+  // page image for crops and the photo/flat background
   useEffect(() => {
     if (!pageImageUrl) return;
     const img = new Image(); img.crossOrigin = 'anonymous';
@@ -76,26 +86,54 @@ export function ExperienceView({ onBack }: Props) {
   // late-arriving generated assets
   useEffect(() => { const r = rendererRef.current; if (!r) return; for (const [id, url] of Object.entries(assets)) void r.addAsset(id, url); }, [assets]);
 
-  // opener narration as soon as it exists
+  // narration
   const audioById = useMemo(() => Object.fromEntries(audio.map((a) => [a.id, a])), [audio]);
   useEffect(() => {
     const opener = audio.find((a) => a.kind === 'opener');
     if (opener && !openerPlayed.current) { openerPlayed.current = true; void speak(opener); }
-    // narration for the current step may arrive after the step started
     const s = scene?.steps[stepIndex];
     if (s && !narratedSteps.current.has(s.id)) { const clip = audio.find((a) => a.kind === 'narration' && a.stepId === s.id); if (clip && !mixer.speakingId) { narratedSteps.current.add(s.id); void speak(clip).then(() => autoAdvance(scene!, stepIndex)); } }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audio]);
-
   useEffect(() => { mixer.setMuted(muted); }, [muted]);
-  // once everything is in, get the theatre out of the way (it stays one tap away)
   useEffect(() => { if (status !== 'ready') return; const id = window.setTimeout(() => setTheatre(false), 2500); return () => clearTimeout(id); }, [status, setTheatre]);
-  useEffect(() => () => { rendererRef.current?.destroy(); mixer.destroy(); }, []);
+  useEffect(() => () => { rendererRef.current?.destroy(); mixer.destroy(); CameraSession.current?.stop(); }, []);
+
+  // ---- AR: live video + tracked warp; server detection data for re-acquisition ----
+  useEffect(() => {
+    if (!session || !arAvailable) return;
+    const st = stageRef.current!;
+    if (mode === 'ar') session.attach(st); else session.detach();
+    session.tracker.onCorners = (c: Corners | null, state: TrackerState) => {
+      setArState((prev) => (prev === state ? prev : state));
+      const layer = layerRef.current; if (!layer || mode !== 'ar' || !scene) return;
+      if (c) {
+        lostSince.current = null;
+        if (!arLive) setArLive(true);
+        const cw = st.clientWidth, ch = st.clientHeight, s = Math.max(cw / session.vw, ch / session.vh);
+        const ox = (cw - session.vw * s) / 2, oy = (ch - session.vh * s) / 2;
+        const css = c.map((v, i) => (i % 2 === 0 ? v * s + ox : v * s + oy));
+        // tracker target units == page units (both are the canonical 1000-wide frame)
+        const m = cornersToMatrix3d(scene.page.w, scene.page.h, css);
+        if (m) layer.style.transform = m;
+      } else {
+        lostSince.current ??= performance.now();
+        if (arLive && performance.now() - lostSince.current > LOST_TO_PHOTO_MS) setArLive(false);
+      }
+    };
+    return () => { session.tracker.onCorners = null; };
+  }, [session, arAvailable, mode, scene, arLive]);
+
+  useEffect(() => {
+    if (!session || !trackingInfo?.url || !arAvailable) return;
+    fetch(trackingInfo.url).then((r) => r.arrayBuffer()).then((b) => session.tracker.loadDetectionData(b)).catch((e) => console.warn('detection data failed', e));
+  }, [session, trackingInfo, arAvailable]);
 
   async function speak(clip: AudioClip) {
-    setCaption(clip.speaker ? `${clip.speaker}: ${clip.text}` : clip.text);
+    const text = clip.speaker ? `${clip.speaker}: ${clip.text}` : clip.text;
+    setCaption(text);
     try { await mixer.say(clip.id, clip.url); } catch (e) { console.warn('audio failed', e); }
-    setCaption((c) => (c === (clip.speaker ? `${clip.speaker}: ${clip.text}` : clip.text) ? '' : c));
+    setCaption((c) => (c === text ? '' : c));
   }
   function narrateStep(sc: Scene, index: number) {
     const s = sc.steps[index]; if (!s) return;
@@ -103,12 +141,11 @@ export function ExperienceView({ onBack }: Props) {
     const clip = useStore.getState().audio.find((a) => a.kind === 'narration' && a.stepId === s.id);
     if (clip) { narratedSteps.current.add(s.id); void speak(clip).then(() => autoAdvance(sc, index)); }
     else if (s.narration) setCaption(s.narration);
-    for (const [i, l] of (s.say ?? []).entries()) { const c = useStore.getState().audio.find((a) => a.id === `say-${s.id}-${i}`); if (c) setTimeout(() => { void speak(c); }, 800 * (i + 1)); }
+    for (const [i] of (s.say ?? []).entries()) { const c = useStore.getState().audio.find((a) => a.id === `say-${s.id}-${i}`); if (c) setTimeout(() => { void speak(c); }, 800 * (i + 1)); }
   }
   function autoAdvance(sc: Scene, index: number) {
     const r = rendererRef.current; if (!r || r.runtime.stepIndex !== index) return;
-    const s = sc.steps[index];
-    const wait = (s?.dur ?? 1.2) * 1000;
+    const wait = (sc.steps[index]?.dur ?? 1.2) * 1000;
     stepTimer.current = window.setTimeout(() => { if (rendererRef.current?.runtime.stepIndex === index && index + 1 < sc.steps.length) rendererRef.current.runtime.nextStep(); }, wait);
   }
   function playLine(lineId: string) {
@@ -117,38 +154,38 @@ export function ExperienceView({ onBack }: Props) {
     else { const l = scene?.audio.lines.find((x) => x.id === lineId); if (l) setCaption(`${l.speaker}: ${l.text}`); }
   }
 
-  // fit the page layer into the stage (flat and photo modes)
+  // fit for photo and flat presentation (AR sets the transform directly from the tracker)
+  const effective: Mode = mode === 'ar' && !arLive ? 'photo' : mode;
   const computeFit = useCallback(() => {
     const st = stageRef.current; if (!st || !scene) return;
     const cw = st.clientWidth, ch = st.clientHeight;
     const { w, h } = scene.page;
-    if (mode === 'photo') { const scale = Math.max(cw / w, ch / h); setFit({ scale, x: (cw - w * scale) / 2, y: (ch - h * scale) / 2 }); return; }
-    // flat: keep the page clear of the top bar and the bottom controls
+    if (effective === 'photo') { const scale = Math.max(cw / w, ch / h); setFit({ scale, x: (cw - w * scale) / 2, y: (ch - h * scale) / 2 }); return; }
     const top = 64, bottom = Math.min(260, ch * 0.34);
     const avail = Math.max(120, ch - top - bottom);
     const scale = Math.min(cw / w, avail / h);
     setFit({ scale, x: (cw - w * scale) / 2, y: top + (avail - h * scale) / 2 });
-  }, [scene, mode]);
+  }, [scene, effective]);
   useEffect(() => { computeFit(); window.addEventListener('resize', computeFit); return () => window.removeEventListener('resize', computeFit); }, [computeFit]);
 
   const r = rendererRef.current;
   const step = scene?.steps[stepIndex];
   const sliders = scene?.interactions.filter((i) => i.type === 'slider') ?? [];
+  const fitTransform = `translate(${fit.x}px, ${fit.y}px) scale(${fit.scale})`;
+  const layerStyle = effective === 'ar' ? undefined : { transform: fitTransform };
 
   return (
     <div className="experience">
-      <div ref={stageRef} className={`stage mode-${mode}`} onClick={() => mixer.unlock()}>
-        {pageImageUrl && <img className="page-photo" src={pageImageUrl} alt="" style={{ transform: `translate(${fit.x}px, ${fit.y}px) scale(${fit.scale})`, width: scene?.page.w, height: scene?.page.h }} />}
-        <div className="page-layer" style={{ width: scene?.page.w, height: scene?.page.h, transform: `translate(${fit.x}px, ${fit.y}px) scale(${fit.scale})` }}>
+      <div ref={stageRef} className={`stage mode-${effective}`} onClick={() => mixer.unlock()}>
+        {pageImageUrl && effective !== 'ar' && <img className="page-photo" src={pageImageUrl} alt="" style={{ transform: fitTransform, width: scene?.page.w, height: scene?.page.h }} />}
+        <div ref={layerRef} className="page-layer" style={{ width: scene?.page.w, height: scene?.page.h, ...layerStyle }}>
           <canvas ref={canvasRef} className="page-canvas" />
         </div>
         {!scene && status === 'generating' && (
-          <div className="awaken">
-            <div className="awaken-title">{quick?.title ?? 'Reading the page…'}</div>
-            {quick?.gist && <div className="awaken-gist">{quick.gist}</div>}
-          </div>
+          <div className="awaken"><div className="awaken-title">{quick?.title ?? 'Reading the page…'}</div>{quick?.gist && <div className="awaken-gist">{quick.gist}</div>}</div>
         )}
         {status === 'error' && <div className="error-card"><b>Could not bring this page to life.</b><div>{error}</div><button onClick={onBack}>Try another page</button></div>}
+        {mode === 'ar' && arAvailable && !arLive && status !== 'error' && <div className="ar-hint">{arState === 'searching' ? 'Point the camera back at the page' : arState === 'lost' ? 'Showing it on your photo until the page is found again' : 'Finding the page…'}</div>}
       </div>
 
       <div className="hud-top">
@@ -172,7 +209,7 @@ export function ExperienceView({ onBack }: Props) {
           </div>
         )}
         {scene && scene.vars.some((v) => v.role === 'time') && (
-          <button className="pill play" onClick={() => { const rt = r?.runtime; if (!rt) return; if (!rt.playing && rt.getVar(scene.vars.find((v) => v.role === 'time')!.id)! >= scene.vars.find((v) => v.role === 'time')!.max) rt.resetTime(); rt.setPlaying(!rt.playing); }}>{playing ? '❚❚ Pause' : '▶ Play'}</button>
+          <button className="pill play" onClick={() => { const rt = r?.runtime; if (!rt) return; const tv = scene.vars.find((v) => v.role === 'time')!; if (!rt.playing && rt.getVar(tv.id)! >= tv.max) rt.resetTime(); rt.setPlaying(!rt.playing); }}>{playing ? '❚❚ Pause' : '▶ Play'}</button>
         )}
         {sliders.length > 0 && (
           <div className="sliders">
@@ -186,7 +223,8 @@ export function ExperienceView({ onBack }: Props) {
           </div>
         )}
         <div className="modes">
-          {(['ar', 'photo', 'flat'] as const).map((m) => <button key={m} className={`pill ${mode === m ? 'on' : ''}`} onClick={() => setMode(m)}>{m === 'ar' ? 'AR' : m === 'photo' ? 'Photo' : 'Flat'}</button>)}
+          {(['ar', 'photo', 'flat'] as const).map((m) => <button key={m} className={`pill ${mode === m ? 'on' : ''}`} disabled={m === 'ar' && !arAvailable} onClick={() => setMode(m)}>{m === 'ar' ? 'AR' : m === 'photo' ? 'Photo' : 'Flat'}</button>)}
+          {arAvailable && mode === 'ar' && <span className="ar-stats">{session?.tracker.fps ?? 0} fps · {session?.tracker.trackedPts ?? 0} pts</span>}
         </div>
       </div>
     </div>

@@ -1,45 +1,47 @@
-// Capture: live camera with framing guidance and a quality gate, or an uploaded photo. The "Bring it to life"
-// tap unlocks audio and starts the pipeline.
+// Capture: live camera with framing guidance and a quality gate, or an uploaded photo. While the user frames the
+// page, the tracker pre-warms its WebGL kernels so AR can start the instant they tap "Bring it to life".
 import { useEffect, useRef, useState } from 'react';
 import { mixer } from '../audio/mixer';
 import { quality } from '../lib/quality';
+import { CameraSession } from '../ar/camera';
 
-type Props = { onCapture: (blob: Blob, preview: string, size: { w: number; h: number }) => void; onLibrary: () => void };
+export type CaptureResult = { blob: Blob; previewUrl: string; size: { w: number; h: number }; session: CameraSession | null };
+type Props = { onCapture: (r: CaptureResult) => void; onLibrary: () => void };
 
 export function CaptureView({ onCapture, onLibrary }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [hint, setHint] = useState<string>('');
+  const [hint, setHint] = useState('');
+  const [trackerState, setTrackerState] = useState('');
   const [busy, setBusy] = useState(false);
-  const streamRef = useRef<MediaStream | null>(null);
   const gateRef = useRef<number | null>(null);
+  const simParam = Number(new URLSearchParams(location.search).get('sim')) || 0;
 
   async function startCamera() {
     setCameraError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
-      streamRef.current = stream;
-      const v = videoRef.current!;
-      v.srcObject = stream;
-      await new Promise<void>((r) => { v.onloadedmetadata = () => r(); });
-      await v.play();
-      v.setAttribute('width', String(v.videoWidth)); v.setAttribute('height', String(v.videoHeight));
+      const session = CameraSession.getOrCreate();
+      await session.start({ sim: simParam });
+      session.attach(stageRef.current!);
       setCameraOn(true);
-      gateRef.current = window.setInterval(checkQuality, 700);
+      gateRef.current = window.setInterval(() => checkQuality(session), 700);
+      session.tracker.onLog = (m) => console.log('[tracker]', m);
+      setTrackerState('warming up');
+      session.prewarm().then(() => setTrackerState('ready')).catch((e) => { console.warn('prewarm failed', e); setTrackerState('unavailable'); });
     } catch (e: any) {
       setCameraError(e?.name === 'NotAllowedError' ? 'Camera permission was denied. You can still upload a photo.' : `Camera unavailable (${e?.message || e}). You can upload a photo instead.`);
     }
   }
-  function stopCamera() {
+  function closeCamera() {
     if (gateRef.current) clearInterval(gateRef.current);
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null; setCameraOn(false);
+    CameraSession.current?.stop();
+    setCameraOn(false);
   }
-  useEffect(() => () => stopCamera(), []);
+  useEffect(() => () => { if (gateRef.current) clearInterval(gateRef.current); }, []);
 
-  function checkQuality() {
-    const v = videoRef.current; if (!v || !v.videoWidth) return;
+  function checkQuality(session: CameraSession) {
+    const v = session.video; if (!v.videoWidth) return;
     const c = document.createElement('canvas'); c.width = 320; c.height = Math.round((320 * v.videoHeight) / v.videoWidth);
     const ctx = c.getContext('2d', { willReadFrequently: true })!; ctx.drawImage(v, 0, 0, c.width, c.height);
     const q = quality(ctx.getImageData(0, 0, c.width, c.height));
@@ -47,13 +49,11 @@ export function CaptureView({ onCapture, onLibrary }: Props) {
   }
 
   async function captureFromCamera() {
-    const v = videoRef.current; if (!v) return;
+    const session = CameraSession.current; if (!session) return;
     setBusy(true); mixer.unlock();
-    const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
-    c.getContext('2d')!.drawImage(v, 0, 0);
-    const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), 'image/jpeg', 0.9));
-    stopCamera();
-    onCapture(blob, URL.createObjectURL(blob), { w: c.width, h: c.height });
+    if (gateRef.current) clearInterval(gateRef.current);
+    const { blob, previewUrl, size } = await session.capture();
+    onCapture({ blob, previewUrl, size, session });
   }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -65,13 +65,13 @@ export function CaptureView({ onCapture, onLibrary }: Props) {
     const c = document.createElement('canvas'); c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
     c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
     const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), 'image/jpeg', 0.9));
-    stopCamera();
-    onCapture(blob, URL.createObjectURL(blob), { w: c.width, h: c.height });
+    closeCamera();
+    onCapture({ blob, previewUrl: URL.createObjectURL(blob), size: { w: c.width, h: c.height }, session: null });
   }
 
   return (
     <div className="capture">
-      <video ref={videoRef} className={`capture-video ${cameraOn ? 'on' : ''}`} autoPlay muted playsInline />
+      <div ref={stageRef} className={`capture-stage ${cameraOn ? 'on' : ''}`} />
       {!cameraOn && (
         <div className="capture-intro">
           <div className="logo">Living Book</div>
@@ -84,11 +84,11 @@ export function CaptureView({ onCapture, onLibrary }: Props) {
       )}
       {cameraOn && (
         <>
-          <div className="guide"><div className="guide-frame" /><div className="guide-text">{hint || 'Fit the whole page inside the frame'}</div></div>
+          <div className="guide"><div className="guide-frame" /><div className="guide-text">{hint || 'Fit the whole page inside the frame'}</div>{trackerState && <div className="guide-sub">AR {trackerState}</div>}</div>
           <div className="capture-actions">
             <label className="secondary small">Upload<input type="file" accept="image/*" onChange={onFile} hidden /></label>
             <button className="primary big" onClick={captureFromCamera} disabled={busy}>Bring it to life</button>
-            <button className="secondary small" onClick={stopCamera}>Close</button>
+            <button className="secondary small" onClick={closeCamera}>Close</button>
           </div>
         </>
       )}

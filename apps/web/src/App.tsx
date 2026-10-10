@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CaptureView } from './views/CaptureView';
+import { CaptureView, type CaptureResult } from './views/CaptureView';
 import { ExperienceView } from './views/ExperienceView';
 import { LibraryView } from './views/LibraryView';
 import { useStore } from './lib/store';
@@ -37,8 +37,9 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route]);
 
-  async function onCapture(blob: Blob, preview: string, size: { w: number; h: number }) {
+  async function onCapture({ blob, previewUrl: preview, size, session }: CaptureResult) {
     beginGeneration(preview, size);
+    useStore.getState().setMode(session && session.tracker.state !== 'idle' ? 'ar' : 'photo');
     go({ name: 'experience' }, '/x/new');
     try {
       await createExperience(blob, (e) => { applyEvent(e); if (e.type === 'done') history.replaceState(null, '', `/x/${e.experienceId}`); });
