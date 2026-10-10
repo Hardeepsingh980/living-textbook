@@ -7,6 +7,7 @@ COPY packages/scene/package.json packages/scene/
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY spikes/tracking/package.json spikes/tracking/
+COPY eval/package.json eval/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY packages ./packages
 COPY apps ./apps
@@ -21,6 +22,7 @@ COPY packages/scene/package.json packages/scene/
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY spikes/tracking/package.json spikes/tracking/
+COPY eval/package.json eval/
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @living-book/server... \
  && cd node_modules/.pnpm/sharp*/node_modules/sharp && npm run install --silent 2>/dev/null || true
 COPY --from=build /app/apps/server/dist ./apps/server/dist

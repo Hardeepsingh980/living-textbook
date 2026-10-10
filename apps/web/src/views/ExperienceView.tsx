@@ -9,6 +9,7 @@ import { SpeechQueue } from '../audio/speech';
 import { LiveVoice } from '../audio/live';
 import { Theatre } from '../components/Theatre';
 import { VerificationBadge } from '../components/VerificationBadge';
+import { Icon } from '../components/Icon';
 import { CameraSession } from '../ar/camera';
 import { cornersToMatrix3d, type Corners, type TrackerState } from '../ar/PageTracker';
 import type { Scene } from '@living-book/scene';
@@ -16,6 +17,7 @@ import type { Scene } from '@living-book/scene';
 type Props = { onBack: () => void };
 const LOST_TO_PHOTO_MS = 1800;
 const DEBUG = new URLSearchParams(location.search).has('debug');
+const REVIEW = new URLSearchParams(location.search).has('review'); // chrome-free rendering for screenshots and judging
 
 const STAGE_PHRASE: Record<string, string> = {
   upload: 'Looking at your page…', read: 'Reading your page…', track: 'Learning your page…', build: 'Bringing it to life…',
@@ -106,7 +108,7 @@ export function ExperienceView({ onBack }: Props) {
   }, [scene, sceneVersion, pageImg]);
 
   useEffect(() => { const r = rendererRef.current; if (!r) return; for (const [id, url] of Object.entries(assets)) void r.addAsset(id, url); }, [assets]);
-  useEffect(() => { mixer.setMuted(muted); }, [muted]);
+  useEffect(() => { mixer.setMuted(muted || REVIEW); }, [muted]);
   useEffect(() => () => { speechRef.current.clear(); rendererRef.current?.destroy(); mixer.destroy(); CameraSession.current?.stop(); liveRef.current?.stop(); }, []);
 
   // ---------- narration: opener, then steps in order, looping ----------
@@ -235,17 +237,17 @@ export function ExperienceView({ onBack }: Props) {
         {arAvailable && !arLive && status !== 'error' && arState !== 'idle' && (lostSince.current ?? 0) > 0 && <div className="ar-hint">Point the camera at the page</div>}
       </div>
 
-      <div className="top-bar">
-        <button className="round" onClick={onBack} aria-label="Back">←</button>
-        {phrase ? <div className="progress-pill"><span className="spark" />{phrase}</div> : <div className="spacer" />}
-        <button className="round small" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute' : 'Mute'}>{muted ? '🔇' : '🔊'}</button>
-        <button className={`round small ${theatreOpen ? 'on' : ''}`} onClick={() => setTheatre(!theatreOpen)} aria-label="How it was made">✨</button>
+      {!REVIEW && <div className="top-bar">
+        <button className="round" onClick={onBack} aria-label="Back"><Icon name="back" /></button>
+        {phrase ? <div className="progress-pill"><span className="bar" />{phrase}</div> : <div className="spacer" />}
+        <button className="round small" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute' : 'Mute'}><Icon name={muted ? 'soundOff' : 'sound'} size={18} /></button>
+        <button className={`round small ${theatreOpen ? 'on' : ''}`} onClick={() => setTheatre(!theatreOpen)} aria-label="How it was made"><Icon name="layers" size={18} /></button>
         <VerificationBadge compact />
-      </div>
-      {theatreOpen && <div className="theatre-dock"><Theatre compact={status === 'ready'} /></div>}
+      </div>}
+      {theatreOpen && !REVIEW && <div className="theatre-dock"><Theatre compact={status === 'ready'} /></div>}
       {DEBUG && stats && <div className="debug">{stats}</div>}
 
-      <div className="bottom">
+      {!REVIEW && <div className="bottom">
         {showKnob && (
           <div className="knob-panel">
             <label className="knob-label">{showKnob.label ?? showKnob.id}: <b>{(vars[showKnob.id] ?? showKnob.init).toFixed(showKnob.step && showKnob.step < 1 ? 2 : 1)}{showKnob.unit ? ` ${showKnob.unit}` : ''}</b></label>
@@ -263,13 +265,14 @@ export function ExperienceView({ onBack }: Props) {
         {caption && <div className="caption" onClick={nextStep}>{caption}</div>}
         {scene && (
           <div className="controls">
-            <button className="round" onClick={replay} aria-label="Replay">↺</button>
-            <button className="round big" onClick={togglePause} aria-label={paused ? 'Play' : 'Pause'}>{paused ? '▶' : '❚❚'}</button>
-            <button className={`round big mic ${voice}`} onClick={toggleVoice} aria-label="Ask a question" disabled={status !== 'ready'}>{voice === 'off' ? '🎤' : voice === 'connecting' ? '…' : voice === 'speaking' ? '🗣' : voice === 'error' ? '!' : '●'}</button>
-            {scene.steps.length > 1 && <div className="dots" onClick={nextStep}>{scene.steps.map((s, i) => <span key={s.id} className={i === stepIndex ? 'on' : ''} />)}</div>}
+            <button className="round" onClick={replay} aria-label="Replay"><Icon name="replay" /></button>
+            <button className="round big" onClick={togglePause} aria-label={paused ? 'Play' : 'Pause'}><Icon name={paused ? 'play' : 'pause'} size={26} /></button>
+            <button className={`round big mic ${voice}`} onClick={toggleVoice} aria-label={voice === 'off' ? 'Ask a question' : 'Stop listening'} disabled={status !== 'ready'}><Icon name={voice === 'off' ? 'mic' : voice === 'error' ? 'cross' : 'stop'} size={26} /></button>
+            {scene.steps.length > 1 && <button className="round" onClick={nextStep} aria-label="Next"><Icon name="next" /></button>}
           </div>
         )}
-      </div>
+        {scene && scene.steps.length > 1 && <div className="dots">{scene.steps.map((s, i) => <span key={s.id} className={i === stepIndex ? 'on' : ''} />)}</div>}
+      </div>}
     </div>
   );
 }

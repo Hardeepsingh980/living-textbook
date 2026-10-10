@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { mixer } from '../audio/mixer';
 import { quality } from '../lib/quality';
 import { CameraSession } from '../ar/camera';
+import { Icon } from '../components/Icon';
 
 export type CaptureResult = { blob: Blob; previewUrl: string; size: { w: number; h: number }; session: CameraSession | null };
 type Props = { onCapture: (r: CaptureResult) => void; onLibrary: () => void };
@@ -74,21 +75,21 @@ export function CaptureView({ onCapture, onLibrary }: Props) {
       <div ref={stageRef} className={`capture-stage ${cameraOn ? 'on' : ''}`} />
       {!cameraOn && (
         <div className="capture-intro">
-          <div className="logo">Living Book</div>
-          <p>Point your phone at any page of any book, and watch it come alive.</p>
-          <button className="primary" onClick={startCamera} disabled={busy}>Open camera</button>
-          <label className="secondary">Upload a page photo<input type="file" accept="image/*" onChange={onFile} hidden /></label>
-          <button className="link" onClick={onLibrary}>My library</button>
+          <div className="wordmark"><span className="mark" />Living Book</div>
+          <p className="lede">Point your phone at a page. Watch it come alive.</p>
+          <button className="primary" onClick={startCamera} disabled={busy}><Icon name="camera" /> Open camera</button>
+          <label className="secondary"><Icon name="upload" size={18} /> Use a photo<input type="file" accept="image/*" onChange={onFile} hidden /></label>
+          <button className="link" onClick={onLibrary}><Icon name="library" size={18} /> Saved pages</button>
           {cameraError && <div className="note">{cameraError}</div>}
         </div>
       )}
       {cameraOn && (
         <>
-          <div className="guide"><div className="guide-frame" /><div className="guide-text">{hint || 'Fit the whole page inside the frame'}</div>{trackerState && <div className="guide-sub">AR {trackerState}</div>}</div>
+          <div className="guide"><div className="guide-frame" /><div className="guide-text">{hint || 'Fit the whole page inside the frame'}</div>{trackerState && trackerState !== 'ready' && <div className="guide-sub">Getting ready</div>}</div>
           <div className="capture-actions">
-            <label className="secondary small">Upload<input type="file" accept="image/*" onChange={onFile} hidden /></label>
+            <label className="round" aria-label="Use a photo"><Icon name="upload" /><input type="file" accept="image/*" onChange={onFile} hidden /></label>
             <button className="primary big" onClick={captureFromCamera} disabled={busy}>Bring it to life</button>
-            <button className="secondary small" onClick={closeCamera}>Close</button>
+            <button className="round" onClick={closeCamera} aria-label="Close"><Icon name="close" /></button>
           </div>
         </>
       )}

@@ -1,0 +1,45 @@
+{
+  "kind": "other-subject",
+  "language": "en",
+  "values": [
+    {
+      "name": "1857",
+      "value": 1857
+    },
+    {
+      "name": "1885",
+      "value": 1885
+    },
+    {
+      "name": "1919",
+      "value": 1919
+    },
+    {
+      "name": "1930",
+      "value": 1930
+    },
+    {
+      "name": "1942",
+      "value": 1942
+    },
+    {
+      "name": "1947",
+      "value": 1947
+    },
+    {
+      "name": "1950",
+      "value": 1950
+    }
+  ],
+  "worked": [],
+  "claims": [
+    "Salt March",
+    "Quit India",
+    "15 August 1947"
+  ],
+  "mustNotClaim": [
+    "1962",
+    "Partition of Bengal",
+    "Subhas"
+  ]
+}

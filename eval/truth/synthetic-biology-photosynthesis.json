@@ -1,0 +1,16 @@
+{
+  "kind": "science",
+  "language": "en",
+  "values": [],
+  "worked": [],
+  "claims": [
+    "chlorophyll traps the energy of sunlight",
+    "carbon dioxide enters through stomata",
+    "glucose is stored as starch"
+  ],
+  "mustNotClaim": [
+    "mitochondria",
+    "at night",
+    "nitrogen"
+  ]
+}

@@ -8,3 +8,5 @@ spikes/tracking/src
 spikes/tracking/server
 spikes/tracking/index.html
 **/public/dev
+eval/output
+eval/pages

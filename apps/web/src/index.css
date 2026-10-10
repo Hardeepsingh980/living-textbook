@@ -31,7 +31,10 @@ button:disabled { opacity: 0.35; }
 .capture-stage.on { display: block; }
 .camera-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .capture-intro { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px; text-align: center; max-width: 440px; }
-.logo { font-size: 46px; font-weight: 800; letter-spacing: -0.02em; background: linear-gradient(90deg, #ffd166, #ff9f7f, #7fd3ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.wordmark { display: flex; align-items: center; gap: 12px; font-size: 34px; font-weight: 800; letter-spacing: -0.02em; }
+.wordmark .mark { width: 22px; height: 30px; border-radius: 4px 10px 10px 4px; background: var(--accent); box-shadow: inset 4px 0 0 rgba(0,0,0,0.25); }
+.lede { color: var(--muted); font-size: 18px; margin: 0; }
+.primary, .secondary, .link { display: inline-flex; align-items: center; gap: 8px; justify-content: center; }
 .guide { position: absolute; inset: 0; pointer-events: none; display: grid; place-items: center; }
 .guide-frame { width: min(86vw, 62vh); aspect-ratio: 3 / 4.2; border: 3px solid rgba(255, 255, 255, 0.85); border-radius: 22px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.35); }
 .guide-text { position: absolute; top: calc(16px + env(safe-area-inset-top)); left: 16px; right: 16px; text-align: center; background: var(--glass); padding: 10px 14px; border-radius: 999px; font-weight: 800; }
@@ -52,8 +55,10 @@ button:disabled { opacity: 0.35; }
 .top-bar { position: absolute; left: 12px; right: 12px; top: calc(10px + env(safe-area-inset-top)); display: flex; align-items: center; gap: 8px; z-index: 5; }
 .top-bar .spacer { flex: 1; }
 .progress-pill { flex: 1; display: flex; align-items: center; gap: 8px; background: var(--glass); border-radius: 999px; padding: 9px 14px; font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.progress-pill .spark { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite; flex: none; }
+.progress-pill .bar { width: 28px; height: 4px; border-radius: 2px; background: linear-gradient(90deg, var(--accent) 0 50%, rgba(255,255,255,0.2) 50% 100%); background-size: 200% 100%; animation: sweep 1.2s linear infinite; flex: none; }
+@keyframes sweep { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 .seal { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 18px; padding: 0; background: var(--glass); }
+.seal-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); animation: pulse 1.2s infinite; }
 .seal.ok { background: var(--ok); color: #06200c; } .seal.warn { background: var(--warn); color: #2a1a00; } .seal.bad { background: var(--bad); color: #fff; } .seal.pending { color: var(--muted); }
 .debug { position: absolute; left: 12px; top: calc(66px + env(safe-area-inset-top)); z-index: 5; font: 12px ui-monospace, monospace; background: var(--glass); padding: 4px 8px; border-radius: 8px; }
 
@@ -77,7 +82,7 @@ button:disabled { opacity: 0.35; }
 .bottom { position: absolute; left: 12px; right: 12px; bottom: calc(14px + env(safe-area-inset-bottom)); display: grid; gap: 10px; z-index: 5; justify-items: center; }
 .caption { width: 100%; text-align: center; background: rgba(8, 10, 24, 0.78); color: #fff; padding: 12px 16px; border-radius: 16px; font-size: 19px; font-weight: 700; line-height: 1.35; text-wrap: balance; }
 .controls { display: flex; align-items: center; gap: 14px; }
-.dots { display: flex; gap: 6px; padding: 8px; }
+.dots { display: flex; gap: 6px; padding: 4px; }
 .dots span { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.35); }
 .dots span.on { background: var(--accent); transform: scale(1.3); }
 .knobs { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
@@ -105,4 +110,4 @@ code { background: rgba(255, 255, 255, 0.1); padding: 1px 6px; border-radius: 6p
 .card-title { padding: 0 10px; font-weight: 800; font-size: 14px; }
 .card-sub { padding: 0 10px 10px; color: var(--muted); font-size: 12px; }
 
-@media (prefers-reduced-motion: reduce) { .theatre-row.start .dot, .progress-pill .spark, .round.mic.listening { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .theatre-row.start .dot, .progress-pill .bar, .round.mic.listening, .seal-dot { animation: none; } }

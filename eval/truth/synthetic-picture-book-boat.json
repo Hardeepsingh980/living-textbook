@@ -1,0 +1,16 @@
+{
+  "kind": "picture-book",
+  "language": "en",
+  "characters": [
+    "Bobo",
+    "Gull"
+  ],
+  "dialogue": [
+    "Faster, Bobo!"
+  ],
+  "mustNotClaim": [
+    "storm",
+    "shark",
+    "island"
+  ]
+}

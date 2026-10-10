@@ -22,6 +22,8 @@ export type Corners = [number, number, number, number, number, number, number, n
 const MISS_TOLERANCE = 10;        // frames of failed local tracking before we declare the page lost
 const SEARCH_EVERY_MS = 400;      // while lost without detection data: how often to try a pose search around the last pose
 const MIN_TRACK_POINTS = 6;       // below this the pose refinement is not trusted
+const REVALIDATE_EVERY_MS = 1500; // while tracking with detection data: re-match periodically to cancel drift
+const UPGRADE_KF = 448;           // second, finer template set extracted in the background after the fast seed
 
 export class PageTracker {
   state: TrackerState = 'idle';
@@ -50,6 +52,9 @@ export class PageTracker {
   private inputScale = 1;                      // input px = video px × inputScale
   private lastReacquireAt = 0;
   private lastSearchAt = 0;
+  private lastRevalidateAt = 0;
+  private seedGrey: Uint8Array | null = null;
+  private upgraded = false;
   metrics = { losses: 0, reacquisitions: 0, searches: 0, searchHits: 0, framesTracked: 0, framesLost: 0 };
   trackedPts = 0;
   fps = 0; private frames = 0; private fpsT = 0;
@@ -140,7 +145,24 @@ export class PageTracker {
     const inputT = this.loader.loadInput(this.input);
     try { const best = await this.searchPose(inputT, this.seedMv, 2); if (best) this.mv = best; } finally { inputT.dispose(); }
     this.state = 'tracking';
+    this.seedGrey = grey;
     this.log(`templates ${points.join('/')} in ${ms} ms; tracking seeded ${Math.round(performance.now() - t0)} ms after capture`);
+    void this.upgradeTemplates();
+  }
+
+  /** Finer templates (more points, steadier pose) extracted off-thread and swapped in without losing the pose. */
+  private async upgradeTemplates() {
+    if (this.upgraded || !this.seedGrey) return;
+    const saveKf = this.kf; this.kf = UPGRADE_KF;
+    try {
+      const { tracking, ms, points } = await this.extract(this.seedGrey);
+      this.kf = saveKf;
+      if (!this.running || !this.mv) return;
+      while (this.busy) await new Promise((r) => setTimeout(r, 5));
+      this.tracker = new Tracker([[this.targetW, this.targetH]], [tracking], this.K, this.input.width, this.input.height);
+      this.upgraded = true;
+      this.log(`templates upgraded to ${points[1]} points (kf ${UPGRADE_KF}) in ${ms} ms`);
+    } catch (e: any) { this.kf = saveKf; this.log(`template upgrade failed: ${e?.message || e}`); }
   }
 
   /** Server-compiled MindAR data: enables re-acquisition. */
@@ -224,7 +246,21 @@ export class PageTracker {
         this.trackedPts = r.worldCoords.length;
         let next: MV | null = null;
         if (r.worldCoords.length >= MIN_TRACK_POINTS) next = await this.workerTrackUpdate(this.mv, r.worldCoords, r.screenCoords);
-        if (next) { this.mv = next; this.misses = 0; this.metrics.framesTracked++; }
+        if (next) {
+          this.mv = next; this.misses = 0; this.metrics.framesTracked++;
+          // drift control: every so often ask the detector where the page really is and nudge towards it
+          const now = performance.now();
+          if (this.hasMatching && now - this.lastRevalidateAt > REVALIDATE_EVERY_MS) {
+            this.lastRevalidateAt = now;
+            const { featurePoints } = this.cropDetector.detectMoving(inputT);
+            const res = await this.workerMatch(featurePoints);
+            if (res.targetIndex === 0 && res.modelViewTransform) {
+              const a = this.project(this.mv), b = this.project(res.modelViewTransform);
+              let d = 0; for (let i = 0; i < 8; i++) d = Math.max(d, Math.abs(a[i]! - b[i]!));
+              if (d > 6) { this.mv = res.modelViewTransform; this.metrics.reacquisitions++; }
+            }
+          }
+        }
         else if (++this.misses > MISS_TOLERANCE) { this.state = this.hasMatching ? 'searching' : 'lost'; this.lostAt = performance.now(); this.metrics.losses++; this.log(`lost (${this.trackedPts} pts)`); }
       } else if (this.state !== 'tracking' && this.mv) {
         this.metrics.framesLost++;

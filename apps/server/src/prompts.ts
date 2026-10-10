@@ -88,6 +88,7 @@ Composition rules (the reader is often a child; the experience must feel alive a
 6. NARRATION: 1–2 short sentences per step in ${quick.language}, warm, concrete, child-safe; 3–6 steps that build the idea; total ≤ 110 words. Each step changes something visible ("show", "set", "highlight", "focus").
 7. EXPRESSIONS: only declared vars, derived ids, t, W, H; a derived id never references itself; use ${'`'}true${'`'}/${'`'}false${'`'} only in "visible".
 8. STORIES: one generated background or none, one generated sprite per character (use the character looks given), characters placed in the illustration box, gentle idle motion, speech bubbles only for short lines (≤ 12 words), lines in "audio.lines" with an "el" so a tap replays them.
+8b. GENERATED PICTURES FOR CLARITY: for any kind, you may add up to 3 "gen" assets when a clean picture makes the concept clearer than a shape (a raindrop, a leaf, a battery, a planet, a stone, a boat). Prompt them as "flat vector illustration of a single <object>, simple, bold outlines, plain white background, no text" and animate them like any sprite. Never generate text, diagrams or copies of the page's own artwork.
 9. VERIFIABLE: for every worked example or numeric answer printed on the page include a derived value that computes it from the page's inputs (e.g. "tland": "sqrt(2*h0/g)") and a label that shows it with {tland:0.01}.`;
 }
 

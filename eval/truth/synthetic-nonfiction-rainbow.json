@@ -1,0 +1,16 @@
+{
+  "kind": "non-fiction",
+  "language": "en",
+  "values": [],
+  "worked": [],
+  "claims": [
+    "red on the outside",
+    "violet on the inside",
+    "Sun behind you"
+  ],
+  "mustNotClaim": [
+    "double rainbow",
+    "prism made of glass",
+    "moonbow"
+  ]
+}

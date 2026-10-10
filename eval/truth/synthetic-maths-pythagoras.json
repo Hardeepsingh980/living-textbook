@@ -1,0 +1,45 @@
+{
+  "kind": "maths",
+  "language": "en",
+  "values": [
+    {
+      "name": "a",
+      "value": 3
+    },
+    {
+      "name": "b",
+      "value": 4
+    },
+    {
+      "name": "c",
+      "value": 5
+    },
+    {
+      "name": "ladder",
+      "value": 13
+    },
+    {
+      "name": "foot",
+      "value": 5
+    },
+    {
+      "name": "h",
+      "value": 12
+    }
+  ],
+  "worked": [
+    {
+      "answer": 5,
+      "unit": "cm"
+    },
+    {
+      "answer": 12,
+      "unit": "m"
+    }
+  ],
+  "mustNotClaim": [
+    "6 cm",
+    "isosceles",
+    "cosine"
+  ]
+}

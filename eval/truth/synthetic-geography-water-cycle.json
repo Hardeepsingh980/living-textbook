@@ -1,0 +1,22 @@
+{
+  "kind": "other-subject",
+  "language": "en",
+  "values": [
+    {
+      "name": "oceans",
+      "value": 97
+    }
+  ],
+  "worked": [],
+  "claims": [
+    "evaporation",
+    "condensation",
+    "precipitation",
+    "97% of the Earth's water is in the oceans"
+  ],
+  "mustNotClaim": [
+    "transpiration",
+    "glacier",
+    "Amazon"
+  ]
+}

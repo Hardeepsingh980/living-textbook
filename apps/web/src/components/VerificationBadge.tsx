@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../lib/store';
+import { Icon } from './Icon';
 
 const LABEL: Record<string, { text: string; cls: string }> = {
   'verified-page': { text: 'Checked against the page', cls: 'ok' },
@@ -13,9 +14,9 @@ export function VerificationBadge({ compact = false }: { compact?: boolean }) {
   const v = useStore((s) => s.verification);
   const status = useStore((s) => s.status);
   const [open, setOpen] = useState(false);
-  if (!v) return status === 'generating' ? <span className="seal pending" title="Checking…">…</span> : null;
+  if (!v) return status === 'generating' ? <span className="seal pending" title="Checking…"><span className="seal-dot" /></span> : null;
   const l = LABEL[v.status] ?? LABEL.unverified!;
-  const glyph = l.cls === 'ok' ? '✓' : l.cls === 'bad' ? '✗' : '?';
+  const glyph = <Icon name={l.cls === 'ok' ? 'check' : l.cls === 'bad' ? 'cross' : 'question'} size={18} />;
   return (
     <>
       <button className={`seal ${l.cls}`} onClick={() => setOpen(true)} aria-label={l.text} title={l.text}>{glyph}{compact ? '' : ` ${l.text}`}</button>
@@ -27,7 +28,7 @@ export function VerificationBadge({ compact = false }: { compact?: boolean }) {
             <ul className="checks">
               {v.checks.map((c, i) => (
                 <li key={i} className={c.pass ? 'pass' : 'fail'}>
-                  <b>{c.pass ? '✓' : '✗'} {c.name}</b> <span className="muted">({c.method === 'page-answer' ? 'page answer' : c.method})</span>
+                  <b><Icon name={c.pass ? 'check' : 'cross'} size={14} /> {c.name}</b> <span className="muted">({c.method === 'page-answer' ? 'page answer' : c.method})</span>
                   {c.expected !== undefined && <div>expected <code>{String(c.expected)}</code>{c.got !== undefined && <> · got <code>{String(c.got)}</code></>}</div>}
                   <div className="muted">{c.detail}</div>
                 </li>
