@@ -157,7 +157,8 @@ export class SceneRenderer {
       case 'sprite': {
         const tex = this.textures.get(el.asset);
         const s = new Sprite(tex ?? Texture.WHITE);
-        if (!tex) { s.tint = 0xdddddd; s.alpha = 0.6; } // placeholder until the asset arrives
+        const asset = this.scene.assets.find((a) => a.id === el.asset);
+        if (!tex) { if (asset?.type === 'gen') { s.tint = 0xdddddd; s.alpha = 0.35; } else s.visible = false; } // gen: soft placeholder until it arrives; anything else: nothing to show
         s.anchor.set(0.5);
         s.label = 'sprite';
         c.addChild(s);
@@ -190,7 +191,7 @@ export class SceneRenderer {
       case 'sprite': {
         const s = node.getChildByLabel('sprite') as Sprite;
         const tex = this.textures.get(el.asset);
-        if (tex && s.texture !== tex) { s.texture = tex; s.tint = 0xffffff; s.alpha = 1; }
+        if (tex && s.texture !== tex) { s.texture = tex; s.tint = 0xffffff; s.alpha = 1; s.visible = true; }
         const w = r.w ?? s.texture.width, h = r.h ?? (r.w ? (r.w * s.texture.height) / Math.max(1, s.texture.width) : s.texture.height);
         s.width = w * r.scale * (el.flip ? -1 : 1); s.height = h * r.scale;
         if (el.tint) s.tint = el.tint;
@@ -353,7 +354,7 @@ export class SceneRenderer {
     const speed = (r.speed ?? 1) * r.scale;
     const preset = el.preset;
     const color = el.color ? Number(`0x${el.color.replace('#', '')}`) || 0xffffff : undefined;
-    st.acc += el.rate * dt;
+    st.acc += (r.rate ?? 40) * dt;
     while (st.acc >= 1 && st.list.length < 400) {
       st.acc -= 1;
       const g = new Graphics();
@@ -428,9 +429,16 @@ async function loadKeyedTexture(url: string, key: boolean): Promise<Texture> {
   const ctx = c.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(img, 0, 0);
   const d = ctx.getImageData(0, 0, c.width, c.height); const p = d.data;
-  // flood from the borders so white inside the subject (eyes, teeth) stays opaque
+  // the background is whatever colour the border is (white, off-white, a flat tint); key it by distance from the
+  // border's median colour, flooding from the edges so similar colours inside the subject stay opaque
   const w = c.width, h = c.height, seen = new Uint8Array(w * h), stack: number[] = [];
-  const isBg = (i: number) => p[i * 4]! > 232 && p[i * 4 + 1]! > 232 && p[i * 4 + 2]! > 232;
+  const samples: number[][] = [];
+  for (let x = 0; x < w; x += 3) { samples.push([p[x * 4]!, p[x * 4 + 1]!, p[x * 4 + 2]!], [p[((h - 1) * w + x) * 4]!, p[((h - 1) * w + x) * 4 + 1]!, p[((h - 1) * w + x) * 4 + 2]!]); }
+  for (let y = 0; y < h; y += 3) { samples.push([p[(y * w) * 4]!, p[(y * w) * 4 + 1]!, p[(y * w) * 4 + 2]!], [p[(y * w + w - 1) * 4]!, p[(y * w + w - 1) * 4 + 1]!, p[(y * w + w - 1) * 4 + 2]!]); }
+  const med = (k: number) => samples.map((s) => s[k]!).sort((a, b) => a - b)[Math.floor(samples.length / 2)]!;
+  const bg = [med(0), med(1), med(2)];
+  const TOL = 34;
+  const isBg = (i: number) => Math.abs(p[i * 4]! - bg[0]!) < TOL && Math.abs(p[i * 4 + 1]! - bg[1]!) < TOL && Math.abs(p[i * 4 + 2]! - bg[2]!) < TOL;
   for (let x = 0; x < w; x++) { stack.push(x, (h - 1) * w + x); } for (let y = 0; y < h; y++) { stack.push(y * w, y * w + w - 1); }
   while (stack.length) { const i = stack.pop()!; if (seen[i] || !isBg(i)) continue; seen[i] = 1; const x = i % w, y = (i / w) | 0; if (x > 0) stack.push(i - 1); if (x < w - 1) stack.push(i + 1); if (y > 0) stack.push(i - w); if (y < h - 1) stack.push(i + w); }
   for (let i = 0; i < w * h; i++) {
@@ -438,7 +446,7 @@ async function loadKeyedTexture(url: string, key: boolean): Promise<Texture> {
     // soften the edge: pixels next to background get partial alpha based on brightness
     const x = i % w, y = (i / w) | 0;
     const nb = (x > 0 && seen[i - 1]) || (x < w - 1 && seen[i + 1]) || (y > 0 && seen[i - w]) || (y < h - 1 && seen[i + w]);
-    if (nb) { const lum = (p[i * 4]! + p[i * 4 + 1]! + p[i * 4 + 2]!) / 3; p[i * 4 + 3] = Math.round(255 * Math.min(1, Math.max(0.35, (255 - lum) / 60))); }
+    if (nb) { const dist = Math.max(Math.abs(p[i * 4]! - bg[0]!), Math.abs(p[i * 4 + 1]! - bg[1]!), Math.abs(p[i * 4 + 2]! - bg[2]!)); p[i * 4 + 3] = Math.round(255 * Math.min(1, Math.max(0.35, dist / 80))); }
   }
   ctx.putImageData(d, 0, 0);
   return Texture.from(c);

@@ -4,7 +4,13 @@
 import { z } from 'zod';
 
 export const Id = z.string().min(1).max(64).regex(/^[A-Za-z_][A-Za-z0-9_-]*$/, 'ids are identifier-like');
-export const NumOrExpr = z.union([z.number(), z.string().max(400)]);
+// a number, an expression string, or a JSON boolean (models write true/false for visibility and flags)
+export const NumOrExpr = z.union([z.number(), z.string().max(400), z.boolean().transform((b) => (b ? 1 : 0))]);
+const LoopValue = z.preprocess((v) => {
+  if (typeof v === 'string') { const t = v.trim().toLowerCase(); if (['pingpong', 'ping-pong', 'yoyo', 'alternate', 'bounce'].includes(t)) return 'pingpong'; if (['true', 'loop', 'infinite', 'forever', 'repeat', 'yes', 'always'].includes(t)) return true; if (['false', 'once', 'no', 'none', '0'].includes(t)) return false; }
+  if (typeof v === 'number') return v !== 0;
+  return v;
+}, z.union([z.boolean(), z.literal('pingpong')]));
 export const Box = z.tuple([z.number(), z.number(), z.number(), z.number()]); // x0, y0, x1, y1 in page units
 export const Color = z.string().max(40);
 
@@ -27,7 +33,7 @@ export const DerivedSchema = z.object({
 });
 
 export const AssetSchema = z.discriminatedUnion('type', [
-  z.object({ id: Id, type: z.literal('crop'), box: Box, feather: z.number().min(0).max(1).optional() }),
+  z.object({ id: Id, type: z.literal('crop'), box: Box, anchor: z.string().max(64).optional(), feather: z.number().min(0).max(1).optional() }),
   z.object({
     id: Id, type: z.literal('gen'),
     prompt: z.string().min(3).max(600),
@@ -48,7 +54,7 @@ export const AnimSchema = z.object({
   keys: z.array(z.object({ t: z.number().min(0).max(1), v: z.number() })).min(2).optional(),
   dur: z.coerce.number().positive().max(120).default(1),
   delay: z.coerce.number().min(0).max(120).default(0),
-  loop: z.union([z.boolean(), z.literal('pingpong')]).default(false),
+  loop: LoopValue.default(false),
   ease: Ease.default('inout'),
   relative: z.boolean().default(false), // from/to are offsets from the element's base value
 });
@@ -114,7 +120,7 @@ export const ParticlesEl = z.object({
   ...ElementBase, type: z.literal('particles'),
   preset: z.enum(['sparkle', 'rain', 'snow', 'bubbles', 'smoke', 'confetti', 'fire', 'leaves', 'stars', 'dust', 'electrons']),
   region: Box.optional(),
-  rate: z.coerce.number().min(0).max(500).default(40),
+  rate: NumOrExpr.default(40),
   color: Color.optional(),
   speed: NumOrExpr.default(1),
   path: z.array(z.tuple([z.number(), z.number()])).min(2).optional(), // for presets that flow along a path (e.g. electrons)

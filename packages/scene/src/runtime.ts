@@ -10,6 +10,7 @@ export type ResolvedElement = {
   points?: [number, number][];
   marker?: number;
   speed?: number;
+  rate?: number;
   highlighted: boolean;
 };
 
@@ -142,7 +143,7 @@ export class SceneRuntime {
       const r: ResolvedElement = { el, ...base, visible: true, highlighted: this.highlighted.has(el.id) };
       if ('points' in el && Array.isArray(el.points)) r.points = el.points.map((p: any) => [this.expr(p[0], scope) + (anchor ? anchor[0] : 0), this.expr(p[1], scope) + (anchor ? anchor[1] : 0)] as [number, number]);
       if (el.type === 'plot' && el.marker !== undefined) r.marker = this.expr(el.marker, scope);
-      if (el.type === 'particles') r.speed = this.expr(el.speed, scope, 1);
+      if (el.type === 'particles') { r.speed = this.expr(el.speed, scope, 1); r.rate = this.expr(el.rate, scope, 40); }
       out.push(r);
     }
     out.sort((a, b) => (a.el.z - b.el.z));

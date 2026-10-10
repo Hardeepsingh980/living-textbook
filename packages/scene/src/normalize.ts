@@ -10,7 +10,7 @@ import {
 export type Issue = { level: 'warn' | 'error'; where: string; message: string };
 export type NormalizeResult = { scene: Scene | null; issues: Issue[] };
 
-const EXPR_PROPS = ['x', 'y', 'w', 'h', 'rot', 'opacity', 'scale', 'visible', 'speed', 'marker'] as const;
+const EXPR_PROPS = ['x', 'y', 'w', 'h', 'rot', 'opacity', 'scale', 'visible', 'speed', 'marker', 'rate'] as const;
 
 function salvageArray<T>(raw: unknown, schema: z.ZodType<T>, where: string, issues: Issue[]): T[] {
   if (!Array.isArray(raw)) { if (raw !== undefined) issues.push({ level: 'warn', where, message: 'not an array; ignored' }); return []; }
@@ -49,7 +49,18 @@ export function normalizeScene(input: unknown): NormalizeResult {
     const a = candidate.audio;
     if (a.lines && !Array.isArray(a.lines)) delete a.lines;
     if (a.sfx && !Array.isArray(a.sfx)) delete a.sfx;
-  }
+    if (Array.isArray(a.lines)) a.lines = a.lines.filter((l: any) => l && typeof l === 'object' && typeof l.text === 'string' && typeof l.speaker === 'string' && typeof l.id === 'string');
+    if (Array.isArray(a.sfx)) a.sfx = a.sfx.filter((x: any) => x && typeof x.on === 'string' && typeof x.name === 'string');
+    if (a.speakers && typeof a.speakers !== 'object') delete a.speakers;
+    if (a.narrator && typeof a.narrator !== 'object') delete a.narrator;
+  } else delete candidate.audio;
+  // anchors: keep every valid box, drop the rest (a single bad entry must not unanchor the whole scene)
+  if (candidate.anchors && typeof candidate.anchors === 'object' && !Array.isArray(candidate.anchors)) {
+    const clean: Record<string, number[]> = {};
+    for (const [k, v] of Object.entries(candidate.anchors)) { const b = Array.isArray(v) ? v.map(Number) : null; if (b && b.length === 4 && b.every(Number.isFinite)) clean[k] = b; else issues.push({ level: 'warn', where: `anchors.${k}`, message: 'invalid box dropped' }); }
+    candidate.anchors = clean;
+  } else delete candidate.anchors;
+  if (candidate.style && typeof candidate.style === 'object') { const st = candidate.style; if (st.palette && !Array.isArray(st.palette)) delete st.palette; if (Array.isArray(st.palette)) st.palette = st.palette.filter((c: any) => typeof c === 'string').slice(0, 8); if (st.font && !['serif', 'sans', 'rounded', 'mono'].includes(st.font)) delete st.font; } else delete candidate.style;
   let parsed = SceneSchema.safeParse(candidate);
   if (!parsed.success) {
     // last resort: strip optional sections one by one
@@ -122,6 +133,16 @@ export function normalizeScene(input: unknown): NormalizeResult {
     } catch (e) { issues.push({ level: 'warn', where, message: `invalid expression "${value}": ${(e as Error).message}; using 0` }); return 0; }
   };
 
+  // crop boxes: resolve figure-relative boxes to page units, clamp to the page, drop empty ones
+  scene.assets = scene.assets.filter((a) => {
+    if (a.type !== 'crop') return true;
+    if (a.anchor) { const an = scene.anchors[a.anchor]; if (an) a.box = [a.box[0] + an[0], a.box[1] + an[1], a.box[2] + an[0], a.box[3] + an[1]]; a.anchor = undefined; }
+    const [x0, y0, x1, y1] = a.box;
+    const bx0 = Math.max(0, Math.min(x0, x1)), by0 = Math.max(0, Math.min(y0, y1)), bx1 = Math.min(scene.page.w, Math.max(x0, x1)), by1 = Math.min(scene.page.h, Math.max(y0, y1));
+    if (bx1 - bx0 < 8 || by1 - by0 < 8) { issues.push({ level: 'warn', where: `assets.${a.id}`, message: 'crop box outside the page or empty; dropped' }); return false; }
+    a.box = [bx0, by0, bx1, by1];
+    return true;
+  });
   const assetIds = new Set(scene.assets.map((a) => a.id));
   const anchorIds = new Set(Object.keys(scene.anchors));
   scene.elements = scene.elements.filter((el) => {

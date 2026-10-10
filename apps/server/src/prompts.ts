@@ -43,7 +43,7 @@ export const SCENE_LANGUAGE = `LivingScene v1 (JSON). Coordinates are page units
  "style":{"palette":["#hex",...],"font":"serif"|"sans"|"rounded","mood":"..."},
  "vars":[{"id":"g","label":"gravity","min":1,"max":20,"init":9.8,"unit":"m/s²","role":"param"|"time"}],   // role time: advances when playing (one per scene)
  "derived":[{"id":"h","expr":"0.5*g*t^2","unit":"m","label":"distance fallen"}],
- "assets":[{"id":"ball","type":"crop","box":[x0,y0,x1,y1]} | {"id":"wolf","type":"gen","prompt":"<visual description>","character":"Wolf"} | {"id":"tree","type":"builtin","name":"tree"}],
+ "assets":[{"id":"ball","type":"crop","box":[x0,y0,x1,y1],"anchor":"fig1"} | {"id":"wolf","type":"gen","prompt":"<visual description>","character":"Wolf"} | {"id":"tree","type":"builtin","name":"tree"}],   // crop = a cut-out of the printed page; with "anchor" the box is in that figure's grid units (recommended), without it in page units
  "anchors":{"fig1":[x0,y0,x1,y1]},   // named page regions; an element with "anchor":"fig1" uses x,y relative to that box's top-left
  "elements":[  // drawn in order, z sorts; every numeric prop may be an expression
   {"id":"b","type":"sprite","asset":"ball","x":..,"y":"..expr..","w":60,"h":60,"anchor":"fig1","rot":0,"opacity":1,"scale":1,"visible":"t<2","anim":[{"prop":"y","from":0,"to":-12,"dur":1.6,"delay":0,"loop":"pingpong","ease":"inout","relative":true}],"tap":{"say":"l1"}},

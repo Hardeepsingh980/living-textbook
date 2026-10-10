@@ -31,7 +31,7 @@ function score(file, truth, events) {
   const scenes = events.filter((e) => e.type === 'scene');
   const scene = scenes[scenes.length - 1]?.data;
   const extraction = events.find((e) => e.type === 'extraction')?.data;
-  const verification = events.find((e) => e.type === 'verification')?.data;
+  const verifications = events.filter((e) => e.type === 'verification'); const verification = verifications[verifications.length - 1]?.data; // the latest scene version's verdict
   const done = events.find((e) => e.type === 'done');
   const ready = events.find((e) => e.type === 'ready');
   const stageDone = (name) => events.find((e) => e.type === 'stage' && e.stage === name && e.status === 'done')?.t;
