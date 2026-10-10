@@ -96,12 +96,17 @@ export class SceneRenderer {
     this.pendingAssets = this.scene.assets.filter((a) => a.type === 'gen' && this.opts.assetUrls[a.id]).length;
     for (const a of this.scene.assets) {
       try {
-        if (a.type === 'crop' && this.pageTexture) {
+        if (a.type === 'crop' && this.opts.pageImage) {
+          // a cut-out of the printed page: the region is copied and its border colour (paper, sky, water) keyed out,
+          // so the printed object lifts off the page without carrying a rectangle of background with it
           const [x0, y0, x1, y1] = a.box;
-          const frame = new Rectangle(Math.max(0, x0), Math.max(0, y0), Math.max(1, Math.min(this.scene.page.w, x1) - Math.max(0, x0)), Math.max(1, Math.min(this.scene.page.h, y1) - Math.max(0, y0)));
-          const scaleX = this.pageTexture.width / this.scene.page.w, scaleY = this.pageTexture.height / this.scene.page.h;
-          const tex = new Texture({ source: this.pageTexture.source, frame: new Rectangle(frame.x * scaleX, frame.y * scaleY, frame.width * scaleX, frame.height * scaleY) });
-          this.textures.set(a.id, tex);
+          const fx = Math.max(0, x0), fy = Math.max(0, y0), fw = Math.max(1, Math.min(this.scene.page.w, x1) - fx), fh = Math.max(1, Math.min(this.scene.page.h, y1) - fy);
+          const img = this.opts.pageImage as HTMLImageElement | ImageBitmap;
+          const iw = 'naturalWidth' in img ? img.naturalWidth : img.width, ih = 'naturalHeight' in img ? img.naturalHeight : img.height;
+          const sx = iw / this.scene.page.w, sy = ih / this.scene.page.h;
+          const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(fw * sx)); c.height = Math.max(1, Math.round(fh * sy));
+          c.getContext('2d')!.drawImage(img as CanvasImageSource, fx * sx, fy * sy, fw * sx, fh * sy, 0, 0, c.width, c.height);
+          this.textures.set(a.id, keyCanvas(c, a.feather === 0 ? 0 : 1));
         } else if (a.type === 'gen') {
           const url = this.opts.assetUrls[a.id];
           if (url) { try { this.textures.set(a.id, await loadKeyedTexture(url, a.transparent)); } finally { this.pendingAssets--; } }
@@ -426,8 +431,14 @@ async function loadKeyedTexture(url: string, key: boolean): Promise<Texture> {
   const img = new Image(); img.crossOrigin = 'anonymous';
   await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('image load failed')); img.src = url; });
   const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+  c.getContext('2d', { willReadFrequently: true })!.drawImage(img, 0, 0);
+  return keyCanvas(c, 1);
+}
+
+/** Key out the background of a canvas: flood from the edges over pixels close to the border's median colour. `strength` 0 = off. */
+function keyCanvas(c: HTMLCanvasElement, strength: number): Texture {
+  if (!strength || c.width < 4 || c.height < 4) return Texture.from(c);
   const ctx = c.getContext('2d', { willReadFrequently: true })!;
-  ctx.drawImage(img, 0, 0);
   const d = ctx.getImageData(0, 0, c.width, c.height); const p = d.data;
   // the background is whatever colour the border is (white, off-white, a flat tint); key it by distance from the
   // border's median colour, flooding from the edges so similar colours inside the subject stay opaque

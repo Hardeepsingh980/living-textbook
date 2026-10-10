@@ -158,11 +158,22 @@ export function normalizeScene(input: unknown): NormalizeResult {
       if (el.xdomain[0] >= el.xdomain[1]) { issues.push({ level: 'warn', where, message: 'plot dropped: empty x domain' }); return false; }
     }
     if (el.type === 'sprite' && !assetIds.has(el.asset)) { issues.push({ level: 'warn', where, message: `sprite dropped: unknown asset ${el.asset}` }); return false; }
+    if (el.type === 'particles' && el.region && el.anchor && scene.anchors[el.anchor]) {
+      const an = scene.anchors[el.anchor]!; const [rx0, ry0, rx1, ry1] = el.region;
+      if (rx1 <= an[2] - an[0] + 1 && ry1 <= an[3] - an[1] + 1) { el.region = [rx0 + an[0], ry0 + an[1], rx1 + an[0], ry1 + an[1]]; }
+      el.anchor = undefined;
+    }
     if (el.type === 'particles' && !el.region) {
       const box = el.anchor ? scene.anchors[el.anchor] : Object.values(scene.anchors)[0];
       if (box && !['rain', 'snow'].includes(el.preset)) { el.region = [...box] as typeof box; el.anchor = undefined; }
     }
     if (el.anchor && !anchorIds.has(el.anchor)) { issues.push({ level: 'warn', where, message: `unknown anchor ${el.anchor}; using page origin` }); el.anchor = undefined; }
+    // a sprite or bubble with plain-number coordinates that fit inside the main figure's box but no anchor was almost
+    // certainly written in figure units: adopt the figure as its anchor (the common mistake seen in evaluation)
+    if (!el.anchor && (el.type === 'sprite' || el.type === 'bubble') && typeof el.x === 'number' && typeof el.y === 'number') {
+      const main = Object.entries(scene.anchors)[0];
+      if (main) { const [id, b] = main; const bw = b[2] - b[0], bh = b[3] - b[1]; const inFigure = el.x >= b[0] && el.x <= b[2] && el.y >= b[1] && el.y <= b[3]; if (!inFigure && el.x >= 0 && el.x <= bw && el.y >= 0 && el.y <= bh) { el.anchor = id; issues.push({ level: 'warn', where, message: `coordinates looked figure-relative; anchored to ${id}` }); } }
+    }
     if (el.type === 'shape' && ['line', 'arrow', 'polygon'].includes(el.shape) && (!el.points || el.points.length < 2)) { issues.push({ level: 'warn', where, message: `${el.shape} needs points; dropped` }); return false; }
     return true;
   });

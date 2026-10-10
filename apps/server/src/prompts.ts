@@ -79,6 +79,7 @@ Page: W=${page.w}, H=${page.h}. Language of all text, labels and narration: ${qu
 Page figures already located (page units). Each is an anchor: with "anchor":"<id>", an element's x,y are RELATIVE to that box's top-left and must stay inside 0..boxW × 0..boxH (sizes given here): ${JSON.stringify(quick.figures.map((f) => ({ id: f.id, label: f.label, kind: f.kind, box: f.box.map(Math.round), boxW: Math.round(f.box[2] - f.box[0]), boxH: Math.round(f.box[3] - f.box[1]) })))}
 Characters: ${JSON.stringify(quick.characters)}
 Free regions with no printed text (page units [x0,y0,x1,y1]) — put labels, readouts and plots here or inside empty parts of the figure, never elsewhere: ${JSON.stringify(freeRegions.map((r) => r.map(Math.round)))}
+If the free regions are small (no band taller than 120 units), use at most 2 compact labels placed in the figure's own empty space and no plot; the moving objects and particles carry the explanation.
 
 Guidance for kind "${quick.kind}": ${kindGuide[quick.kind] ?? kindGuide.mixed}
 
