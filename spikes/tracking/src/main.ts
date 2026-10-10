@@ -57,7 +57,7 @@ window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => log(
 
 function renderStats(state: string) {
   const t = Object.entries(timings).map(([k, v]) => `${k}=${v}`).join('  ');
-  statsEl.textContent = `${state}  video ${vw}x${vh}  target ${targetW}x${targetH}  fps ${fps}\n` +
+  statsEl.textContent = `${state}  video ${vw}x${vh}  target ${targetW}x${targetH}  kf ${KF}  fps ${fps}\n` +
     `tracked pts ${trackedPts}  misses ${misses}  reacq ${reacquisitions}  matching ${hasMatching ? 'yes' : 'no'}  backend ${tf.getBackend?.() || '-'}\n${t}`;
 }
 
@@ -75,6 +75,8 @@ async function startCamera() {
   await new Promise<void>((r) => { video.onloadedmetadata = () => r(); });
   await video.play();
   vw = video.videoWidth; vh = video.videoHeight;
+  // MindAR's InputLoader draws the video using the element's width/height attributes, so they must match the stream
+  video.setAttribute('width', String(vw)); video.setAttribute('height', String(vh));
   const s = stream.getVideoTracks()[0]?.getSettings();
   log(`camera ${vw}x${vh} in ${Math.round(performance.now() - t0)} ms; settings ${JSON.stringify({ w: s?.width, h: s?.height, fr: s?.frameRate, facing: (s as any)?.facingMode })}`);
   const fovy = 45 * Math.PI / 180;
@@ -96,8 +98,15 @@ function simulatedCamera(motion: number): MediaStream {
   const pageCanvas = document.createElement('canvas'); pageCanvas.width = pageW; pageCanvas.height = pageH;
   const pc = pageCanvas.getContext('2d')!;
   pc.fillStyle = '#fdfbf5'; pc.fillRect(0, 0, pageW, pageH);
-  pc.fillStyle = '#222';
-  for (let y = 80; y < pageH - 60; y += 28) { const len = 0.55 + 0.4 * Math.abs(Math.sin(y * 0.37)); pc.fillRect(70, y, Math.floor((pageW - 140) * len), 11); }
+  pc.fillStyle = '#222'; pc.font = '19px Georgia, serif';
+  const words = 'When a body falls freely under gravity its velocity increases uniformly with time. The acceleration due to gravity near the surface of the Earth is about 9.8 metres per second squared. A ball dropped from a height h reaches the ground after time t given by h equals half g t squared. Galileo showed that all bodies fall at the same rate in the absence of air resistance. Example 2.3: a stone is dropped from a tower 20 m high; find the time it takes to reach the ground and its speed on impact. Solution: from h = ½gt², t = √(2h/g) = √(40/9.8) ≈ 2.02 s, and v = gt ≈ 19.8 m/s.'.split(' ');
+  let wi = 0;
+  for (let y = 80; y < pageH - 60; y += 28) {
+    if (y > 500 && y < 920) continue; // leave room for the figure
+    let line = ''; while (pc.measureText(line + words[wi % words.length] + ' ').width < pageW - 150) { line += words[wi % words.length] + ' '; wi++; }
+    pc.fillText(line, 70, y + 14);
+  }
+  pc.font = 'bold 30px Georgia, serif'; pc.fillText('2.4 Motion under gravity', 70, 60);
   pc.fillStyle = '#fff'; pc.fillRect(120, 520, pageW - 240, 380); pc.strokeStyle = '#333'; pc.lineWidth = 3; pc.strokeRect(120, 520, pageW - 240, 380);
   pc.fillStyle = '#e63946'; pc.beginPath(); pc.arc(240, 640, 60, 0, Math.PI * 2); pc.fill();
   pc.strokeStyle = '#1d3557'; pc.lineWidth = 8; pc.beginPath(); pc.arc(540, 740, 90, 0, Math.PI * 2); pc.stroke();
@@ -138,8 +147,13 @@ async function prewarm() {
   mindWorker = mw;
   extractWorker = new ExtractWorker();
   // dummy target of the canonical size (structured noise) so shader sources match the real target's dimensions
-  const grey = new Uint8Array(targetW * targetH);
-  for (let i = 0; i < grey.length; i++) { const x = i % targetW, y = (i / targetW) | 0; grey[i] = ((x * 7 + y * 13) % 97) * 2 + ((Math.sin(x * 0.2) * Math.cos(y * 0.17)) * 40 + 40); }
+  // sparse blobs on a light background: realistic feature density, cheap to extract
+  const grey = new Uint8Array(targetW * targetH).fill(235);
+  let seed = 42; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let b = 0; b < 400; b++) {
+    const cx = (rnd() * targetW) | 0, cy = (rnd() * targetH) | 0, r = 3 + rnd() * 10, v = (rnd() * 120) | 0;
+    for (let y = Math.max(0, cy - r); y < Math.min(targetH, cy + r); y++) for (let x = Math.max(0, cx - r); x < Math.min(targetW, cx + r); x++) if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) grey[y * targetW + x] = v;
+  }
   const t1 = performance.now();
   const { tracking: dummyTracking, ms } = await extract(grey, targetW, targetH);
   timings.extractDummy = `${ms}ms`;
@@ -157,10 +171,11 @@ async function prewarm() {
   loop();
 }
 
+const KF = Number(new URLSearchParams(location.search).get('kf')) || 256; // tracking keyframe min-dimension (MindAR default 128)
 function extract(grey: Uint8Array, width: number, height: number): Promise<{ tracking: any; ms: number; points: number[] }> {
   return new Promise((resolve) => {
     extractWorker!.onmessage = (e) => resolve(e.data);
-    extractWorker!.postMessage({ grey, width, height });
+    extractWorker!.postMessage({ grey, width, height, kf: KF });
   });
 }
 
