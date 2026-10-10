@@ -11,6 +11,7 @@ export type QuickRead = {
   title: string;
   gist: string;            // one sentence
   figures: { id: string; label: string; box: BoxT; kind: 'diagram' | 'illustration' | 'photo' | 'table' | 'equation' | 'map' | 'other' }[];
+  textBlocks?: BoxT[];
   characters: { name: string; look: string }[];
   spread: boolean;         // two-page spread detected
   confidence: number;      // 0..1

@@ -100,13 +100,13 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
     kind: q.kind ?? 'mixed', subject: q.subject ?? '', language: (q.language ?? 'en').split('-')[0], title: q.title ?? '', gist: q.gist ?? '',
     // figure ids are normalised to fig1..figN: the scene prompt's examples use that convention, so anchors line up
     figures: (Array.isArray(q.figures) ? q.figures : []).slice(0, 6).map((f: any, i: number) => ({ id: `fig${i + 1}`, label: String(f.label ?? ''), kind: f.kind ?? 'other', box: toPageBox(f.box_2d ?? [0, 0, 1000, 1000], page.w, page.h) })),
+    textBlocks: (Array.isArray(q.textBlocks) ? q.textBlocks : []).slice(0, 8).map((b: any) => toPageBox(b.box_2d ?? [0, 0, 0, 0], page.w, page.h)),
     characters: (Array.isArray(q.characters) ? q.characters : []).slice(0, 8).map((c: any) => ({ name: String(c.name ?? ''), look: String(c.look ?? '') })),
     spread: !!q.spread, confidence: Number(q.confidence ?? 0.5), opener: q.opener ?? '', bookTitle: q.bookTitle || undefined,
   };
   stage('read', 'done', { ms: Date.now() - tRead, detail: `${quick.kind} · ${quick.subject} · ${quick.language}`, model: quickRes.usage.model });
   console.log(`[read] ttfb ${quickRes.usage.ttfbMs} ms, total ${quickRes.usage.ms} ms, in ${quickRes.usage.inTokens} out ${quickRes.usage.outTokens}, image ${quickJpeg.length} bytes`);
   send({ type: 'quick', data: quick, t: T() });
-  releaseTracking();
 
   // ---- voice the opener right away ----
   const narratorVoice = config.voices.narrator[quick.language as 'en' | 'hi'] ?? config.voices.narrator.en;
@@ -126,7 +126,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
   })();
 
   // ---- build: scene v1 fast (with one repair retry and a guaranteed fallback); scene v2 richer, in parallel ----
-  const system = sceneSystem(quick, page);
+  const system = sceneSystem(quick, page, freeRegions(page, quick));
   // the main figure, cropped and overlaid with a labelled grid in anchor-relative units, so coordinates are read, not guessed
   const gridParts: Part[] = [];
   const mainFig = quick.figures[0];
@@ -149,6 +149,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
     } catch (e: any) { console.warn('[build] grid crop failed', String(e?.message || e)); }
   }
   const sceneParts = [imagePart(pageJpeg), ...gridParts, { text: `Quick read of the page: ${JSON.stringify({ kind: quick.kind, subject: quick.subject, title: quick.title, gist: quick.gist })}\nCompose the LivingScene JSON now.` }];
+  releaseTracking(); // the compile is CPU-heavy; it starts once the scene requests are on their way
   const anchorsFromQuick = Object.fromEntries(quick.figures.map((f) => [f.id, f.box]));
   const sceneP = (async (): Promise<{ scene: Scene; issues: Issue[]; version: number }> => {
     stage('build', 'start', { detail: 'composing the experience', model: config.models.scene.id });
@@ -160,6 +161,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
       usages.push(r1.usage);
       const n1 = normalizeScene({ ...r1.json, page, v: 1, anchors: { ...anchorsFromQuick, ...(r1.json.anchors ?? {}) } });
       issues = n1.issues;
+      if (!n1.scene) console.warn('[build] v1 invalid:', issues.slice(0, 4).map((i) => `${i.where}: ${i.message}`).join(' | ').slice(0, 300));
       if (n1.scene) {
         stage('build', 'done', { ms: Date.now() - t, detail: `${n1.scene.elements.length} elements, ${n1.scene.steps.length} steps${issues.length ? `, ${issues.length} repairs` : ''}`, model: r1.usage.model });
         return { scene: n1.scene, issues, version: 1 };
@@ -198,7 +200,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
     if (quick.kind === 'unsupported') return undefined;
     const t = Date.now();
     try {
-      const r = await withTimeout(generateJson({ model: 'sceneRich', system: system + '\nThis is the detailed version: use the full element budget (6–10 elements, 4–6 steps) while staying compact in syntax.', parts: sceneParts, maxTokens: 3800, thinking: 'minimal', mediaResolution: 'medium', temperature: 0.5, label: 'scene-rich' }), 40000, 'scene rich');
+      const r = await withTimeout(generateJson({ model: 'sceneRich', system: system + '\nThis is the detailed version: use the full element budget (6–10 elements, 4–6 steps) while staying compact in syntax.', parts: sceneParts, maxTokens: 3200, thinking: 'minimal', mediaResolution: 'medium', temperature: 0.5, label: 'scene-rich' }), 60000, 'scene rich');
       usages.push(r.usage);
       const n = normalizeScene({ ...r.json, page, v: 1, anchors: { ...anchorsFromQuick, ...(r.json.anchors ?? {}) } });
       if (!n.scene) { console.warn('[build] rich scene invalid:', n.issues.slice(0, 3).map((i) => i.message).join('; ')); return undefined; }
@@ -313,6 +315,27 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         const n = normalizeScene(fixed); if (n.scene) { scene = n.scene; repaired = true; }
       }
       const unsupported: string[] = Array.isArray(r.json.unsupported) ? r.json.unsupported.filter((s: any) => typeof s === 'string') : [];
+      // deterministic: every plain number a reader sees (label text outside {templates}, slider initial values) must appear on the page
+      const pageNums = new Set<string>();
+      const addNum = (v: unknown) => { const n = Number(v); if (Number.isFinite(n)) { pageNums.add(String(n)); pageNums.add(n.toFixed(1)); pageNums.add(n.toFixed(2)); } };
+      for (const v of ex.values) addNum(v.value);
+      for (const w of ex.worked) { addNum(w.answer); for (const i of w.inputs ?? []) addNum(i.value); }
+      for (const m of `${ex.text} ${ex.claims.join(' ')} ${ex.equations.join(' ')}`.matchAll(/\d+(?:[.,]\d+)?/g)) addNum(m[0].replace(',', '.'));
+      const invented: string[] = [];
+      for (const el of scene.elements) {
+        if (el.type !== 'label' && el.type !== 'bubble') continue;
+        const plain = el.text.replace(/\{[^}]*\}/g, ' ');
+        for (const m of plain.matchAll(/\d+(?:[.,]\d+)?/g)) { const n = Number(m[0].replace(',', '.')); if (!pageNums.has(String(n)) && !pageNums.has(n.toFixed(1)) && !pageNums.has(n.toFixed(2)) && n !== 0 && n !== 1) invented.push(`${el.id}: "${m[0]}"`); }
+      }
+      for (const v of scene.vars) if (v.role === 'param' && v.init !== 0 && v.init !== 1 && !pageNums.has(String(v.init)) && !pageNums.has(v.init.toFixed(1))) invented.push(`${v.id} starts at ${v.init}`);
+      if (invented.length) {
+        // repair: strip the offending labels and let the verdict say why
+        const fixed = structuredClone(scene);
+        const bad = new Set(invented.map((x) => x.split(':')[0]!));
+        fixed.elements = fixed.elements.filter((e) => !(bad.has(e.id) && (e.type === 'label' || e.type === 'bubble')));
+        const n = normalizeScene(fixed); if (n.scene && fixed.elements.length < scene.elements.length) { scene = n.scene; repaired = true; }
+        unsupported.push(...invented.map((x) => `number not on the page: ${x}`));
+      }
       const all = [...det, ...checks.filter((c) => c.method !== 'page-answer')];
       if (unsupported.length) all.push({ name: 'faithfulness', method: 'faithfulness', pass: false, detail: `not supported by the page: ${unsupported.slice(0, 3).join(' | ')}` });
       else if (!all.some((c) => c.method === 'faithfulness')) all.push({ name: 'faithfulness', method: 'faithfulness', pass: true, detail: 'labels, dialogue and narration are supported by the page text' });
@@ -360,6 +383,22 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
   send({ type: 'done', t: T(), timings, costUsd, experienceId: id });
   console.log(`[pipeline] ${id} done in ${T()} ms, $${costUsd.toFixed(4)}, stages ${JSON.stringify(timings)}, usage ${usages.map((u) => `${u.model}:${u.inTokens}/${u.outTokens}`).join(' ')}`);
   return record;
+}
+
+/** Rectangles of the page that hold neither body text nor figures: the margins and the gaps between blocks. */
+function freeRegions(page: { w: number; h: number }, quick: QuickRead): number[][] {
+  const blocks = [...(quick.textBlocks ?? []), ...quick.figures.map((f) => f.box)].filter((b) => b[2] > b[0] && b[3] > b[1]);
+  if (!blocks.length) return [[0, 0, page.w, page.h]];
+  const out: number[][] = [];
+  // horizontal bands between stacked blocks (sorted by top), plus the bands above the first and below the last
+  const sorted = [...blocks].sort((a, b) => a[1] - b[1]);
+  let y = 0;
+  for (const b of sorted) { if (b[1] - y >= 70) out.push([0, y, page.w, b[1]]); y = Math.max(y, b[3]); }
+  if (page.h - y >= 70) out.push([0, y, page.w, page.h]);
+  // side margins next to the main figure
+  const f = quick.figures[0]?.box;
+  if (f) { if (f[0] >= 90) out.push([0, f[1], f[0], f[3]]); if (page.w - f[2] >= 90) out.push([f[2], f[1], page.w, f[3]]); }
+  return out.slice(0, 6);
 }
 
 export { SceneSchema };

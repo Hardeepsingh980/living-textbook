@@ -24,6 +24,8 @@ for (const id of ids) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message)));
   await page.goto(`${SERVER}/x/${id}?review=1`, { waitUntil: 'load' });
+  // wait until the renderer has every generated picture (keyed and uploaded) before the first shot
+  await page.waitForFunction(() => document.documentElement.dataset.assetsReady === '1', null, { timeout: 12000 }).catch(() => errors.push('assets not ready in 12 s'));
   let last = 0;
   for (let i = 0; i < MOMENTS.length; i++) { await page.waitForTimeout(MOMENTS[i] - last); last = MOMENTS[i]; await page.screenshot({ path: path.join(OUT, `${id}-${i + 1}.png`) }); }
   console.log(`${id}: ${MOMENTS.length} shots${errors.length ? `, page errors: ${errors.slice(0, 2).join(' | ')}` : ''}`);

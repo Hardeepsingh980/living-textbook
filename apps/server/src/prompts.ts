@@ -10,6 +10,7 @@ Rules:
 - "title": the page's own heading if present, else a short descriptive title in the page language.
 - "gist": one sentence saying what the page is about, in the page language.
 - "figures": the key visual elements (diagrams, illustrations, photos, tables, maps, equations) with box_2d as [ymin, xmin, ymax, xmax] normalized to 0-1000. Up to 6, largest first. Short labels. Skip body text blocks.
+- "textBlocks": the body text blocks (paragraph groups, headings) as box_2d, up to 6, so labels can avoid them.
 - "characters": for story and picture-book pages, each character on the page with a one-line visual description (age, species, clothing, colours) so illustrations stay consistent; else [].
 - "spread": true if the photo shows two facing pages.
 - "confidence": 0-1 that you read the page correctly.
@@ -25,14 +26,15 @@ export const QUICK_SCHEMA = {
     title: { type: 'string' },
     gist: { type: 'string' },
     figures: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, kind: { type: 'string', enum: ['diagram', 'illustration', 'photo', 'table', 'equation', 'map', 'other'] }, box_2d: { type: 'array', items: { type: 'integer' } } }, required: ['id', 'label', 'kind', 'box_2d'] } },
+    textBlocks: { type: 'array', items: { type: 'object', properties: { box_2d: { type: 'array', items: { type: 'integer' } } }, required: ['box_2d'] } },
     characters: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, look: { type: 'string' } }, required: ['name', 'look'] } },
     spread: { type: 'boolean' },
     confidence: { type: 'number' },
     opener: { type: 'string' },
     bookTitle: { type: 'string' },
   },
-  required: ['kind', 'subject', 'language', 'title', 'gist', 'figures', 'characters', 'spread', 'confidence', 'opener'],
-  propertyOrdering: ['kind', 'subject', 'language', 'title', 'gist', 'opener', 'figures', 'characters', 'spread', 'confidence', 'bookTitle'],
+  required: ['kind', 'subject', 'language', 'title', 'gist', 'figures', 'textBlocks', 'characters', 'spread', 'confidence', 'opener'],
+  propertyOrdering: ['kind', 'subject', 'language', 'title', 'gist', 'opener', 'figures', 'textBlocks', 'characters', 'spread', 'confidence', 'bookTitle'],
 };
 
 export const SCENE_LANGUAGE = `LivingScene v1 (JSON). Coordinates are page units: x 0..W (left→right), y 0..H (top→bottom), W and H given below. Any numeric property may instead be an expression string over variables (operators + - * / ^ % comparisons && || ?:, functions sin cos tan sqrt abs min max floor round exp log pow clamp(x,a,b) lerp(a,b,t) step(e,x) smoothstep(a,b,x) if(c,a,b); constants pi, e; builtins t (time in s), W, H).
@@ -58,10 +60,10 @@ export const SCENE_LANGUAGE = `LivingScene v1 (JSON). Coordinates are page units
  "audio":{"narrator":{"style":"warm, clear teacher"},"speakers":{"Wolf":{"style":"gruff, playful","desc":"..."}},"lines":[{"id":"l1","speaker":"Wolf","text":"...","el":"wolfSprite"}],"ambience":"forest"|"rain"|"wind"|"classroom"|"lab"|"night"|"sea"|"city"|"none","sfx":[{"on":"step:s2","name":"whoosh"|"pop"|"chime"|"splash"|"thud"|"ding"|"swoosh"}]}
 }`;
 
-export function sceneSystem(quick: QuickRead, page: { w: number; h: number }): string {
+export function sceneSystem(quick: QuickRead, page: { w: number; h: number }, freeRegions: number[][] = []): string {
   const kindGuide: Record<string, string> = {
     science: `Build a SIMULATION of the page's main concept. Variables take the page's own values as "init" (worked example inputs where present), with sensible ranges and a time variable whose max is the duration of the event. Derived values implement the page's formula exactly. The moving object (a shape or a single cut-out) travels across the figure box with its position bound to the derived values and t, leaving a trail ("path") or with a velocity arrow whose length is bound to the speed; add a small plot when a relationship is the point; sparkle or dust particles at the moment of impact/landing ("visible" bound to t). Labels show live values with {expr:fmt}. Steps: setup → run (play:true) → observe the result (the verified number) → what-if (a slider). Sliders for the key parameters.`,
-    maths: `Build a SIMULATION or EXPLAINER: variables for the quantities in the page's example, derived values for each line of the worked solution, a plot for functions/graphs, shapes for geometry anchored on the printed figure. Steps walk through the solution one line at a time with the matching label shown.`,
+    maths: `Build a SIMULATION or EXPLAINER: variables for the quantities in the page's example, derived values for each line of the worked solution, a plot for functions/graphs. For GEOMETRY, draw the construction the theorem is about directly on the printed figure, aligned to its printed vertices read from the grid: e.g. for Pythagoras, semi-transparent squares (or a 3×3 / 4×4 / 5×5 grid of small squares) on each side, appearing one at a time, with labels for their areas (9, 16, 25) and a final label for the answer; for angles, draw the arcs; for similar triangles, highlight corresponding sides. Steps walk through the solution one line at a time with the matching construction shown.`,
     'other-subject': `Build an EXPLAINER of the process, system, map, timeline or event on the page: a sequence of 4-6 steps that show, highlight and label the parts (anchored on the printed figure where there is one), arrows and paths for flows, a timeline element for dated events, particles for weather/water/energy. Facts only from the page.`,
     story: `Build a STORY scene of this page's moment: a generated background asset (type gen, prompt from the page's setting), one generated sprite per character (type gen, use the character looks given), gentle idle animations (bob, sway), speech bubbles with the page's dialogue, 3-5 steps that play the page's events in order with narration drawn from the page text, each character's lines in "audio.lines" with a tap to replay. Mood ambience.`,
     'picture-book': `Build a PICTURE scene that brings the printed illustrations to life: crop assets of the page's own illustrations (figure boxes), animated with bobbing, wobble, scale, sparkle or motion along a path; speech bubbles and lines for any characters; narration reads the page text. Do not re-draw the book's art; animate the crops.`,
@@ -76,6 +78,7 @@ ${SCENE_LANGUAGE}
 Page: W=${page.w}, H=${page.h}. Language of all text, labels and narration: ${quick.language}.
 Page figures already located (page units). Each is an anchor: with "anchor":"<id>", an element's x,y are RELATIVE to that box's top-left and must stay inside 0..boxW × 0..boxH (sizes given here): ${JSON.stringify(quick.figures.map((f) => ({ id: f.id, label: f.label, kind: f.kind, box: f.box.map(Math.round), boxW: Math.round(f.box[2] - f.box[0]), boxH: Math.round(f.box[3] - f.box[1]) })))}
 Characters: ${JSON.stringify(quick.characters)}
+Free regions with no printed text (page units [x0,y0,x1,y1]) — put labels, readouts and plots here or inside empty parts of the figure, never elsewhere: ${JSON.stringify(freeRegions.map((r) => r.map(Math.round)))}
 
 Guidance for kind "${quick.kind}": ${kindGuide[quick.kind] ?? kindGuide.mixed}
 
@@ -83,8 +86,9 @@ Composition rules (the reader is often a child; the experience must feel alive a
 1. ALIVE: at least 5 elements, and at least 3 of them move: expressions bound to t (physics), "anim" (bob, sway, pulse, travel along a path, draw-on arrows), or particles. Every scene has a continuous idle motion so it never looks frozen.
 2. SELF-RUNNING: for simulations the time variable has a sensible range (the duration of the event, e.g. the fall time) and the first step sets "play": true. The motion must visibly show the concept (a ball that actually falls across the figure, a wave that travels, electrons that flow, a planet that orbits).
 3. PLACEMENT: the printed figure box(es) are the stage: anchor moving objects INSIDE the figure box using "anchor" with coordinates relative to its top-left and sizes that fit it; read exact positions from the gridded figure image (every grid line is labelled in the same units). Overlays that highlight a printed line or vertex must sit exactly on it. Put labels in the figure's own empty areas (check the grid for empty space) or in the page margins, never on top of printed labels or body text. Use "crop" assets only for a single printed object (a ball, a boat, a cell) that should move; do not animate a whole diagram as one sprite. Draw simple objects with "shape" when the figure does not contain a clean cut-out.
-4. FAITHFUL: every number, formula, name, event and line of dialogue must come from the page. Invent nothing. If the page has no numbers, do not add any.
-5. READABLE: labels size ≥ 26 with a "bg" colour, ≤ 6 words, live values via {expr:fmt}; at most one label per idea.
+4. FAITHFUL: every number, formula, name, event and line of dialogue must come from the page. Invent nothing: no made-up rates, percentages, masses or counts; a page without numbers gets no numeric labels and no sliders. Use fmt "0" for counts and years ({year:0}), "0.1" or "0.01" for measured values.
+5. READABLE: labels size ≥ 26 with a "bg" colour, ≤ 6 words, live values via {expr:fmt}; at most one label per idea. Never re-print a label or caption that is already printed in the figure; your labels add NEW information (a live value, the answer, the name of the step). Explain with MOTION, not text: particles that flow along a path (CO₂ into a leaf, water up a stem, electrons round a circuit), arrows that draw themselves, objects that travel; one motion per idea.
+5b. When the printed figure already has the structure (a timeline, a circuit, a map, a graph), animate ON it: place markers, highlights and moving objects exactly on the printed lines and points (read them from the grid); never draw a second copy beside it.
 6. NARRATION: 1–2 short sentences per step in ${quick.language}, warm, concrete, child-safe; 3–6 steps that build the idea; total ≤ 110 words. Each step changes something visible ("show", "set", "highlight", "focus").
 7. EXPRESSIONS: only declared vars, derived ids, t, W, H; a derived id never references itself; use ${'`'}true${'`'}/${'`'}false${'`'} only in "visible".
 8. STORIES AND PICTURE BOOKS: one generated background or none, one generated sprite per character (use the character looks given), characters placed in the illustration box where the page's own drawing shows them (so the sprite sits on top of its printed counterpart), gentle idle motion, speech bubbles only for short lines (≤ 12 words). Character lines are ONLY the lines printed on the page, word for word; if the page prints none, there are no lines and the narrator reads the page text. Lines go in "audio.lines" with an "el" so a tap replays them.

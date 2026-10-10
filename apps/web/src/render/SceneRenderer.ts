@@ -91,7 +91,9 @@ export class SceneRenderer {
     if (hit) { this.runtime.tap(hit); this.opts.onTap?.(hit); }
   }
 
+  pendingAssets = 0;
   private async loadAssets() {
+    this.pendingAssets = this.scene.assets.filter((a) => a.type === 'gen' && this.opts.assetUrls[a.id]).length;
     for (const a of this.scene.assets) {
       try {
         if (a.type === 'crop' && this.pageTexture) {
@@ -102,7 +104,7 @@ export class SceneRenderer {
           this.textures.set(a.id, tex);
         } else if (a.type === 'gen') {
           const url = this.opts.assetUrls[a.id];
-          if (url) this.textures.set(a.id, await loadKeyedTexture(url, a.transparent));
+          if (url) { try { this.textures.set(a.id, await loadKeyedTexture(url, a.transparent)); } finally { this.pendingAssets--; } }
         } else if (a.type === 'builtin') {
           this.textures.set(a.id, builtinTexture(this.app, a.name));
         }

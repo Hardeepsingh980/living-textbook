@@ -85,6 +85,7 @@ export function ExperienceView({ onBack }: Props) {
     if (stepTimer.current) { clearTimeout(stepTimer.current); stepTimer.current = null; }
     r.init(canvasRef.current).then(() => {
       if (cancelled) { r.destroy(); return; }
+      document.documentElement.dataset.assetsReady = r.pendingAssets <= 0 ? '1' : '0';
       setVars(Object.fromEntries(scene.vars.map((v) => [v.id, r.runtime.getVar(v.id) ?? v.init])));
       setStepIndex(Math.max(0, r.runtime.stepIndex));
       r.runtime.on((e) => {
@@ -107,7 +108,7 @@ export function ExperienceView({ onBack }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, sceneVersion, pageImg]);
 
-  useEffect(() => { const r = rendererRef.current; if (!r) return; for (const [id, url] of Object.entries(assets)) void r.addAsset(id, url); }, [assets]);
+  useEffect(() => { const r = rendererRef.current; if (!r) return; Promise.all(Object.entries(assets).map(([id, url]) => r.addAsset(id, url))).then(() => { document.documentElement.dataset.assetsReady = '1'; }); }, [assets]);
   useEffect(() => { mixer.setMuted(muted || REVIEW); }, [muted]);
   useEffect(() => () => { speechRef.current.clear(); rendererRef.current?.destroy(); mixer.destroy(); CameraSession.current?.stop(); liveRef.current?.stop(); }, []);
 
