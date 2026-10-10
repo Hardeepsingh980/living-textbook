@@ -160,7 +160,7 @@ Design:
 
 ## 8. Conversation (FR-27/28)
 
-`gemini-3.8-live` (GA, 99 languages including Hindi with automatic switching, independently measured ≈1.2 s to first audio) over WebSocket from the browser with a **short-lived ephemeral token** minted by the server (`auth_tokens.create`, single use, system instruction locked server-side via connect constraints). The system instruction carries the page extraction and scene summary; a function tool returns the current slider state. Output transcription provides captions. Sessions are limited to ~10 min per connection with resumption handles, which the client handles. Fallback: text question → Flash-Lite → TTS.
+`gemini-3.8-live` (GA, 99 languages including Hindi with automatic switching). **Measured on day 0 from the project**: the model is served only from `us-central1` for Live (not `global`, not `asia-south1`); connect 1.8 s, **first audio 840 ms after the question**, correct answer. Because the project uses Agent Platform (Vertex) credentials rather than a Developer API key, the browser does not talk to Google directly: a **WebSocket proxy on Cloud Run** holds the service-account credentials, injects the page extraction and scene summary as the system instruction, relays audio both ways, and answers the slider-state function tool from the client's last reported state. No keys ever reach the client (NFR-4). Output transcription provides captions. Connections last ~10 min with resumption handles, which the proxy handles. Fallback: text question → Flash-Lite → TTS.
 
 ## 9. Library, sharing, continuity
 
@@ -182,7 +182,7 @@ Phone browser (Safari tab / Chrome) ──HTTPS──► Cloud Run: living-book 
                                           └─ structured logs: stage timings, tokens, cost → Cloud Logging
 ```
 
-Why: TypeScript end to end (shared schema + expression evaluator between server and client), PixiJS for 2D at 60 fps with real font rendering (Devanagari works because text is rasterised by the browser; no three.js needed), one Cloud Run service (satisfies the deployment rule, no Firebase CLI needed, nothing touches cheerio-app's existing Firebase). Orchestration is plain typed async stages; `@google/adk` 2.x (TypeScript, GA) is evaluated in a 1-hour day-0 spike and adopted only if it streams stage events and fans out without adding latency. Isolation in `cheerio-app`: dedicated service account with least privilege, named Firestore DB, prefixed bucket, budget alert.
+Why: TypeScript end to end (shared schema + expression evaluator between server and client), PixiJS for 2D at 60 fps with real font rendering (Devanagari works because text is rasterised by the browser; no three.js needed), one Cloud Run service (satisfies the deployment rule, no Firebase CLI needed, nothing touches cheerio-app's existing Firebase). Orchestration is plain typed async stages. `@google/adk` 2.2 (TypeScript) was checked on day 0: 10 MB unpacked with Express, MikroORM and OpenTelemetry peer dependencies, aimed at long-running agents rather than a latency-bound fan-out; not adopted. The pipeline's stage graph is explicit in code and rendered live in the agent theatre, which is the honest "agentic" story for the deck. Isolation in `cheerio-app`: dedicated service account with least privilege, named Firestore DB, prefixed bucket, budget alert.
 
 Eval harness: `pnpm eval` runs the pipeline on `eval/pages/*.jpg` with ground-truth JSON and writes `eval/REPORT.md` with Q-1…Q-4 scores, render success (headless Playwright renders each spec), and p50/p90 per stage for L-1…L-5.
 
