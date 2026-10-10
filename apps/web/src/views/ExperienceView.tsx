@@ -202,7 +202,7 @@ export function ExperienceView({ onBack }: Props) {
       <div ref={stageRef} className={`stage mode-${effective}`} onClick={() => mixer.unlock()}>
         {pageImageUrl && effective !== 'ar' && <img className="page-photo" src={pageImageUrl} alt="" style={{ transform: fitTransform, width: scene?.page.w, height: scene?.page.h }} />}
         <div ref={layerRef} className="page-layer" style={{ width: scene?.page.w, height: scene?.page.h, ...layerStyle }}>
-          <canvas ref={canvasRef} className="page-canvas" />
+          <canvas key={`${sceneVersion}-${scene?.page.w ?? 0}x${scene?.page.h ?? 0}`} ref={canvasRef} className="page-canvas" />
         </div>
         {!scene && status === 'generating' && (
           <div className="awaken"><div className="awaken-title">{quick?.title ?? 'Reading the page…'}</div>{quick?.gist && <div className="awaken-gist">{quick.gist}</div>}</div>

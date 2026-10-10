@@ -76,7 +76,7 @@ export const useStore = create<ExperienceState & Actions>((set, get) => ({
       case 'quick': {
         // awakening: a guaranteed scene built from the quick read alone, shown until the real scene arrives
         const page = s.page && s.page.w === 1000 ? s.page : { w: 1000, h: Math.round(1000 * ((s.page?.h ?? 1414) / (s.page?.w ?? 1000))) };
-        const awakening = s.scene ? undefined : fallbackScene({ page, title: e.data.title, figures: e.data.figures.map((f) => f.box), lang: e.data.language, kind: 'summary' });
+        const awakening = s.scene || location.search.includes('noawaken') ? undefined : fallbackScene({ page, title: e.data.title, figures: e.data.figures.map((f) => f.box), lang: e.data.language, kind: 'summary' });
         set({ quick: e.data, quickPartial: e.data, events, ...(awakening ? { scene: awakening, sceneVersion: 0, page } : {}) });
         break;
       }

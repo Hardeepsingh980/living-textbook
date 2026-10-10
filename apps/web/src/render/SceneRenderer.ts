@@ -216,8 +216,15 @@ export class SceneRenderer {
         else if (el.style === 'caption') { g.roundRect(-w / 2, -h / 2, w, h, 10).fill({ color: 0x1b1f3b, alpha: 0.85 }); }
         else { g.roundRect(-w / 2, -h / 2, w, h, el.style === 'shout' ? 4 : 18).fill({ color: 0xffffff }).stroke({ color: 0x333333, width: 3 }); }
         if (r.points === undefined && el.tail) {
-          const tx = Number(el.tail[0]) - r.x, ty = Number(el.tail[1]) - r.y;
-          if (Number.isFinite(tx) && Number.isFinite(ty)) g.poly([ -14, h / 2 - 2, 14, h / 2 - 2, tx, ty ]).fill({ color: 0xffffff }).stroke({ color: 0x333333, width: 2 });
+          const scope = this.runtime.values();
+          let tx = (typeof el.tail[0] === 'number' ? el.tail[0] : compile(String(el.tail[0]))(scope)) - r.x;
+          let ty = (typeof el.tail[1] === 'number' ? el.tail[1] : compile(String(el.tail[1]))(scope)) - r.y;
+          if (Number.isFinite(tx) && Number.isFinite(ty)) {
+            // keep the tail short: point towards the target but never further than 1.2× the bubble height
+            const len = Math.hypot(tx, ty), max = h * 1.2;
+            if (len > max) { tx *= max / len; ty *= max / len; }
+            g.poly([-14, h / 2 - 2, 14, h / 2 - 2, tx, ty]).fill({ color: 0xffffff }).stroke({ color: 0x333333, width: 2 });
+          }
         }
         t.anchor.set(0.5); t.style.fill = el.style === 'caption' ? '#ffffff' : '#1a1a1a';
         node.position.set(r.x, r.y); node.scale.set(r.scale);
@@ -257,7 +264,7 @@ export class SceneRenderer {
     }
     if (fill && el.shape !== 'line' && el.shape !== 'arrow') g.fill(fill);
     if (stroke) g.stroke({ ...stroke, cap: 'round', join: 'round' }); else if (el.shape === 'line' || el.shape === 'arrow') g.stroke({ color: el.fill ?? '#e63946', width: el.strokeW, cap: 'round' });
-    if (el.glow) { g.filters = [new BlurFilter({ strength: 6 })]; g.alpha = Math.min(1, g.alpha); } else g.filters = [];
+    if (el.glow) { if (!(g as any).__glow) { (g as any).__glow = new BlurFilter({ strength: 6 }); g.filters = [(g as any).__glow]; } } else if (g.filters && (g.filters as any).length) g.filters = [];
   }
 
   private drawPath(g: Graphics, el: Extract<Element, { type: 'path' }>, r: ResolvedElement, dt: number) {
