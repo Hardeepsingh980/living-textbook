@@ -12,7 +12,7 @@ const execFileP = promisify(execFile);
 let cached: { ai: GoogleGenAI; liveAi: GoogleGenAI } | null = null;
 let gcloudToken: { token: string; at: number } | null = null;
 
-async function gcloudAuthClient() {
+export async function gcloudAuthClient() {
   // Local development only: Workspace ADC can require re-auth; the gcloud CLI token always works.
   const client = new OAuth2Client();
   const refresh = async () => {

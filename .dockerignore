@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/.data
+**/uploads
+.git
+docs
+spikes/tracking/src
+spikes/tracking/server
+spikes/tracking/index.html
+**/public/dev
