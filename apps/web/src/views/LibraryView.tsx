@@ -1,25 +1,62 @@
+// Everything a reader has made, kept: pages brought to life, short videos and chapter films.
 import { useEffect, useState } from 'react';
-import { getLibrary, deleteLibrary, type LibraryItem } from '../lib/api';
+import { getLibrary, deleteLesson, listJobs, deleteJob, type LibraryItem } from '../lib/api';
+import type { Job } from '../lib/types';
+import { Link, navigate } from '../lib/nav';
 import { Icon } from '../components/Icon';
+import { GeminiSpark } from '../components/GeminiSpark';
+import { JobCard } from '../components/JobCard';
 
-export function LibraryView({ onOpen, onBack }: { onOpen: (id: string) => void; onBack: () => void }) {
-  const [items, setItems] = useState<LibraryItem[] | null>(null);
-  useEffect(() => { getLibrary().then(setItems).catch(() => setItems([])); }, []);
+type Tab = 'pages' | 'videos' | 'films';
+const TABS: { id: Tab; label: string }[] = [{ id: 'pages', label: 'Pages' }, { id: 'videos', label: 'Short videos' }, { id: 'films', label: 'Chapter films' }];
+
+export function LibraryView() {
+  const [tab, setTab] = useState<Tab>(() => { const t = new URLSearchParams(location.search).get('tab'); return t === 'videos' || t === 'films' ? t : 'pages'; });
+  const [pages, setPages] = useState<LibraryItem[] | null>(null);
+  const [jobs, setJobs] = useState<Job[] | null>(null);
+  useEffect(() => { getLibrary().then(setPages).catch(() => setPages([])); listJobs().then(setJobs).catch(() => setJobs([])); }, []);
+  const pick = (t: Tab) => { setTab(t); history.replaceState(null, '', t === 'pages' ? '/app/library' : `/app/library?tab=${t}`); };
+  const shorts = jobs?.filter((j) => j.kind === 'short') ?? [], films = jobs?.filter((j) => j.kind === 'chapter') ?? [];
+  const count = { pages: pages?.length, videos: jobs ? shorts.length : undefined, films: jobs ? films.length : undefined };
+
   return (
-    <div className="library">
-      <div className="hud-top static"><button className="round" onClick={onBack} aria-label="Back"><Icon name="back" /></button><div className="title">Saved pages</div>
-        {items && items.length > 0 && <button className="link" onClick={async () => { if (confirm('Delete all saved pages? This cannot be undone.')) { await deleteLibrary(); setItems([]); } }}><Icon name="trash" size={18} /> Delete all</button>}</div>
-      {items === null && <div className="empty"><p className="muted">Opening your pages</p></div>}
-      {items && items.length === 0 && <div className="empty enter"><h2>Your book is waiting to come alive.</h2><p className="muted">Point the camera at a page and it will appear here.</p><button className="primary" onClick={onBack}><Icon name="camera" /> Open camera</button></div>}
-      <div className="grid">
-        {items?.map((it) => (
-          <button key={it.id} className="card" onClick={() => onOpen(it.id)}>
-            <img src={it.pageImageUrl} alt="" loading="lazy" />
-            <div className="card-title">{it.title || it.subject}</div>
-            <div className="card-sub">{it.kind} · {it.language.toUpperCase()} · {new Date(it.createdAt).toLocaleDateString()}</div>
-          </button>
-        ))}
+    <div className="page library-page enter-page">
+      <div className="page-head"><h1>Library<span className="marker-dot">.</span></h1></div>
+      <div className="tabs" role="tablist">
+        {TABS.map((t) => <button key={t.id} role="tab" aria-selected={tab === t.id} className={`tab-chip ${tab === t.id ? 'on' : ''}`} onClick={() => pick(t.id)}>{t.label}{count[t.id] !== undefined ? <span className="count">{count[t.id]}</span> : null}</button>)}
       </div>
+
+      {tab === 'pages' && (pages === null ? <div className="row-wait"><GeminiSpark state="thinking" size={26} /></div> : pages.length === 0 ? (
+        <Empty line="Pages you bring to life are kept here." cta="Scan a page" onClick={() => navigate('/scan')} />
+      ) : (
+        <div className="page-grid">
+          {pages.map((p) => (
+            <div key={p.id} className="page-card-lib">
+              <Link to={`/x/${p.id}`} className="page-open"><img src={p.pageImageUrl} alt="" loading="lazy" /><b>{p.title || p.subject}</b><span className="muted small">{p.subject} · {new Date(p.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span></Link>
+              <button className="round small del" aria-label={`Delete ${p.title}`} onClick={async () => { if (!confirm(`Delete "${p.title}" from your library?`)) return; await deleteLesson(p.id).catch(() => {}); setPages((xs) => (xs ?? []).filter((x) => x.id !== p.id)); }}><Icon name="trash" size={18} /></button>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {tab !== 'pages' && (jobs === null ? <div className="row-wait"><GeminiSpark state="thinking" size={26} /></div> : (tab === 'videos' ? shorts : films).length === 0 ? (
+        tab === 'videos'
+          ? <Empty line="A short video turns one page into a narrated explainer you can save and share." cta="Make a short video" onClick={() => navigate('/app/new/short')} />
+          : <Empty line="A chapter film turns a whole chapter PDF into an explainer for the class projector." cta="Make a chapter film" onClick={() => navigate('/app/new/chapter')} />
+      ) : (
+        <div className="job-grid">
+          {(tab === 'videos' ? shorts : films).map((j) => (
+            <div key={j.id} className="job-wrap">
+              <JobCard job={j} />
+              <button className="round small del" aria-label="Delete" onClick={async () => { if (!confirm('Delete this video?')) return; await deleteJob(j.id).catch(() => {}); setJobs((xs) => (xs ?? []).filter((x) => x.id !== j.id)); }}><Icon name="trash" size={18} /></button>
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
+}
+
+function Empty({ line, cta, onClick }: { line: string; cta: string; onClick: () => void }) {
+  return <div className="empty-card"><p>{line}</p><button className="primary" onClick={onClick}><Icon name="plus" size={20} /> {cta}</button></div>;
 }

@@ -10,6 +10,8 @@ const app = getApps()[0] ?? initializeApp({ projectId: config.project });
 const cache = new Map<string, { user: User; exp: number }>();
 
 export async function userFromRequest(c: Context): Promise<User | null> {
+  // local development only: DEV_USERS=1 lets a test reader sign in with a header (never set on Cloud Run)
+  if (process.env.DEV_USERS === '1') { const dev = c.req.header('x-dev-user'); if (dev) return { uid: `dev-${dev.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)}`, name: 'Test Reader', email: 'test@example.com' }; }
   const h = c.req.header('authorization');
   if (!h?.startsWith('Bearer ')) return null;
   const token = h.slice(7).trim();

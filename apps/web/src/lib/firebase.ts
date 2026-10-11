@@ -9,19 +9,25 @@ export type Reader = { uid: string; name: string; email: string; photo: string }
 let reader: Reader | null = null;
 let fbUser: User | null = null;
 let available = false;
+let ready = false;            // the sign-in state is known (signed in or out)
+let devName: string | null = null; // local development: a test reader (server DEV_USERS=1, localStorage lb.devUser)
 let app: FirebaseApp | null = null;
 let authMod: typeof import('firebase/auth') | null = null;
 let analytics: ((name: string, params?: Record<string, unknown>) => void) | null = null;
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
 let resolveAuth!: () => void;
-const authResolved = new Promise<void>((r) => { resolveAuth = r; });
+const authResolved = new Promise<void>((r) => { resolveAuth = () => { if (!ready) { ready = true; emit(); } r(); }; });
 setTimeout(() => resolveAuth(), 2500); // a request never waits long for the auth state
 
 const CLAIMED = 'lb.claimed.';
 const boot = (async () => {
   try {
     const cfg = await fetch('/api/config').then((r) => (r.ok ? r.json() : null));
+    if (cfg?.devUsers) {
+      try { devName = localStorage.getItem('lb.devUser'); } catch { devName = null; }
+      if (devName) { reader = { uid: `dev-${devName}`, name: 'Test Reader', email: 'test@example.com', photo: '' }; available = true; resolveAuth(); emit(); return; }
+    }
     if (!cfg?.firebase?.apiKey) { resolveAuth(); return; }
     const [{ initializeApp }, mod] = await Promise.all([import('firebase/app'), import('firebase/auth')]);
     app = initializeApp(cfg.firebase); authMod = mod; available = true; emit();
@@ -53,6 +59,12 @@ async function claimEarlierPages(u: User) {
 export function useReader(): Reader | null {
   return useSyncExternalStore((f) => { subs.add(f); return () => { subs.delete(f); }; }, () => reader, () => null);
 }
+/** True once it is known whether the reader is signed in (so a page can show a sign-in card instead of flickering). */
+export function useAuthReady(): boolean {
+  return useSyncExternalStore((f) => { subs.add(f); return () => { subs.delete(f); }; }, () => ready, () => false);
+}
+export function devUserHeader(): Record<string, string> { return devName ? { 'x-dev-user': devName } : {}; }
+export function currentReader(): Reader | null { return reader; }
 export function useSignInAvailable(): boolean {
   return useSyncExternalStore((f) => { subs.add(f); return () => { subs.delete(f); }; }, () => available, () => false);
 }
@@ -69,7 +81,11 @@ export async function signIn(): Promise<void> {
     else if (!/popup-closed-by-user|cancelled-popup-request/.test(code)) throw e;
   }
 }
-export async function signOut(): Promise<void> { await boot; if (app && authMod) await authMod.signOut(authMod.getAuth(app)); }
+export async function signOut(): Promise<void> {
+  await boot;
+  if (devName) { try { localStorage.removeItem('lb.devUser'); } catch { /* ignore */ } devName = null; reader = null; emit(); return; }
+  if (app && authMod) await authMod.signOut(authMod.getAuth(app));
+}
 export async function idToken(): Promise<string | null> {
   await boot; await authResolved;
   try { return fbUser ? await fbUser.getIdToken() : null; } catch { return null; }

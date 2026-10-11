@@ -21,36 +21,26 @@ const run = promisify(execFile);
 const FPS = 30;
 const ENC = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-r', String(FPS), '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2'];
 
-export type ChapterSection = { page: number; concept: string; score: number; status: 'waiting' | 'making' | 'recording' | 'done' | 'skipped'; experienceId?: string; thumb?: string; title?: string };
-export type ChapterJob = {
+import type { JobDoc, JobSection } from './store.js';
+type ChapterJob = {
   id: string; ownerId: string; createdAt: number;
   status: 'queued' | 'reading' | 'choosing' | 'making' | 'composing' | 'ready' | 'failed';
-  detail: string; title?: string; subject?: string; grade?: string; pages?: number; sections: ChapterSection[];
+  detail: string; title?: string; subject?: string; grade?: string; pages?: number; sections: JobSection[];
   url?: string; poster?: string; seconds?: number; error?: string; questions?: string[];
 };
-const jobs = new Map<string, ChapterJob>();
-let queue: Promise<void> = Promise.resolve();
+type Report = (patch: Partial<JobDoc>) => void;
 
-export function getChapter(id: string) { return jobs.get(id) ?? null; }
-export async function waitChapter(id: string, timeoutMs: number): Promise<ChapterJob | null> {
-  const job = jobs.get(id); if (!job) return null;
-  const key = () => `${job.status}|${job.detail}|${job.sections.map((s) => s.status).join(',')}`;
-  const before = key(), start = Date.now();
-  while (Date.now() - start < timeoutMs && key() === before && job.status !== 'ready' && job.status !== 'failed') await new Promise((r) => setTimeout(r, 400));
-  return job;
-}
-
-export function startChapter(input: { pdf: Buffer; ownerId: string; sections?: number }): ChapterJob {
-  const id = crypto.randomUUID();
-  const job: ChapterJob = { id, ownerId: input.ownerId, createdAt: Date.now(), status: 'queued', detail: 'Waiting for its turn', sections: [] };
-  jobs.set(id, job);
-  if (jobs.size > 30) { const old = [...jobs.values()].filter((j) => j.status === 'ready' || j.status === 'failed').sort((a, b) => a.createdAt - b.createdAt)[0]; if (old) jobs.delete(old.id); }
-  queue = queue.then(() => makeChapter(job, input).catch((e) => {
-    job.status = 'failed'; job.detail = 'Something went wrong';
-    job.error = String(e?.message || e).split('\n')[0]!.slice(0, 160);
-    console.error('[chapter] failed', job.id, String(e?.message || e).slice(0, 300), String(e?.stderr ?? '').slice(-600));
-  }));
-  return job;
+/** Make a chapter film from the job's PDF; progress goes to `report` (also every two seconds, since the parts change
+ *  state in place). Resolves with what the finished job shows. */
+export async function runChapter(doc: JobDoc, pdf: Buffer, report: Report): Promise<Partial<JobDoc>> {
+  const job: ChapterJob = { id: doc.id, ownerId: doc.owner, createdAt: Date.now(), status: 'reading', detail: 'Reading the chapter', sections: [] };
+  const push = () => report({ stage: job.status, detail: job.detail, title: job.title, subject: job.subject, grade: job.grade, pages: job.pages, sections: job.sections.map((x) => ({ ...x })), questions: job.questions });
+  const timer = setInterval(push, 2000);
+  try {
+    await makeChapter(job, { pdf, ownerId: doc.owner, sections: doc.options.sections });
+    push();
+    return { url: job.url, poster: job.poster, seconds: job.seconds, title: job.title, subject: job.subject, grade: job.grade, pages: job.pages, sections: job.sections, questions: job.questions };
+  } finally { clearInterval(timer); }
 }
 
 const words = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3));

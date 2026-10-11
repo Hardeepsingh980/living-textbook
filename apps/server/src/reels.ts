@@ -1,6 +1,6 @@
-// Explainer reels: a page (photo or the first page of a PDF) goes through the same pipeline as a live lesson, the
-// finished experience is played in presentation mode inside a headless browser on this server while the tutor
-// teaches it, and the capture is mixed with the tutor's voice into an MP4. Jobs run one at a time.
+// Short videos: a page (photo or the first page of a PDF) goes through the same pipeline as a live lesson, the
+// finished lesson is played in presentation mode inside a headless browser on this server while the tutor teaches
+// it, and the capture is mixed with the tutor's voice into an MP4. Runs as a background job (see jobs.ts).
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
@@ -8,39 +8,32 @@ import path from 'node:path';
 import os from 'node:os';
 import sharp from 'sharp';
 import { runPipeline } from './pipeline.js';
-import { store } from './store.js';
+import { store, type JobDoc } from './store.js';
 import type { PipelineEvent } from '@living-book/scene';
 
 const run = promisify(execFile);
+type Report = (patch: Partial<JobDoc>) => void;
 
-export type ReelJob = {
-  id: string; ownerId: string; createdAt: number; status: 'queued' | 'generating' | 'recording' | 'encoding' | 'ready' | 'failed';
-  detail: string; experienceId?: string; url?: string; error?: string; seconds: number; title?: string;
-};
-
-const jobs = new Map<string, ReelJob>();
-let queue: Promise<void> = Promise.resolve();
-const MAX_JOBS_KEPT = 50;
-
-export function getReel(id: string) { return jobs.get(id) ?? null; }
-
-/** The job once its status or detail changes, or after `timeoutMs`: a request held open this way keeps the CPU on. */
-export async function waitReel(id: string, timeoutMs: number): Promise<ReelJob | null> {
-  const job = jobs.get(id); if (!job) return null;
-  const key = () => `${job.status}|${job.detail}`;
-  const before = key(), start = Date.now();
-  while (Date.now() - start < timeoutMs && key() === before && job.status !== 'ready' && job.status !== 'failed') await new Promise((r) => setTimeout(r, 400));
-  return job;
-}
-
-/** Queue a reel for a page image (or PDF: its first page). Returns the job immediately; poll getReel for progress. */
-export function startReel(input: { image: Buffer; mime: string; ownerId: string; seconds?: number }): ReelJob {
-  const id = crypto.randomUUID();
-  const job: ReelJob = { id, ownerId: input.ownerId, createdAt: Date.now(), status: 'queued', detail: 'Waiting for its turn', seconds: Math.min(90, Math.max(20, input.seconds ?? 50)) };
-  jobs.set(id, job);
-  if (jobs.size > MAX_JOBS_KEPT) { const oldest = [...jobs.values()].sort((a, b) => a.createdAt - b.createdAt)[0]; if (oldest && oldest.status !== 'generating' && oldest.status !== 'recording') jobs.delete(oldest.id); }
-  queue = queue.then(() => makeReel(job, input).catch((e) => { job.status = 'failed'; job.error = String(e?.message || e).slice(0, 200); job.detail = 'Something went wrong'; console.error('[reel] failed', job.id, job.error); }));
-  return job;
+/** Make a short video from the job's input; progress goes to `report`. Resolves with what the finished job shows. */
+export async function runShort(job: JobDoc, input: Buffer, report: Report): Promise<Partial<JobDoc>> {
+  const seconds = Math.min(90, Math.max(20, job.options.seconds ?? 45));
+  report({ stage: 'generating', detail: 'Reading the page' });
+  const image = await pageImage(input, job.input.mime);
+  const jpeg = await sharp(image, { failOn: 'none' }).rotate().jpeg({ quality: 90 }).toBuffer();
+  let revealed = false;
+  const rec = await runPipeline({ image: jpeg, mime: 'image/jpeg', ownerId: job.owner }, (e: PipelineEvent) => {
+    if (e.type === 'quick') report({ title: e.data.title, subject: e.data.subject, detail: 'Sketching the scene' });
+    if (e.type === 'scene' && e.version === 1) report({ detail: 'Checking it against the page' });
+    if (e.type === 'ready') { revealed = true; report({ experienceId: e.experienceId, detail: 'Scene verified; the richer version is on its way' }); }
+    if (e.type === 'error' && !e.recoverable) throw new Error(e.message);
+  });
+  if (!revealed || !rec.scene) throw new Error('no usable scene on this page');
+  report({ stage: 'recording', detail: 'Recording the lesson', experienceId: rec.id, title: rec.quick.title, subject: rec.quick.subject });
+  const mp4 = await recordLesson(rec.id, seconds, (done) => report({ detail: `Recording the lesson (${done} of ${seconds} s)` }), job.id.slice(0, 8));
+  report({ stage: 'encoding', detail: 'Saving the video' });
+  const url = await store.putFile(rec.id, 'short.mp4', mp4, 'video/mp4');
+  console.log(`[short] ${job.id} ready: ${url} (${(mp4.length / 1e6).toFixed(1)} MB)`);
+  return { url, poster: rec.page.imageUrl, seconds, experienceId: rec.id, title: rec.quick.title, subject: rec.quick.subject };
 }
 
 async function pageImage(image: Buffer, mime: string): Promise<Buffer> {
@@ -55,27 +48,6 @@ async function pageImage(image: Buffer, mime: string): Promise<Buffer> {
     return bytes;
   }
   return image;
-}
-
-async function makeReel(job: ReelJob, input: { image: Buffer; mime: string; ownerId: string }) {
-  job.status = 'generating'; job.detail = 'Reading the page';
-  const image = await pageImage(input.image, input.mime);
-  const jpeg = await sharp(image, { failOn: 'none' }).rotate().jpeg({ quality: 90 }).toBuffer();
-  let revealed = false;
-  const rec = await runPipeline({ image: jpeg, mime: 'image/jpeg', ownerId: input.ownerId }, (e: PipelineEvent) => {
-    if (e.type === 'quick') { job.title = e.data.title; job.detail = 'Sketching the scene'; }
-    if (e.type === 'scene' && e.version === 1) job.detail = 'Checking it against the page';
-    if (e.type === 'ready') { revealed = true; job.detail = 'Scene verified; richer version on its way'; }
-    if (e.type === 'error' && !e.recoverable) throw new Error(e.message);
-  });
-  if (!revealed || !rec.scene) throw new Error('no usable scene');
-  job.experienceId = rec.id;
-  job.status = 'recording'; job.detail = 'Recording the lesson';
-  const mp4 = await recordLesson(rec.id, job.seconds, (done) => { job.detail = `Recording the lesson (${done} of ${job.seconds} s)`; }, job.id);
-  job.status = 'encoding'; job.detail = 'Saving the reel';
-  job.url = await store.putFile(rec.id, 'reel', mp4, 'video/mp4');
-  job.status = 'ready'; job.detail = 'Ready';
-  console.log(`[reel] ${job.id} ready: ${job.url} (${(mp4.length / 1e6).toFixed(1)} MB)`);
 }
 
 /** Play the experience in presentation mode in headless Chromium, capture video, then mix the tutor's voice in.

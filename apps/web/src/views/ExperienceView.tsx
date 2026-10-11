@@ -19,6 +19,7 @@ import { CameraSession } from '../ar/camera';
 import { cornersToMatrix3d, type Corners, type TrackerState } from '../ar/PageTracker';
 import { executeTool, type Scene } from '@living-book/scene';
 import { QuizSheet } from '../components/QuizSheet';
+import { useReader, useSignInAvailable, signIn } from '../lib/firebase';
 import { track } from '../lib/progress';
 import type { LessonMeta } from '../lib/types';
 
@@ -85,6 +86,8 @@ export function ExperienceView({ onBack }: Props) {
   const [knob, setKnob] = useState<string | null>(null);
   const [whatIf, setWhatIf] = useState(false);
   const [quizOpen, setQuizOpen] = useState(false);
+  const reader = useReader();
+  const signInAvailable = useSignInAvailable();
   const [lessonDone, setLessonDone] = useState(false);
   const questionTimer = useRef<number | null>(null);
   const questionText = useRef('');     // progressive disclosure: knobs appear only when asked for
@@ -488,6 +491,7 @@ export function ExperienceView({ onBack }: Props) {
         {!PRESENT && <button className="round" onClick={onBack} aria-label="Back"><Icon name="back" /></button>}
         {phrase || title ? <div className={`title-pill ${phrase ? 'working' : ''}`}>{phrase ? <GeminiSpark state="thinking" size={18} /> : null}<span>{phrase || title}</span></div> : <div className="spacer" />}
         {!PRESENT && <button className="round small" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute' : 'Mute'}><Icon name={muted ? 'soundOff' : 'sound'} size={20} /></button>}
+        {!PRESENT && !reader && revealed && signInAvailable && <button className="pill save-pill" onClick={() => { void signIn().catch(() => {}); }} title="Sign in with Google to keep this page and your progress"><Icon name="check" size={16} />Save</button>}
         {!PRESENT && <button className={`round small spark-button ${theatreOpen ? 'on' : ''}`} onClick={() => setTheatre(!theatreOpen)} aria-label="How it was made" title="How it was made"><GeminiSpark state={spark} size={22} /></button>}
         <ValidationStatus compact />
       </div>}

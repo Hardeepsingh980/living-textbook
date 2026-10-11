@@ -14,6 +14,19 @@ export type LessonDoc = {
   quiz?: { score: number; total: number; at: string; best: number; attempts: number };
 };
 
+/** A long generation (short video, chapter film) that runs in the background and outlives the page that asked for it. */
+export type JobKind = 'short' | 'chapter';
+export type JobStatus = 'queued' | 'running' | 'ready' | 'failed';
+export type JobSection = { page: number; concept: string; score: number; status: 'waiting' | 'making' | 'recording' | 'done' | 'skipped'; experienceId?: string; thumb?: string; title?: string };
+export type JobDoc = {
+  id: string; kind: JobKind; owner: string; createdAt: string; updatedAt: number;
+  status: JobStatus; stage: string; detail: string; attempts: number;
+  input: { url: string; mime: string; name?: string };
+  options: { seconds?: number; sections?: number };
+  title?: string; subject?: string; grade?: string; pages?: number; sections?: JobSection[]; questions?: string[];
+  experienceId?: string; url?: string; poster?: string; seconds?: number; error?: string;
+};
+
 export interface Store {
   putFile(experienceId: string, name: string, bytes: Buffer, mime: string): Promise<string>; // returns URL path
   getFile(experienceId: string, name: string): Promise<{ bytes: Buffer; mime: string } | null>;
@@ -28,6 +41,18 @@ export interface Store {
   getLesson(uid: string, experienceId: string): Promise<LessonDoc | null>;
   putLesson(uid: string, experienceId: string, doc: Partial<LessonDoc>): Promise<void>;
   listLessons(uid: string, limit?: number): Promise<LessonDoc[]>;
+  deleteRecord(id: string): Promise<void>;
+  // background jobs
+  putJob(doc: JobDoc): Promise<void>;
+  patchJob(id: string, patch: Partial<JobDoc>): Promise<void>;
+  getJob(id: string): Promise<JobDoc | null>;
+  listJobs(owner: string, limit?: number): Promise<JobDoc[]>;
+  /** queued, or running with no heartbeat for `staleMs` → running, atomically; null when another runner has it */
+  claimJob(id: string, staleMs: number): Promise<JobDoc | null>;
+  deleteJob(id: string): Promise<void>;
+  /** count one use against `key` (which carries the day); false once `limit` is reached */
+  bumpQuota(key: string, limit: number): Promise<{ allowed: boolean; used: number }>;
+  peekQuota(key: string): Promise<number>;
 }
 
 const MIME_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/wav': 'wav', 'application/octet-stream': 'bin', 'application/json': 'json' };
@@ -75,7 +100,34 @@ export class LocalStore implements Store {
     const docs: LessonDoc[] = [];
     for (const f of files) { try { docs.push(JSON.parse(await fs.readFile(path.join(dir, f), 'utf8'))); } catch { /* skip */ } }
     return docs.sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || '')).slice(0, limit);
-  }  async listRecords(ownerId: string, limit = 50) {
+  }  async deleteRecord(id: string) { await fs.rm(this.dir(id), { recursive: true, force: true }); }
+  private jobFile(id: string) { return path.join(this.root, 'jobs', `${safeId(id)}.json`); }
+  async putJob(doc: JobDoc) { await fs.mkdir(path.join(this.root, 'jobs'), { recursive: true }); await fs.writeFile(this.jobFile(doc.id), JSON.stringify(doc)); }
+  async patchJob(id: string, patch: Partial<JobDoc>) { const cur = await this.getJob(id); if (cur) await this.putJob({ ...cur, ...patch }); }
+  async getJob(id: string) { try { return JSON.parse(await fs.readFile(this.jobFile(id), 'utf8')) as JobDoc; } catch { return null; } }
+  async listJobs(owner: string, limit = 100) {
+    const files = await fs.readdir(path.join(this.root, 'jobs')).catch(() => [] as string[]);
+    const docs: JobDoc[] = [];
+    for (const f of files) { try { const d = JSON.parse(await fs.readFile(path.join(this.root, 'jobs', f), 'utf8')) as JobDoc; if (d.owner === owner) docs.push(d); } catch { /* skip */ } }
+    return docs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  }
+  private claiming = Promise.resolve<unknown>(null);
+  async claimJob(id: string, staleMs: number) {
+    const next = this.claiming.then(async () => {
+      const d = await this.getJob(id); if (!d) return null;
+      const free = d.status === 'queued' || (d.status === 'running' && Date.now() - d.updatedAt > staleMs);
+      if (!free) return null;
+      const claimed = { ...d, status: 'running' as const, updatedAt: Date.now(), attempts: (d.attempts ?? 0) + 1 };
+      await this.putJob(claimed); return claimed;
+    });
+    this.claiming = next.catch(() => null);
+    return next;
+  }
+  async deleteJob(id: string) { await fs.rm(this.jobFile(id), { force: true }); }
+  private quota = new Map<string, number>();
+  async bumpQuota(key: string, limit: number) { const used = this.quota.get(key) ?? 0; if (used >= limit) return { allowed: false, used }; this.quota.set(key, used + 1); return { allowed: true, used: used + 1 }; }
+  async peekQuota(key: string) { return this.quota.get(key) ?? 0; }
+  async listRecords(ownerId: string, limit = 50) {
     const base = path.join(this.root, 'experiences');
     let ids: string[] = [];
     try { ids = await fs.readdir(base); } catch { return []; }
@@ -160,6 +212,48 @@ export class CloudStore implements Store {
     const q = await this.db.collection('users').doc(safeId(uid)).collection('lessons').limit(500).get();
     return q.docs.map((d) => d.data() as LessonDoc).sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || '')).slice(0, limit);
   }
+  async deleteRecord(id: string) {
+    await this.ready;
+    await this.db.collection('experiences').doc(safeId(id)).delete();
+    await this.bucket.deleteFiles({ prefix: `experiences/${safeId(id)}/` }).catch(() => {});
+  }
+  async putJob(doc: JobDoc) { await this.ready; await this.db.collection('jobs').doc(safeId(doc.id)).set(doc); }
+  async patchJob(id: string, patch: Partial<JobDoc>) { await this.ready; await this.db.collection('jobs').doc(safeId(id)).set(patch, { merge: true }); }
+  async getJob(id: string) { await this.ready; const s = await this.db.collection('jobs').doc(safeId(id)).get(); return s.exists ? (s.data() as JobDoc) : null; }
+  async listJobs(owner: string, limit = 100) {
+    await this.ready;
+    const q = await this.db.collection('jobs').where('owner', '==', owner).limit(300).get();
+    return q.docs.map((d) => d.data() as JobDoc).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  }
+  async claimJob(id: string, staleMs: number) {
+    await this.ready;
+    const ref = this.db.collection('jobs').doc(safeId(id));
+    return this.db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref); if (!snap.exists) return null;
+      const d = snap.data() as JobDoc;
+      const free = d.status === 'queued' || (d.status === 'running' && Date.now() - d.updatedAt > staleMs);
+      if (!free) return null;
+      const claimed: JobDoc = { ...d, status: 'running', updatedAt: Date.now(), attempts: (d.attempts ?? 0) + 1 };
+      tx.set(ref, { status: claimed.status, updatedAt: claimed.updatedAt, attempts: claimed.attempts }, { merge: true });
+      return claimed;
+    });
+  }
+  async deleteJob(id: string) {
+    await this.ready;
+    await this.db.collection('jobs').doc(safeId(id)).delete();
+    await this.bucket.deleteFiles({ prefix: `experiences/job-${safeId(id)}/` }).catch(() => {});
+  }
+  async bumpQuota(key: string, limit: number) {
+    await this.ready;
+    const ref = this.db.collection('quota').doc(safeId(key));
+    return this.db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref); const used = snap.exists ? Number(snap.data()!.count ?? 0) : 0;
+      if (used >= limit) return { allowed: false, used };
+      tx.set(ref, { count: used + 1, at: Date.now() }, { merge: true });
+      return { allowed: true, used: used + 1 };
+    });
+  }
+  async peekQuota(key: string) { await this.ready; const s = await this.db.collection('quota').doc(safeId(key)).get(); return s.exists ? Number(s.data()!.count ?? 0) : 0; }
   async listRecords(ownerId: string, limit = 50) {
     await this.ready;
     // single-field filter only (no composite index needed); sorted in memory

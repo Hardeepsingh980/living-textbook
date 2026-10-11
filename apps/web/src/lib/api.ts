@@ -1,6 +1,7 @@
 // Client for the Living Book server: experience creation over SSE, records, library.
 import type { PipelineEvent, ExperienceRecord, Quiz } from '@living-book/scene';
-import { idToken } from './firebase';
+import { idToken, devUserHeader } from './firebase';
+import type { Job } from './types';
 
 const OWNER_KEY = 'lb.owner';
 export function ownerId(): string {
@@ -11,10 +12,18 @@ export function ownerId(): string {
   } catch { return 'anonymous'; }
 }
 
+/** An error the server explained (a sign-in requirement, a daily limit), with its code. */
+export class ApiError extends Error { constructor(message: string, public code: string) { super(message); } }
+async function json<T>(res: Response): Promise<T> {
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError((j as any).error || `server error ${res.status}`, (j as any).code || String(res.status));
+  return j as T;
+}
+
 /** Who is asking: the browser's anonymous id, plus the signed-in reader's Firebase token when there is one. */
 export async function authHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
   const t = await idToken();
-  return { 'x-owner-id': ownerId(), ...(t ? { authorization: `Bearer ${t}` } : {}), ...extra };
+  return { 'x-owner-id': ownerId(), ...(t ? { authorization: `Bearer ${t}` } : {}), ...devUserHeader(), ...extra };
 }
 
 /** POST the page photo and stream pipeline events. Resolves when the stream ends. */
@@ -23,6 +32,7 @@ export async function createExperience(blob: Blob, onEvent: (e: PipelineEvent) =
     method: 'POST', body: blob, signal: opts.signal,
     headers: await authHeaders({ 'content-type': blob.type || 'image/jpeg', ...(opts.bookId ? { 'x-book-id': opts.bookId } : {}) }),
   });
+  if (res.status === 429 || res.status === 401) { const j = await res.json().catch(() => ({})); throw new ApiError(j.error || 'Please sign in to continue.', j.code || 'signin-required'); }
   if (!res.ok || !res.body) throw new Error(`server error ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -53,6 +63,21 @@ export async function getLibrary(): Promise<LibraryItem[]> {
   if (!res.ok) return [];
   return res.json();
 }
+export async function deleteLesson(id: string): Promise<void> { await json(await fetch(`/api/experiences/${encodeURIComponent(id)}`, { method: 'DELETE', headers: await authHeaders() })); }
+
+// ---- background jobs: short videos and chapter films
+export async function startShort(file: File, seconds: number): Promise<Job> {
+  return json(await fetch(`/api/shorts?seconds=${seconds}`, { method: 'POST', body: file, headers: await authHeaders({ 'content-type': file.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(file.name).slice(0, 120) }) }));
+}
+export async function startChapter(file: File, sections: number): Promise<Job> {
+  return json(await fetch(`/api/chapters?sections=${sections}`, { method: 'POST', body: file, headers: await authHeaders({ 'content-type': 'application/pdf', 'x-file-name': encodeURIComponent(file.name).slice(0, 120) }) }));
+}
+export async function listJobs(): Promise<Job[]> { const r = await fetch('/api/jobs', { headers: await authHeaders() }); return r.ok ? r.json() : []; }
+export async function getJob(id: string, waitMs = 0): Promise<Job> { return json(await fetch(`/api/jobs/${encodeURIComponent(id)}${waitMs ? `?wait=${waitMs}` : ''}`, { headers: await authHeaders() })); }
+export async function retryJob(id: string): Promise<Job> { return json(await fetch(`/api/jobs/${encodeURIComponent(id)}/retry`, { method: 'POST', headers: await authHeaders() })); }
+export async function deleteJob(id: string): Promise<void> { await json(await fetch(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE', headers: await authHeaders() })); }
+export type Quota = { signedIn: boolean; limit: number; used: number; remaining: number };
+export async function getQuota(): Promise<Quota | null> { try { return await json(await fetch('/api/quota', { headers: await authHeaders() })); } catch { return null; } }
 export async function deleteLibrary(): Promise<void> {
   await fetch('/api/library', { method: 'DELETE', headers: await authHeaders() });
 }

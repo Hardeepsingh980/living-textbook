@@ -1,16 +1,16 @@
 // A reader's own page: what they did (from Firestore), how it went day by day and what they missed (from BigQuery),
 // and three suggestions written from those numbers by Gemini. Every page links back into its lesson.
 import { useEffect, useState } from 'react';
-import { useReader, signOut } from '../lib/firebase';
+import { useReader } from '../lib/firebase';
 import { getMe, getInsights, type Insights, type Lesson } from '../lib/progress';
 import { GoogleButton } from '../components/GoogleButton';
 import { GeminiSpark } from '../components/GeminiSpark';
 import { Icon } from '../components/Icon';
 import '../learn.css';
 
-type Props = { onOpen: (id: string) => void; onBack: () => void; onScan: () => void };
+type Props = { onOpen: (id: string) => void; onScan: () => void };
 
-export function ProgressView({ onOpen, onBack, onScan }: Props) {
+export function ProgressView({ onOpen, onScan }: Props) {
   const reader = useReader();
   const [lessons, setLessons] = useState<Lesson[] | null>(null);
   const [ins, setIns] = useState<Insights | null>(null);
@@ -24,16 +24,9 @@ export function ProgressView({ onOpen, onBack, onScan }: Props) {
   }, [reader?.uid]);
 
   return (
-    <div className="progress-page paper enter-page">
+    <div className="page progress-content enter-page">
       <div className="progress-inner">
-        <div className="progress-top">
-          <button className="round" onClick={onBack} aria-label="Back"><Icon name="back" /></button>
-          <div className="who">
-            {reader && (reader.photo ? <img className="avatar" src={reader.photo} alt="" referrerPolicy="no-referrer" /> : <span className="avatar">{(reader.name || reader.email || '?').slice(0, 1).toUpperCase()}</span>)}
-            <span className="name">{reader ? (reader.name || reader.email) : 'My progress'}</span>
-          </div>
-          {reader && <button className="link" onClick={() => { void signOut(); }}>Sign out</button>}
-        </div>
+        <div className="page-head"><h1>Progress<span className="marker-dot">.</span></h1></div>
 
         {!reader && (
           <div className="signin-card">

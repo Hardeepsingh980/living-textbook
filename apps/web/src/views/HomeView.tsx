@@ -8,7 +8,10 @@ import { GeminiSpark } from '../components/GeminiSpark';
 import { ScenePreview } from '../components/ScenePreview';
 import { QrModal } from '../components/QrModal';
 import { GoogleButton } from '../components/GoogleButton';
-import { useReader } from '../lib/firebase';
+import { useReader, signIn } from '../lib/firebase';
+import { navigate } from '../lib/nav';
+import { getQuota, type Quota } from '../lib/api';
+import { Avatar } from '../components/AppShell';
 import '../home.css';
 
 type Sample = { id: string; title: string; slider?: string };
@@ -32,10 +35,15 @@ const REDUCED = typeof matchMedia === 'function' && matchMedia('(prefers-reduced
 const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 const PHONE = COARSE || (typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent));
 
-type Props = { onScan: () => void; onPhoto: (file: File) => void; onLibrary: () => void; onReel: () => void; onOpen: (id: string) => void; onProgress: () => void; onTeach: () => void };
+type Props = { onScan: () => void; onPhoto: (file: File) => void; onOpen: (id: string) => void };
 
-export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen, onProgress, onTeach }: Props) {
+export function HomeView({ onScan, onPhoto, onOpen }: Props) {
   const reader = useReader();
+  const [quota, setQuota] = useState<Quota | null>(null);
+  useEffect(() => { void getQuota().then(setQuota); }, [reader?.uid]);
+  const onShort = () => navigate('/app/new/short');
+  const onTeach = () => navigate('/app/new/chapter');
+  const onProgress = () => (reader ? navigate('/app/progress') : void signIn().catch(() => {}));
   const [show, setShow] = useState<Showcase>(FALLBACK);
   const [qr, setQr] = useState(false);
   const rootRef = useRef<HTMLElement>(null);
@@ -56,10 +64,8 @@ export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen, onProgres
       <header className="home-top">
         <div className="wordmark"><span className="mark" />Living Textbook</div>
         <nav className="home-nav">
-          <button className="link" onClick={onLibrary}>Saved pages</button>
-          <button className="link nav-reel" onClick={onReel}>Make a reel</button>
           {reader
-            ? <button className="me-btn" onClick={onProgress} aria-label="My progress" title="My progress">{reader.photo ? <img className="avatar small" src={reader.photo} alt="" referrerPolicy="no-referrer" /> : <span className="avatar small">{(reader.name || reader.email || '?').slice(0, 1).toUpperCase()}</span>}</button>
+            ? <button className="secondary small dash-btn" onClick={() => navigate('/app')}><Avatar small /> <span>Dashboard</span></button>
             : <GoogleButton className="secondary small nav-signin" label="Sign in" />}
           <button className="primary try-small" onClick={tryNow}>Try now</button>
         </nav>
@@ -80,6 +86,7 @@ export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen, onProgres
           <button className="primary big" onClick={tryNow}><Icon name="camera" size={26} /> Try now</button>
           <label className="secondary"><Icon name="upload" size={20} /> Use a photo{photo}</label>
           <HeroArrow />
+          {!reader && quota && <p className="try-note muted">{quota.remaining > 0 ? `Free to try: ${quota.remaining} ${quota.remaining === 1 ? 'page' : 'pages'} left today.` : 'Today\'s free pages are used up.'} Sign in for more, plus short videos and chapter films.</p>}
         </div>
       </section>
 
@@ -153,13 +160,13 @@ export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen, onProgres
 
       {/* a page in, a film out */}
       <section className="film">
-        <h2 className="reveal">A page in, a film out<span className="marker-dot">.</span></h2>
+        <h2 className="reveal">A page in, a short video out<span className="marker-dot">.</span></h2>
         <div className="film-card reveal">
           <span className="tape" aria-hidden="true" />
           <SoundClip src="/home/reel.mp4" poster="/home/reel.jpg" label="A thirty-second explainer reel of the pendulum page, narrated by the tutor" />
           <span className="postit film-tag">30 s, narrated</span>
         </div>
-        <button className="secondary reveal" onClick={onReel}><Icon name="film" size={20} /> Make one from your page</button>
+        <button className="secondary reveal" onClick={onShort}><Icon name="film" size={20} /> Make a short video</button>
       </section>
 
       <section className="ask">
@@ -193,11 +200,11 @@ export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen, onProgres
         <div className="final-actions reveal">
           <button className="primary big" onClick={tryNow}><Icon name="camera" size={26} /> Try now</button>
           <label className="secondary"><Icon name="upload" size={20} /> Use a photo{photo}</label>
-          <button className="secondary" onClick={onReel}><Icon name="film" size={20} /> Make a reel</button>
+          <button className="secondary" onClick={onShort}><Icon name="film" size={20} /> Make a short video</button>
         </div>
         <footer className="home-foot">
           <span className="muted">Built with Gemini on Google Cloud</span>
-          <button className="link" onClick={onLibrary}>Saved pages</button>
+          {reader ? <button className="link" onClick={() => navigate('/app')}>Dashboard</button> : <button className="link" onClick={() => void signIn().catch(() => {})}>Sign in</button>}
         </footer>
       </section>
 

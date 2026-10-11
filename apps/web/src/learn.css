@@ -115,3 +115,6 @@
 .teach-questions h3 { font-size: 26px; }
 .teach-questions .q { font-family: var(--font-body); font-weight: 400; font-size: 19px; white-space: normal; display: block; }
 .teach-questions .q:nth-child(odd) { transform: rotate(-0.6deg); } .teach-questions .q:nth-child(even) { transform: rotate(0.5deg); }
+
+/* a signed-out reader can keep the lesson they are in */
+.pill.save-pill { background: var(--postit); font-size: 16px; padding: 4px 12px; min-height: 36px; gap: 4px; }
