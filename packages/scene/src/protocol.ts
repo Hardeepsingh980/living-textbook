@@ -62,7 +62,7 @@ export type PipelineEvent =
   | { type: 'audio'; id: string; url: string; kind: AudioClipKind; text: string; stepId?: string; lineId?: string; speaker?: string; durationMs: number; version?: number; t: number }
   | { type: 'asset'; id: string; url: string; t: number }
   | { type: 'tracking'; url: string; width: number; height: number; trackPts: number[]; t: number }
-  | { type: 'verification'; data: Verification; t: number }
+  | { type: 'verification'; data: Verification; version?: number; t: number }
   | { type: 'ready'; t: number; experienceId: string }   // scene v1 + narration + verification are in; upgrades may follow
   | { type: 'done'; t: number; timings: Record<string, number>; costUsd: number; experienceId: string }
   | { type: 'error'; message: string; recoverable: boolean; t: number };

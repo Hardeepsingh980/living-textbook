@@ -38,12 +38,15 @@ export function App() {
   }, [route]);
 
   async function onCapture({ blob, previewUrl: preview, size, session }: CaptureResult) {
-    beginGeneration(preview, size);
+    const signal = beginGeneration(preview, size); // a newer capture or leaving the page aborts this request
     useStore.getState().setMode(session && session.tracker.state !== 'idle' ? 'ar' : 'photo');
     go({ name: 'experience' }, '/x/new');
     try {
-      await createExperience(blob, (e) => { applyEvent(e); if (e.type === 'ready' || e.type === 'done') history.replaceState(null, '', `/x/${e.experienceId}`); });
-    } catch (e: any) { fail(String(e?.message || e)); }
+      await createExperience(blob, (e) => { if (signal.aborted) return; applyEvent(e); if (e.type === 'ready' || e.type === 'done') history.replaceState(null, '', `/x/${e.experienceId}`); }, { signal });
+      // the stream ended: if no scene ever became usable, say so instead of staying on the loading treatment
+      const st = useStore.getState();
+      if (!signal.aborted && !st.scene && st.phase !== 'failed') fail('no scene');
+    } catch (e: any) { if (!signal.aborted) fail(String(e?.message || e)); }
   }
 
   if (route.name === 'experience') return <ExperienceView onBack={() => { reset(); go({ name: 'capture' }, '/'); }} />;

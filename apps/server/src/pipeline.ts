@@ -115,22 +115,10 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
   console.log(`[read] ttfb ${quickRes.usage.ttfbMs} ms, total ${quickRes.usage.ms} ms, in ${quickRes.usage.inTokens} out ${quickRes.usage.outTokens}, image ${quickJpeg.length} bytes`);
   send({ type: 'quick', data: quick, t: T() });
 
-  // ---- voice the opener right away ----
   const narratorVoice = config.voices.narrator[quick.language as 'en' | 'hi'] ?? config.voices.narrator.en;
-  const openerP = (async () => {
-    if (!quick.opener) return;
-    stage('voice', 'start', { detail: 'voicing the opener', model: config.models.tts.id });
-    const t = Date.now();
-    try {
-      const r = await withTimeout(synthesize({ text: quick.opener, voice: narratorVoice, lang: quick.language }), 15000, 'opener tts');
-      usages.push(r.usage);
-      const url = await store.putFile(id, 'opener', r.wav, 'audio/wav');
-      const clip = { id: 'opener', url, kind: 'opener' as const, text: quick.opener, durationMs: r.durationMs };
-      audioClips.push(clip);
-      send({ type: 'audio', ...clip, t: T() });
-      stage('voice', 'done', { ms: Date.now() - t, detail: 'opener ready' });
-    } catch (e: any) { stage('voice', 'error', { detail: String(e?.message || e) }); }
-  })();
+  // the opener used to be voiced here; nothing is spoken before the validated scene is revealed, so it is no longer synthesised
+  const openerP = Promise.resolve();
+
 
   // ---- build: scene v1 fast (with one repair retry and a guaranteed fallback); scene v2 richer, in parallel ----
   const system = sceneSystem(quick, page, freeRegionsFromInk(ink, quick.figures[0]?.box));
@@ -449,19 +437,19 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
       const v: Verification = { status, checks: all, repaired, summary: String(r.json.summary ?? (failed.length ? `${failed.length} check(s) failed` : 'All checks passed')) };
       stage('verify', 'done', { ms: Date.now() - t, detail: `${all.filter((c) => c.pass).length}/${all.length} checks passed${repaired ? ', scene repaired' : ''}`, model: r.usage.model });
       if (repaired) send({ type: 'scene', data: scene, issues: [], version, t: T(), ...sceneMetrics(scene, []) });
-      send({ type: 'verification', data: v, t: T() });
+      send({ type: 'verification', data: v, version, t: T() });
       return { v, scene };
     } catch (e: any) {
       stage('verify', 'error', { detail: String(e?.message || e) });
       const v: Verification = { status: 'unverified', checks: [], repaired: false, summary: 'Verification did not complete.' };
-      send({ type: 'verification', data: v, t: T() });
+      send({ type: 'verification', data: v, version, t: T() });
       return { v, scene };
     }
   };
   let richScene: Scene | undefined;
   const verifyP = (async (): Promise<Verification | undefined> => {
     const ex = await extractionP;
-    if (!ex) { const v: Verification = { status: 'unverified', checks: [], repaired: false, summary: 'The page could not be read in detail, so nothing was checked.' }; send({ type: 'verification', data: v, t: T() }); return v; }
+    if (!ex) { const v: Verification = { status: 'unverified', checks: [], repaired: false, summary: 'The page could not be read in detail, so nothing was checked.' }; send({ type: 'verification', data: v, version: 1, t: T() }); return v; }
     const r1 = await verifyScene(ex, scene, 1);
     scene = r1.scene;
     timings.ready = T();
