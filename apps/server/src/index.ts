@@ -52,8 +52,9 @@ app.post('/api/experiences', async (c) => {
 app.get('/api/experiences/:id', async (c) => {
   const rec = await store.getRecord(c.req.param('id'));
   if (!rec) return c.json({ error: 'not found' }, 404);
-  const { events, ...rest } = rec;
-  return c.json(c.req.query('events') ? rec : rest, 200, { 'Cache-Control': 'private, max-age=60' });
+  // the owner is never sent: with it, anyone holding a shared link could list or claim that reader's pages
+  const { events, ownerId, ...rest } = rec;
+  return c.json(c.req.query('events') ? { ...rest, events } : rest, 200, { 'Cache-Control': 'private, max-age=60' });
 });
 
 /** Public web configuration: Firebase (sign-in, analytics) comes from the environment, so no keys live in the repo. */
@@ -105,7 +106,13 @@ app.post('/api/showcase/ask', async (c) => {
 });
 
 /** Chapter films for teachers: a chapter PDF in, a narrated 16:9 explainer of its key ideas out (long-polled like reels). */
+// chapter films are expensive (minutes of server time, a few dollars of model calls): four an hour per visitor
+const chapterHits = new Map<string, number[]>();
 app.post('/api/chapters', async (c) => {
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'local';
+  const now = Date.now(); const hits = (chapterHits.get(ip) ?? []).filter((t) => now - t < 3600_000);
+  if (hits.length >= 4 && ip !== 'local') return c.json({ error: 'that is enough chapters for an hour; try again a little later' }, 429);
+  hits.push(now); chapterHits.set(ip, hits); if (chapterHits.size > 5000) chapterHits.clear();
   const body = Buffer.from(await c.req.arrayBuffer());
   if (body.length < 1000 || body.subarray(0, 4).toString() !== '%PDF') return c.json({ error: 'send the chapter as a PDF' }, 400);
   if (body.length > 30 * 1024 * 1024) return c.json({ error: 'the PDF is larger than 30 MB' }, 413);
