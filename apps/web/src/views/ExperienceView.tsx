@@ -220,7 +220,7 @@ export function ExperienceView({ onBack }: Props) {
         setPhase('live');
         t.beginLesson();
         report('lesson-begun');
-        if (!CONTAIN) t.listen().then(() => setMicOn(true)).catch((e: any) => { setTutorNote(/NotAllowed|denied/i.test(String(e?.message || e?.name)) ? 'microphone not allowed' : ''); report('mic-failed', String(e?.message || e?.name)); });
+        if (!CONTAIN) t.listen().then(() => setMicOn(true)).catch((e: any) => { const denied = /NotAllowed|denied|dismissed/i.test(String(e?.message || e?.name)); setTutorNote(denied ? 'microphone not allowed' : ''); if (denied) say('Allow the microphone to talk to the tutor. The lesson carries on without it.', 'line'); report('mic-failed', String(e?.message || e?.name)); });
       } catch (e) {
         console.warn('[tutor] live lesson unavailable, using recorded narration', e);
         report('live-failed', String((e as any)?.message || e));
@@ -329,7 +329,7 @@ export function ExperienceView({ onBack }: Props) {
     if (t.listening) { t.mute(); setMicOn(false); return; }
     if (!tutorLive.current) { speechRef.current.clear(); if (stepTimer.current) clearTimeout(stepTimer.current); }
     try { await t.listen(); setMicOn(true); setPhase('live'); if (!tutorLive.current) say('I am listening. Ask me anything about this page.'); }
-    catch (e: any) { setTutorNote(/NotAllowed|denied/i.test(String(e?.message || e?.name)) ? 'microphone not allowed' : 'voice not available'); setMicOn(false); }
+    catch (e: any) { const denied = /NotAllowed|denied|dismissed/i.test(String(e?.message || e?.name)); setTutorNote(denied ? 'microphone not allowed' : 'voice not available'); setMicOn(false); say(denied ? 'The microphone is blocked for this site. Allow it in the browser to ask questions.' : 'Voice is not available right now.', 'line'); }
   }
   useEffect(() => { tutorRef.current?.sendState(); }, [vars]);
 
