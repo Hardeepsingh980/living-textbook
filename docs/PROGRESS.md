@@ -2,6 +2,16 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-12 (small hours): a proper journey
+
+Hardeep's asks: short videos and chapter films only after sign-in, with everything generated kept in the reader's dashboard; trying the app stays open but rate-limited until sign-in; one clear journey instead of features scattered around; generations that keep running when the reader leaves and show their progress on return; "Make a reel" becomes "Short video"; no public saved pages; a proper SaaS app.
+
+**The journey.** Signed out: the homepage (anyone can try a page; three free pages a day per network address, shown under the hero), the camera, and lessons by link. Signing in (Google) opens the app: Home (a dashboard: start something, what is being made right now, continue learning, your videos, this week), Library (pages, short videos, chapter films; delete per item), Progress, and New (scan, upload a photo, short video, chapter film) from a header button or, on phones, a tab bar with a raised plus. Short videos and chapter films need an account (ten and four a day); a signed-out lesson has a Save button that signs in and moves the page into the account. Old addresses (/me, /library, /reel, /teach) redirect into the app; the gate pages say what an account brings.
+
+**Background jobs.** Short videos and chapter films are now job documents in Firestore (`jobs/{id}`: kind, owner, status, stage, detail, sections, result) instead of in-memory queues. Cloud Run only gives a container CPU while a request is open, so each job runs inside a request of its own: the API enqueues a Cloud Task (queue `living-book-jobs`, asia-south1, four at a time, two attempts, 30-minute deadline; the service timeout is now 1800 s) that calls `POST /api/jobs/:id/run`, which claims the job in a transaction and runs it; one heavy job per instance at a time. Progress is written to the document every 1.2 s (and a heartbeat every 20 s), so any instance can answer `GET /api/jobs/:id` (with `?wait=` for long-polling) and the dashboard can show it on any device. A job whose runner disappears (no heartbeat for four minutes) or that never started is dispatched again, up to three attempts; failed jobs can be retried. Locally the job simply runs in-process. Verified on the live service: a short video ran end to end with no client attached (ready in 56 s), and locally a chapter film kept going while its page was closed for 90 s.
+
+**Also.** Video files are served with byte ranges (iPhones will not play an MP4 without them, and seeking needs them everywhere). Local development can sign in a test reader (server `DEV_USERS=1`, `localStorage.lb.devUser`), never enabled on Cloud Run.
+
 ## 2026-10-12 (night): accounts, quizzes, analytics, chapter films, demo pages
 
 Hardeep's six asks: turn the room stills into video; test 30–40 NCERT concepts, have Gemini analyse the videos and produce a printable PDF of the best 20 for the demo; sign in with Google and save progress with analytics; interactive quizzes; BigQuery analytics that help the student improve; a full chapter PDF to a narrated explainer film for teachers.
