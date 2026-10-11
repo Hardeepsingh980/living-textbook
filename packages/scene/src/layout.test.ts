@@ -72,3 +72,24 @@ describe('layout', () => {
     expect(motionReport(sc).moving).toEqual(['s', 'p']);
   });
 });
+
+describe('layout: a stack with no shared home', () => {
+  // text everywhere except two blank pockets, each tall enough for one readout but not for two stacked ones
+  const w = 1000, h = 1400, g = new Uint8Array(w * h).fill(240);
+  const pocket = (x: number, y: number) => (x >= 600 && x < 900 && y >= 620 && y < 710) || (x >= 100 && x < 400 && y >= 900 && y < 990);
+  for (let y = 20; y < 1380; y++) for (let x = 60; x < 940; x++) if (!pocket(x, y) && (y % 28) < 14 && ((x * 7 + y) % 3) !== 0) g[y * w + x] = 20;
+  const ink = inkMapFromGrey(g, w, h);
+  it('places the readouts one by one when the block fits nowhere', () => {
+    const sc = scene([
+      { id: 'v', type: 'label', text: 'V = {v:0.1} V', x: 500, y: 300, size: 28, bg: '#ffd166' },
+      { id: 'i', type: 'label', text: 'I = {i:0.2} A', x: 500, y: 350, size: 28, bg: '#ffd166' },
+    ]);
+    const issues: any[] = [];
+    const r = layoutScene(sc, ink, issues);
+    expect(issues.some((x) => /placed one by one/.test(x.message))).toBe(true);
+    expect(r.moved.sort()).toEqual(['i', 'v']);
+    expect(r.worstAfter).toBeLessThan(0.02);
+    const v = sc.elements.find((e) => e.id === 'v')!, i = sc.elements.find((e) => e.id === 'i')!;
+    expect(Math.abs(Number(v.y) - Number(i.y))).toBeGreaterThan(100); // one pocket each
+  });
+});

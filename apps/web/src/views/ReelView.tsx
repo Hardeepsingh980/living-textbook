@@ -29,10 +29,16 @@ export function ReelView({ onBack }: { onBack: () => void }) {
     } catch (e: any) { setError(String(e?.message || e)); }
     finally { setBusy(false); }
   }
+  // long-poll: the server answers when something changes (and the held request keeps its CPU on); a fresh object re-arms the effect
   useEffect(() => {
     if (!job || job.status === 'ready' || job.status === 'failed') return;
-    timer.current = window.setTimeout(async () => { try { const r = await fetch(`/api/reels/${job.id}`); if (r.ok) setJob(await r.json()); } catch { /* keep polling */ } }, 2500);
-    return () => { if (timer.current) clearTimeout(timer.current); };
+    let cancelled = false;
+    const again = (next: Job, delay: number) => { timer.current = window.setTimeout(() => { if (!cancelled) setJob({ ...next }); }, delay); };
+    (async () => {
+      try { const r = await fetch(`/api/reels/${job.id}?wait=25000`); if (cancelled) return; if (r.ok) again(await r.json(), 0); else again(job, 2500); }
+      catch { if (!cancelled) again(job, 2500); }
+    })();
+    return () => { cancelled = true; if (timer.current) clearTimeout(timer.current); };
   }, [job]);
 
   const reached = job ? ORDER.indexOf(job.status) : -1;

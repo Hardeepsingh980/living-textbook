@@ -24,6 +24,15 @@ const MAX_JOBS_KEPT = 50;
 
 export function getReel(id: string) { return jobs.get(id) ?? null; }
 
+/** The job once its status or detail changes, or after `timeoutMs`: a request held open this way keeps the CPU on. */
+export async function waitReel(id: string, timeoutMs: number): Promise<ReelJob | null> {
+  const job = jobs.get(id); if (!job) return null;
+  const key = () => `${job.status}|${job.detail}`;
+  const before = key(), start = Date.now();
+  while (Date.now() - start < timeoutMs && key() === before && job.status !== 'ready' && job.status !== 'failed') await new Promise((r) => setTimeout(r, 400));
+  return job;
+}
+
 /** Queue a reel for a page image (or PDF: its first page). Returns the job immediately; poll getReel for progress. */
 export function startReel(input: { image: Buffer; mime: string; ownerId: string; seconds?: number }): ReelJob {
   const id = crypto.randomUUID();
@@ -78,18 +87,32 @@ async function record(experienceId: string, job: ReelJob): Promise<Buffer> {
   const pw = rec?.page.w ?? 1000, ph = rec?.page.h ?? 1400;
   const width = 1080, height = Math.min(1600, Math.round((width * ph) / pw));
   const work = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-reel-'));
-  const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required', '--no-sandbox'] });
+  // software WebGL (SwiftShader) has to be opted into on recent Chromium; the small /dev/shm of a container is skipped
+  const launched = Date.now();
+  const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--enable-webgl', '--ignore-gpu-blocklist', '--disable-dev-shm-usage', '--autoplay-policy=no-user-gesture-required', '--no-sandbox'] });
+  const opened = Date.now();
   try {
     const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, recordVideo: { dir: work, size: { width, height } } });
     const page = await ctx.newPage();
+    const diag: string[] = [];
+    page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning') && !/GL Driver Message/.test(m.text())) diag.push(`${m.type()}: ${m.text().slice(0, 160)}`); });
+    page.on('pageerror', (e) => diag.push(`pageerror: ${String(e.message).slice(0, 160)}`));
     await page.addInitScript('window.__captureLive = true;');
     await page.goto(`${base}/x/${experienceId}?present=1`, { waitUntil: 'load' });
     const t0 = await page.evaluate(() => performance.now());
-    await page.waitForFunction("document.documentElement.dataset.assetsReady === '1'", null, { timeout: 20000 }).catch(() => {});
+    const loaded = Date.now();
+    const ready = await page.waitForFunction("document.documentElement.dataset.assetsReady === '1'", null, { timeout: 30000 }).then(() => true).catch(() => false);
+    console.log(`[reel] ${job.id} browser ${browser.version()} launched in ${opened - launched} ms, page loaded in ${loaded - opened} ms, ready ${ready} after ${Date.now() - loaded} ms`);
+    if (!ready) {
+      const gl = await page.evaluate("(() => { const c = document.createElement('canvas'); const g = c.getContext('webgl2') || c.getContext('webgl'); if (!g) return 'none'; const d = g.getExtension('WEBGL_debug_renderer_info'); return d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : 'yes'; })()").catch((e: any) => `probe failed: ${e?.message}`);
+      console.error(`[reel] ${job.id} page did not render; webgl: ${gl}; ${diag.slice(0, 6).join(' | ') || 'no console errors'}`);
+      throw new Error('the page did not render in the recorder');
+    }
     const seconds = job.seconds;
     for (let s = 0; s < seconds; s += 5) { await page.waitForTimeout(Math.min(5000, (seconds - s) * 1000)); job.detail = `Recording the lesson (${Math.min(seconds, s + 5)} of ${seconds} s)`; }
     const live: { at: number; data: string }[] = await page.evaluate('(window.__liveAudio || []).slice()');
     const clips: { at: number; url: string }[] = await page.evaluate('(window.__clipLog || []).slice()');
+    console.log(`[reel] ${job.id} recorded ${seconds} s: ${live.length} tutor audio chunks, ${clips.length} clips${diag.length ? `; ${diag.slice(0, 3).join(' | ')}` : ''}`);
     await page.close(); await ctx.close();
     const webm = (await fs.readdir(work)).find((f) => f.endsWith('.webm'));
     if (!webm) throw new Error('no video captured');

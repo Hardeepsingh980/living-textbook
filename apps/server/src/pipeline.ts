@@ -3,7 +3,7 @@
 import sharp from 'sharp';
 import { randomUUID } from 'node:crypto';
 import {
-  normalizeScene, fallbackScene, SceneRuntime, SceneSchema, inkMapFromGrey, freeRegionsFromInk, layoutScene, motionReport,
+  normalizeScene, fallbackScene, SceneRuntime, SceneSchema, inkMapFromGrey, formatDecimals, freeRegionsFromInk, layoutScene, motionReport,
   type Scene, type QuickRead, type Extraction, type PipelineEvent, type ExperienceRecord, type Verification, type VerificationCheck, type BoxT, type Issue, type StageName,
 } from '@living-book/scene';
 import { generateJson, generateImage, synthesize, imagePart, type Usage } from './gemini.js';
@@ -345,7 +345,12 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
           const w = ex.worked[m.worked]; if (!w || typeof m.derived !== 'string') continue;
           const decimals = (String(w.answer).split('.')[1] ?? '').length;
           if (decimals < 2) continue;
-          for (const el of scene.elements) if ((el.type === 'label' || el.type === 'bubble') && el.text.includes(`{${m.derived}:0.1}`)) { el.text = el.text.replaceAll(`{${m.derived}:0.1}`, `{${m.derived}:0.${'0'.repeat(decimals - 1)}1}`); repaired = true; }
+          const token = new RegExp(`\\{${m.derived.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?::([^{}]+))?\\}`, 'g');
+          const wanted = `{${m.derived}:0.${'0'.repeat(decimals - 1)}1}`;
+          for (const el of scene.elements) if (el.type === 'label' || el.type === 'bubble') {
+            const fixed = el.text.replace(token, (whole: string, fmt?: string) => (formatDecimals((fmt ?? '0.1').trim()) >= decimals ? whole : wanted));
+            if (fixed !== el.text) { el.text = fixed; repaired = true; }
+          }
         }
       }
       let det = runMapping(scene);

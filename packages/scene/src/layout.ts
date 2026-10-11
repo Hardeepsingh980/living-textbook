@@ -176,47 +176,51 @@ export function layoutScene(scene: Scene, ink: InkMap, issues: LayoutIssue[] = [
 
   const W = scene.page.w, H = scene.page.h, step = field.cell, margin = 6;
   const inside = (b: BoxT) => b[0] >= margin && b[1] >= margin && b[2] <= W - margin && b[3] <= H - margin;
+  const boxOf = new Map(labels.map((l) => [l.el.id, l.box] as const));
+  const figures = Object.values(scene.anchors) as BoxT[];
+  type Hit = { b: BoxT; c: number; i: number; mx: number; o: number };
   const inks: number[] = [];
   let before = 0;
   for (const it of items) {
     const b0 = it.box, bw = b0[2] - b0[0], bh = b0[3] - b0[1];
     const cx0 = (b0[0] + b0[2]) / 2, cy0 = (b0[1] + b0[3]) / 2;
-    const at = (cx: number, cy: number): BoxT => [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2];
-    const figures = Object.values(scene.anchors) as BoxT[];
-    const cost = (b: BoxT) => { const i = field.mean(b), mx = field.max(b), o = overlapFraction(b, occupied), f = it.kind === 'plot' ? overlapFraction(b, figures) : 0; return { i, mx, o, c: i * 3 + mx * 0.8 + o * 2.5 + f * 1.5 + (Math.hypot((b[0] + b[2]) / 2 - cx0, (b[1] + b[3]) / 2 - cy0) / W) * 1.2 }; };
+    const cost = (b: BoxT): Hit => { const i = field.mean(b), mx = field.max(b), o = overlapFraction(b, occupied), f = it.kind === 'plot' ? overlapFraction(b, figures) : 0; return { b, i, mx, o, c: i * 3 + mx * 0.8 + o * 2.5 + f * 1.5 + (Math.hypot((b[0] + b[2]) / 2 - cx0, (b[1] + b[3]) / 2 - cy0) / W) * 1.2 }; };
     const here = cost(b0);
     before += here.i; report.worstBefore = Math.max(report.worstBefore, here.i);
     const tooDirty = it.kind === 'bubble' ? 0.03 : 0.012;
     const denseCell = it.kind === 'bubble' ? 0.2 : 0.08;
     if (inside(b0) && here.i < tooDirty && here.mx < denseCell && here.o < 0.03 && !(it.kind === 'plot' && overlapFraction(b0, figures) > 0.3)) { occupied.push(b0); inks.push(here.i); continue; }
-    // search the neighbourhood on the ink grid, nearest clean spot wins; bubbles stay near their speaker
-    const radius = it.kind === 'bubble' ? Math.min(320, W * 0.35) : Math.min(640, W * 0.7);
-    let best: { b: BoxT; c: number; i: number; mx: number; o: number } | null = null;
-    const consider = (b: BoxT) => { if (!inside(b)) return; const r = cost(b); if (r.i >= (it.kind === 'bubble' ? 0.06 : 0.02) || r.mx >= denseCell || r.o >= 0.05) return; if (!best || r.c < best.c) best = { b, ...r }; };
-    for (let dy = -radius; dy <= radius; dy += step) for (let dx = -radius; dx <= radius; dx += step) consider(at(cx0 + dx, cy0 + dy));
-    if (!best && it.kind !== 'bubble') { // anywhere on the page, then
-      for (let cy = bh / 2 + margin; cy <= H - bh / 2 - margin; cy += step) for (let cx = bw / 2 + margin; cx <= W - bw / 2 - margin; cx += step) consider(at(cx, cy));
+    // the search: a box of this size near its own spot first (bubbles stay near their speaker), then anywhere on the page
+    const search = (w: number, h: number, limits: { i: number; mx: number; o: number }, everywhere: boolean): Hit | null => {
+      const at = (cx: number, cy: number): BoxT => [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
+      let best: Hit | null = null;
+      const consider = (b: BoxT) => { if (!inside(b)) return; const r = cost(b); if (r.i >= limits.i || r.mx >= limits.mx || r.o >= limits.o) return; if (!best || r.c < best.c) best = r; };
+      const radius = it.kind === 'bubble' ? Math.min(320, W * 0.35) : Math.min(640, W * 0.7);
+      for (let dy = -radius; dy <= radius; dy += step) for (let dx = -radius; dx <= radius; dx += step) consider(at(cx0 + dx, cy0 + dy));
+      if (!best && everywhere) for (let cy = h / 2 + margin; cy <= H - h / 2 - margin; cy += step) for (let cx = w / 2 + margin; cx <= W - w / 2 - margin; cx += step) consider(at(cx, cy));
+      return best;
+    };
+    const strict = { i: it.kind === 'bubble' ? 0.06 : 0.02, mx: denseCell, o: 0.05 };
+    let chosen = search(bw, bh, strict, it.kind !== 'bubble');
+    // a long readout wrapped two or three lines tall often fits a margin or a blank corner of the figure that one line cannot
+    const single = it.kind === 'label' && it.els.length === 1 && it.els[0]!.type === 'label' ? (it.els[0] as Extract<Element, { type: 'label' }>) : null;
+    const wrapWidths = single && /[\s|,;]/.test(single.text) ? [260, 200].filter((mw) => bw > mw + 30) : [];
+    const wrappedSize = (mw: number): [number, number] => { const nb = labelBox({ ...single!, maxW: mw }, cx0, cy0, W); return [nb[2] - nb[0], nb[3] - nb[1]]; };
+    let wrapped: number | undefined;
+    for (const mw of wrapWidths) { if (chosen) break; const [nw, nh] = wrappedSize(mw); chosen = search(nw, nh, strict, true); if (chosen) wrapped = mw; }
+    if (!chosen && it.kind === 'label' && it.els.length > 1) {
+      // the stack has no clean home as one block: each label looks for its own
+      for (const el of it.els) { const b = boxOf.get(el.id); if (b) items.push({ ids: [el.id], els: [el], box: b, kind: 'label' }); }
+      issues.push({ level: 'warn', where: `elements.${it.ids.join(',')}`, message: 'stacked labels placed one by one: no clean spot for the block' });
+      continue;
     }
-    let chosen = best as { b: BoxT; c: number; i: number; mx: number; o: number } | null;
-    if (!chosen && it.kind === 'label' && bw > 260 && it.els.length === 1 && it.els[0]!.type === 'label' && /[\s|,;]/.test(it.els[0]!.text)) {
-      // wrap it: a readout three lines tall often fits a margin that a one-line one cannot
-      const el = it.els[0]! as Extract<Element, { type: 'label' }>;
-      const narrow = { ...el, maxW: 260 } as typeof el;
-      const nb = labelBox(narrow, (b0[0] + b0[2]) / 2, (b0[1] + b0[3]) / 2, W);
-      const nw = nb[2] - nb[0], nh = nb[3] - nb[1];
-      const atN = (cx: number, cy: number): BoxT => [cx - nw / 2, cy - nh / 2, cx + nw / 2, cy + nh / 2];
-      let bestN: { b: BoxT; c: number; i: number; mx: number; o: number } | null = null;
-      const considerN = (b: BoxT) => { if (!inside(b)) return; const r = cost(b); if (r.i >= 0.02 || r.mx >= denseCell || r.o >= 0.05) return; if (!bestN || r.c < bestN.c) bestN = { b, ...r }; };
-      for (let cy = nh / 2 + margin; cy <= H - nh / 2 - margin; cy += step) for (let cx = nw / 2 + margin; cx <= W - nw / 2 - margin; cx += step) considerN(atN(cx, cy));
-      if (bestN) {
-        const bn = bestN as { b: BoxT; c: number; i: number; mx: number; o: number };
-        (el as any).maxW = 260;
-        (el as any).x = (resolve(el.x) ?? 0) + Math.round((bn.b[0] + bn.b[2]) / 2 - cx0);
-        (el as any).y = (resolve(el.y) ?? 0) + Math.round((bn.b[1] + bn.b[3]) / 2 - cy0);
-        occupied.push(bn.b); inks.push(bn.i); report.moved.push(el.id);
-        issues.push({ level: 'warn', where: `elements.${el.id}`, message: `wrapped and moved off printed ink` });
-        continue;
-      }
+    if (!chosen && it.kind !== 'bubble') {
+      // last resort: blank space that touches a thin stroke of the figure beats printed text, when it is clearly cleaner
+      const relaxed = { i: 0.05, mx: 0.5, o: 0.2 };
+      const narrowest = wrapWidths[wrapWidths.length - 1];
+      const [rw, rh] = narrowest !== undefined ? wrappedSize(narrowest) : [bw, bh];
+      const r = search(rw, rh, relaxed, true);
+      if (r && r.i <= Math.max(0.01, here.i * 0.5)) { chosen = r; wrapped = narrowest; }
     }
     if (!chosen) {
       if (it.kind === 'plot' && here.i >= 0.12) { scene.elements = scene.elements.filter((e) => e.id !== it.ids[0]); report.dropped.push(it.ids[0]!); issues.push({ level: 'warn', where: `elements.${it.ids[0]}`, message: 'plot dropped: no clean space for it on this page' }); continue; }
@@ -225,10 +229,11 @@ export function layoutScene(scene: Scene, ink: InkMap, issues: LayoutIssue[] = [
       continue;
     }
     const dx = Math.round((chosen.b[0] + chosen.b[2]) / 2 - cx0), dy = Math.round((chosen.b[1] + chosen.b[3]) / 2 - cy0);
-    for (const el of it.els) { (el as any).x = (resolve(el.x) ?? 0) + dx; (el as any).y = (resolve(el.y) ?? 0) + dy; if (el.type === 'bubble' && el.tail && resolve(el.tail[0]) !== null && resolve(el.tail[1]) !== null) { /* the tail keeps pointing at the speaker */ } }
+    for (const el of it.els) { (el as any).x = (resolve(el.x) ?? 0) + dx; (el as any).y = (resolve(el.y) ?? 0) + dy; }
+    if (wrapped !== undefined && single) (single as any).maxW = wrapped;
     occupied.push(chosen.b); inks.push(chosen.i);
     report.moved.push(...it.ids);
-    issues.push({ level: 'warn', where: `elements.${it.ids.join(',')}`, message: `moved off printed ink by (${dx}, ${dy})` });
+    issues.push({ level: 'warn', where: `elements.${it.ids.join(',')}`, message: `${wrapped !== undefined ? 'wrapped and ' : ''}moved off printed ink by (${dx}, ${dy})${chosen.i >= 0.02 ? ` to the cleanest spot (${Math.round(chosen.i * 100)}%)` : ''}` });
   }
   report.inkBefore = items.length ? before / items.length : 0;
   report.inkAfter = inks.length ? inks.reduce((a, b) => a + b, 0) / inks.length : 0;

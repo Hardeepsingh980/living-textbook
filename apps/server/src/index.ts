@@ -12,7 +12,7 @@ import { store } from './store.js';
 import { warmTracking } from './tracking.js';
 import { WebSocketServer } from 'ws';
 import { handleLiveSocket } from './live.js';
-import { startReel, getReel } from './reels.js';
+import { startReel, getReel, waitReel } from './reels.js';
 import type { PipelineEvent } from '@living-book/scene';
 
 const app = new Hono();
@@ -60,7 +60,8 @@ app.post('/api/reels', async (c) => {
   const job = startReel({ image: body, mime, ownerId: c.req.header('x-owner-id') || 'anonymous', seconds: Number(c.req.query('seconds')) || undefined });
   return c.json({ id: job.id, status: job.status, detail: job.detail });
 });
-app.get('/api/reels/:id', (c) => { const j = getReel(c.req.param('id')); return j ? c.json(j) : c.json({ error: 'not found' }, 404); });
+// ?wait=<ms> holds the request until something changes (long-poll): on Cloud Run the CPU is only allocated while a request is in flight
+app.get('/api/reels/:id', async (c) => { const wait = Math.min(50000, Math.max(0, Number(c.req.query('wait')) || 0)); const j = wait ? await waitReel(c.req.param('id'), wait) : getReel(c.req.param('id')); return j ? c.json(j) : c.json({ error: 'not found' }, 404); });
 
 /** AR metrics from the phone (fps, losses, re-acquisitions); appended to the experience for evaluation. */
 app.post('/api/experiences/:id/metrics', async (c) => {

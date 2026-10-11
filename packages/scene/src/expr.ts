@@ -186,9 +186,15 @@ export function isNumeric(source: unknown): source is number {
   return typeof source === 'number' && Number.isFinite(source);
 }
 
+/** Decimals a label format asks for: "0" none, "0.1" one, "0.01" two; "0.2" and "0.3" are read as two and three. */
+export function formatDecimals(fmt: string): number {
+  const frac = fmt.includes('.') ? fmt.split('.')[1]! : '';
+  if (/^[2-4]$/.test(frac)) return Number(frac);
+  return frac.length;
+}
 /** Format a number for labels: `fmt` like "0.1" (one decimal), "0" (integer), "0.01" (two decimals). */
 export function formatNumber(v: number, fmt = '0.1'): string {
-  const decimals = fmt.includes('.') ? fmt.split('.')[1]!.length : 0;
+  const decimals = formatDecimals(fmt);
   const abs = Math.abs(v);
   if (abs !== 0 && (abs >= 1e6 || abs < 1e-4)) return v.toExponential(decimals || 2);
   return v.toFixed(decimals);

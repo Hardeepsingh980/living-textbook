@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compile, evaluate, renderTemplate, formatNumber, ExprError } from '../src/expr.js';
+import { compile, evaluate, renderTemplate, formatNumber, ExprError, formatDecimals } from '../src/expr.js';
 
 describe('expression engine', () => {
   it('evaluates arithmetic with precedence and right-associative power', () => {
@@ -37,5 +37,17 @@ describe('expression engine', () => {
     expect(renderTemplate('bad {1 +} ok', {})).toBe('bad {1 +} ok');
     expect(formatNumber(1234567, '0.1')).toBe('1.2e+6');
     expect(formatNumber(0.5, '0.01')).toBe('0.50');
+  });
+});
+
+describe('label formats', () => {
+  it('reads decimals the way authors write them', () => {
+    expect(formatDecimals('0')).toBe(0);
+    expect(formatDecimals('0.1')).toBe(1);
+    expect(formatDecimals('0.01')).toBe(2);
+    expect(formatDecimals('0.2')).toBe(2);
+    expect(formatNumber(0.25, '0.2')).toBe('0.25');
+    expect(formatNumber(2.006, '0.01')).toBe('2.01');
+    expect(formatNumber(24, '0')).toBe('24');
   });
 });
