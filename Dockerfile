@@ -15,6 +15,7 @@ RUN pnpm --filter @living-book/web build && pnpm --filter @living-book/server bu
 
 FROM node:24-slim
 RUN corepack enable && corepack prepare pnpm@9.4.0 --activate
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg poppler-utils && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
@@ -25,6 +26,7 @@ COPY spikes/tracking/package.json spikes/tracking/
 COPY eval/package.json eval/
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @living-book/server... \
  && cd node_modules/.pnpm/sharp*/node_modules/sharp && npm run install --silent 2>/dev/null || true
+RUN cd apps/server && pnpm exec playwright install --with-deps chromium && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/apps/server/dist ./apps/server/dist
 COPY --from=build /app/apps/web/dist ./apps/web/dist
 COPY packages/scene/src ./packages/scene/src

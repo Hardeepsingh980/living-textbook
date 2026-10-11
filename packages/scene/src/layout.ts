@@ -144,7 +144,7 @@ export function layoutScene(scene: Scene, ink: InkMap, issues: LayoutIssue[] = [
 
   // what is already there: sprites (pictures the reader should see) count as occupied, and so do the strips the
   // app's own chrome covers (the title note at the top, the caption at the bottom)
-  const occupied: BoxT[] = [[scene.page.w * 0.22, 0, scene.page.w * 0.78, scene.page.h * 0.07], [0, scene.page.h * 0.9, scene.page.w, scene.page.h]];
+  const occupied: BoxT[] = [[scene.page.w * 0.15, 0, scene.page.w * 0.85, scene.page.h * 0.07], [0, scene.page.h * 0.9, scene.page.w, scene.page.h]];
   for (const el of scene.elements) {
     if (el.type !== 'sprite' && !(el.type === 'shape' && !el.anchor && el.fill && (el.shape === 'rect' || el.shape === 'ellipse'))) continue;
     const x = resolve(el.x), y = resolve(el.y), w = resolve(el.w), h = resolve(el.h);

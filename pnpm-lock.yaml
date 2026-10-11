@@ -43,6 +43,9 @@ importers:
       mind-ar:
         specifier: 1.2.5
         version: 1.2.5(seedrandom@3.0.5)(three@0.186.1)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(tsx@4.23.15))
+      playwright:
+        specifier: 1.64.0
+        version: 1.64.0
       sharp:
         specifier: 0.35.5
         version: 0.35.5(@types/node@26.6.5)

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { ScanExperience, type CaptureResult, fileToCapture } from './views/ScanExperience';
 import { LandingView } from './views/LandingView';
+import { ReelView } from './views/ReelView';
 import { ExperienceView } from './views/ExperienceView';
 import { LibraryView } from './views/LibraryView';
 import { useStore } from './lib/store';
 import { createExperience, getExperience } from './lib/api';
 
-type Route = { name: 'landing' } | { name: 'capture' } | { name: 'experience'; id?: string } | { name: 'library' };
+type Route = { name: 'landing' } | { name: 'capture' } | { name: 'experience'; id?: string } | { name: 'library' } | { name: 'reel' };
 
 function parseRoute(): Route {
   const p = location.pathname;
@@ -14,6 +15,7 @@ function parseRoute(): Route {
   if (m) return { name: 'experience', id: decodeURIComponent(m[1]!) };
   if (p.startsWith('/library')) return { name: 'library' };
   if (p.startsWith('/scan')) return { name: 'capture' };
+  if (p.startsWith('/reel')) return { name: 'reel' };
   return { name: 'landing' };
 }
 
@@ -54,5 +56,6 @@ export function App() {
   if (route.name === 'experience') return <ExperienceView onBack={() => { reset(); go({ name: 'landing' }, '/'); }} />;
   if (route.name === 'library') return <LibraryView onOpen={(id) => go({ name: 'experience', id }, `/x/${id}`)} onBack={() => go({ name: 'landing' }, '/')} />;
   if (route.name === 'capture') return <ScanExperience autoStart onCapture={onCapture} onBack={() => go({ name: 'landing' }, '/')} />;
-  return <LandingView onScan={() => go({ name: 'capture' }, `/scan${location.search}`)} onPhoto={(f) => { void fileToCapture(f).then((r) => { if (r) onCapture(r); }); }} onLibrary={() => go({ name: 'library' }, '/library')} />;
+  if (route.name === 'reel') return <ReelView onBack={() => go({ name: 'landing' }, '/')} />;
+  return <LandingView onScan={() => go({ name: 'capture' }, `/scan${location.search}`)} onPhoto={(f) => { void fileToCapture(f).then((r) => { if (r) onCapture(r); }); }} onLibrary={() => go({ name: 'library' }, '/library')} onReel={() => go({ name: 'reel' }, '/reel')} />;
 }
