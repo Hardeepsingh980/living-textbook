@@ -15,15 +15,17 @@ let gcloudToken: { token: string; at: number } | null = null;
 export async function gcloudAuthClient() {
   // Local development only: Workspace ADC can require re-auth; the gcloud CLI token always works.
   const client = new OAuth2Client();
+  // gcloud hands back its cached token until shortly before it expires, so asking every few minutes is cheap and
+  // means a token is never used past its hour
   const refresh = async () => {
-    if (!gcloudToken || Date.now() - gcloudToken.at > 25 * 60 * 1000) {
+    if (!gcloudToken || Date.now() - gcloudToken.at > 4 * 60 * 1000) {
       const { stdout } = await execFileP('gcloud', ['auth', 'print-access-token']);
       gcloudToken = { token: stdout.trim(), at: Date.now() };
     }
     client.setCredentials({ access_token: gcloudToken.token });
   };
   await refresh();
-  setInterval(() => refresh().catch(() => {}), 10 * 60 * 1000).unref();
+  setInterval(() => refresh().catch(() => {}), 4 * 60 * 1000).unref();
   return client;
 }
 

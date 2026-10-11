@@ -428,12 +428,16 @@ export class SceneRenderer {
     const speed = (r.speed ?? 1) * r.scale;
     const preset = el.preset;
     const color = el.color ? Number(`0x${el.color.replace('#', '')}`) || 0xffffff : undefined;
+    // a particle element with a path is a flow along that printed line (current, heat, light, blood, water), whatever
+    // its preset; weather presets keep falling through their region
+    const flow = preset === 'electrons' || (!!el.path && el.path.length >= 2 && !['rain', 'snow', 'confetti', 'leaves'].includes(preset));
     st.acc += (r.rate ?? 40) * dt * (REDUCED_MOTION ? 0.3 : 1);
-    while (st.acc >= 1 && st.list.length < (preset === 'electrons' ? 40 : 400)) {
+    while (st.acc >= 1 && st.list.length < (flow ? 44 : 400)) {
       st.acc -= 1;
       const g = new Graphics();
       const size = (3 + Math.random() * 6) * 2.2;
       const p: Particle = { x: x0 + Math.random() * (x1 - x0), y: y0 + Math.random() * (y1 - y0), vx: 0, vy: 0, life: 0, max: 1.5 + Math.random() * 1.5, size, spin: (Math.random() - 0.5) * 4, g };
+      if (flow) { p.pathT = st.list.length ? (st.list[st.list.length - 1]!.pathT ?? 0) + 1 / 44 : Math.random(); p.max = 1e9; flowDot(g, preset, color); node.addChild(g); st.list.push(p); continue; }
       switch (preset) {
         case 'rain': p.y = y0 - 10; p.vy = 500 + Math.random() * 200; p.vx = -40; p.max = (y1 - y0) / p.vy + 0.2; g.rect(-2, -14, 4, 28).fill({ color: color ?? 0x5aa9ff, alpha: 0.85 }); break;
         case 'snow': p.y = y0 - 10; p.vy = 40 + Math.random() * 40; p.vx = 0; p.max = (y1 - y0) / p.vy; g.circle(0, 0, size * 0.6).fill({ color: color ?? 0xffffff, alpha: 0.9 }); break;
@@ -444,20 +448,22 @@ export class SceneRenderer {
         case 'leaves': p.y = y0; p.vy = 50 + Math.random() * 40; p.vx = (Math.random() - 0.5) * 60; p.max = (y1 - y0) / p.vy; g.ellipse(0, 0, size, size * 0.5).fill({ color: color ?? 0x6a994e, alpha: 0.9 }); break;
         case 'stars': p.vx = 0; p.vy = 0; p.max = 1 + Math.random() * 2; g.star(0, 0, 5, size, size / 2).fill({ color: color ?? 0xfff3b0 }); break;
         case 'dust': p.vx = (Math.random() - 0.5) * 20; p.vy = (Math.random() - 0.5) * 20; p.max = 3; g.circle(0, 0, 3.5).fill({ color: color ?? 0xffffff, alpha: 0.75 }); break;
-        case 'electrons': { p.pathT = Math.random(); p.max = 1e9; g.circle(0, 0, 11).fill({ color: color ?? 0x00c2ff }).stroke({ color: 0xffffff, width: 3 }); break; }
         case 'sparkle': default: p.vx = (Math.random() - 0.5) * 30; p.vy = -20 - Math.random() * 30; p.max = 1 + Math.random(); g.star(0, 0, 4, size, size / 3).fill({ color: color ?? 0xfff3b0, alpha: 0.95 }); break;
       }
       node.addChild(g); st.list.push(p);
     }
     // electrons with no path of their own run round the border of their region (a circuit's loop, roughly)
     const path = el.path ?? (preset === 'electrons' ? [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]] as [number, number][] : undefined);
+    // flows move at an even pace along the whole line (by length, not by segment), about 140 page units a second
+    let cum: number[] | null = null, total = 0;
+    if (flow && path && path.length >= 2) { cum = [0]; for (let k = 1; k < path.length; k++) { total += Math.hypot(path[k]![0] - path[k - 1]![0], path[k]![1] - path[k - 1]![1]); cum.push(total); } }
     for (let i = st.list.length - 1; i >= 0; i--) {
       const p = st.list[i]!;
       p.life += dt;
-      if (preset === 'electrons' && path && path.length >= 2) {
-        p.pathT = ((p.pathT ?? 0) + (dt * 0.15 * speed)) % 1;
-        const seg = p.pathT * (path.length - 1), k = Math.min(path.length - 2, Math.floor(seg)), f = seg - k;
-        const a = path[k]!, b = path[k + 1]!;
+      if (flow && path && cum && total > 0) {
+        p.pathT = ((p.pathT ?? 0) + (dt * 140 * Math.max(0.2, speed)) / total) % 1;
+        const d = p.pathT * total; let k = 1; while (k < cum.length - 1 && cum[k]! < d) k++;
+        const a = path[k - 1]!, b = path[k]!, segLen = Math.max(1e-6, cum[k]! - cum[k - 1]!), f = (d - cum[k - 1]!) / segLen;
         p.x = a[0] + (b[0] - a[0]) * f; p.y = a[1] + (b[1] - a[1]) * f;
       } else {
         p.x += p.vx * dt * speed; p.y += p.vy * dt * speed;
@@ -466,7 +472,7 @@ export class SceneRenderer {
       }
       const t = p.life / p.max;
       p.g.position.set(p.x, p.y); p.g.rotation += p.spin * dt;
-      p.g.alpha = preset === 'rain' ? 0.7 : preset === 'electrons' ? 1 : t < 0.2 ? t / 0.2 : 1 - Math.max(0, (t - 0.6) / 0.4);
+      p.g.alpha = preset === 'rain' ? 0.7 : flow ? 1 : t < 0.2 ? t / 0.2 : 1 - Math.max(0, (t - 0.6) / 0.4);
       if (preset === 'stars') p.g.scale.set(0.6 + 0.4 * Math.sin(p.life * 6));
       if (p.life >= p.max || p.y > y1 + 20 || p.y < y0 - 40 || p.x < x0 - 30 || p.x > x1 + 30) { node.removeChild(p.g); p.g.destroy(); st.list.splice(i, 1); }
     }
@@ -509,6 +515,15 @@ export class SceneRenderer {
     this.destroyed = true;
     try { this.app?.destroy(false, { children: true }); } catch { /* already gone */ }
   }
+}
+
+/** One bead of a flow: bold enough to read across a room, with a soft halo; its look follows the preset. */
+function flowDot(g: Graphics, preset: string, color: number | undefined) {
+  const c = color ?? ({ electrons: 0x00c2ff, fire: 0xff7b00, bubbles: 0x4aa8ff, smoke: 0x8a8a8a, stars: 0xffc23d, sparkle: 0xffc23d, dust: 0x8a6d3b } as Record<string, number>)[preset] ?? 0xff4d4d;
+  g.circle(0, 0, 22).fill({ color: c, alpha: 0.18 });
+  if (preset === 'stars' || preset === 'sparkle') g.star(0, 0, 5, 14, 6).fill({ color: c }).stroke({ color: 0xffffff, width: 2.5 });
+  else if (preset === 'bubbles') g.circle(0, 0, 11).fill({ color: c, alpha: 0.35 }).stroke({ color: c, width: 3.5 });
+  else g.circle(0, 0, 11).fill({ color: c }).stroke({ color: 0xffffff, width: 3 });
 }
 
 function hashId(id: string) { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 1000; return h / 1000 * Math.PI * 2; }

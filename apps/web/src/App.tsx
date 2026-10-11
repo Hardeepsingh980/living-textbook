@@ -4,10 +4,12 @@ import { HomeView } from './views/HomeView';
 import { ReelView } from './views/ReelView';
 import { ExperienceView } from './views/ExperienceView';
 import { LibraryView } from './views/LibraryView';
+import { ProgressView } from './views/ProgressView';
+import { TeachView } from './views/TeachView';
 import { useStore } from './lib/store';
 import { createExperience, getExperience } from './lib/api';
 
-type Route = { name: 'landing' } | { name: 'capture' } | { name: 'experience'; id?: string } | { name: 'library' } | { name: 'reel' };
+type Route = { name: 'landing' } | { name: 'capture' } | { name: 'experience'; id?: string } | { name: 'library' } | { name: 'reel' } | { name: 'me' } | { name: 'teach' };
 
 function parseRoute(): Route {
   const p = location.pathname;
@@ -16,6 +18,8 @@ function parseRoute(): Route {
   if (p.startsWith('/library')) return { name: 'library' };
   if (p.startsWith('/scan')) return { name: 'capture' };
   if (p.startsWith('/reel')) return { name: 'reel' };
+  if (p.startsWith('/me')) return { name: 'me' };
+  if (p.startsWith('/teach')) return { name: 'teach' };
   return { name: 'landing' };
 }
 
@@ -57,5 +61,7 @@ export function App() {
   if (route.name === 'library') return <LibraryView onOpen={(id) => go({ name: 'experience', id }, `/x/${id}`)} onBack={() => go({ name: 'landing' }, '/')} />;
   if (route.name === 'capture') return <ScanExperience autoStart onCapture={onCapture} onBack={() => go({ name: 'landing' }, '/')} />;
   if (route.name === 'reel') return <ReelView onBack={() => go({ name: 'landing' }, '/')} />;
-  return <HomeView onScan={() => go({ name: 'capture' }, `/scan${location.search}`)} onPhoto={(f) => { void fileToCapture(f).then((r) => { if (r) onCapture(r); }); }} onLibrary={() => go({ name: 'library' }, '/library')} onReel={() => go({ name: 'reel' }, '/reel')} onOpen={(id) => go({ name: 'experience', id }, `/x/${id}`)} />;
+  if (route.name === 'teach') return <TeachView onBack={() => go({ name: 'landing' }, '/')} onOpen={(id) => go({ name: 'experience', id }, `/x/${id}`)} />;
+  if (route.name === 'me') return <ProgressView onOpen={(id) => go({ name: 'experience', id }, `/x/${id}`)} onBack={() => go({ name: 'landing' }, '/')} onScan={() => go({ name: 'capture' }, '/scan')} />;
+  return <HomeView onScan={() => go({ name: 'capture' }, `/scan${location.search}`)} onPhoto={(f) => { void fileToCapture(f).then((r) => { if (r) onCapture(r); }); }} onLibrary={() => go({ name: 'library' }, '/library')} onReel={() => go({ name: 'reel' }, '/reel')} onOpen={(id) => go({ name: 'experience', id }, `/x/${id}`)} onProgress={() => go({ name: 'me' }, '/me')} onTeach={() => go({ name: 'teach' }, '/teach')} />;
 }

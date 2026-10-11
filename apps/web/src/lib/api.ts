@@ -1,5 +1,6 @@
 // Client for the Living Book server: experience creation over SSE, records, library.
-import type { PipelineEvent, ExperienceRecord } from '@living-book/scene';
+import type { PipelineEvent, ExperienceRecord, Quiz } from '@living-book/scene';
+import { idToken } from './firebase';
 
 const OWNER_KEY = 'lb.owner';
 export function ownerId(): string {
@@ -10,11 +11,17 @@ export function ownerId(): string {
   } catch { return 'anonymous'; }
 }
 
+/** Who is asking: the browser's anonymous id, plus the signed-in reader's Firebase token when there is one. */
+export async function authHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
+  const t = await idToken();
+  return { 'x-owner-id': ownerId(), ...(t ? { authorization: `Bearer ${t}` } : {}), ...extra };
+}
+
 /** POST the page photo and stream pipeline events. Resolves when the stream ends. */
 export async function createExperience(blob: Blob, onEvent: (e: PipelineEvent) => void, opts: { bookId?: string; signal?: AbortSignal } = {}): Promise<void> {
   const res = await fetch('/api/experiences', {
     method: 'POST', body: blob, signal: opts.signal,
-    headers: { 'content-type': blob.type || 'image/jpeg', 'x-owner-id': ownerId(), ...(opts.bookId ? { 'x-book-id': opts.bookId } : {}) },
+    headers: await authHeaders({ 'content-type': blob.type || 'image/jpeg', ...(opts.bookId ? { 'x-book-id': opts.bookId } : {}) }),
   });
   if (!res.ok || !res.body) throw new Error(`server error ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
   const reader = res.body.getReader();
@@ -42,10 +49,16 @@ export async function getExperience(id: string): Promise<ExperienceRecord> {
 
 export type LibraryItem = { id: string; createdAt: string; title: string; kind: string; subject: string; language: string; pageImageUrl: string; verification?: string; bookId?: string };
 export async function getLibrary(): Promise<LibraryItem[]> {
-  const res = await fetch('/api/library', { headers: { 'x-owner-id': ownerId() } });
+  const res = await fetch('/api/library', { headers: await authHeaders() });
   if (!res.ok) return [];
   return res.json();
 }
 export async function deleteLibrary(): Promise<void> {
-  await fetch('/api/library', { method: 'DELETE', headers: { 'x-owner-id': ownerId() } });
+  await fetch('/api/library', { method: 'DELETE', headers: await authHeaders() });
+}
+
+export async function getQuiz(id: string): Promise<Quiz> {
+  const res = await fetch(`/api/experiences/${encodeURIComponent(id)}/quiz`);
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'no quiz yet');
+  return res.json();
 }

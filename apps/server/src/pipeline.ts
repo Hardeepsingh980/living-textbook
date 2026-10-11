@@ -200,7 +200,8 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
     if (quick.kind === 'unsupported') return undefined;
     const t = Date.now();
     try {
-      const richSystem = system + '\nThis is the detailed version: use the full element budget (6–10 elements, 4–6 steps) while staying compact in syntax.';
+      const richSystem = system + '\nThis is the detailed version: use the full element budget (6–10 elements, 5 steps) while staying compact in syntax.'
+        + '\nVIVID (readers judge the app by this): the printed figure comes alive for the whole lesson. The key object moves ON the printed figure (the bob swings, the ray travels, the block slides, the needle turns, the point moves along the graph). Wherever the page shows a flow (current in wires, heat along a rod, light along a ray, blood through vessels, air or water currents), add a "particles" element with a "path" (the points of that printed line) and rate 40 or more: any preset flows along its path (electrons for current, fire for heat, bubbles for water, smoke for air, stars for light), in a colour that stands out from the print. Make the motion big enough to see from across a room: a moving object is at least a sixth of the width of the figure and travels across most of the figure; strokes are 6 or thicker. For geometry and graphs, draw the construction stroke by stroke (paths with "draw") and move the point or ratio the theorem is about. Live readouts change as the motion runs. At least 4 elements move; the time variable loops (play true in the first step); each step changes what is shown or highlighted so the lesson builds over about a minute.';
       let r: { json: any; usage: (typeof usages)[number] };
       try { r = await withTimeout(generateJson({ model: 'sceneRich', system: richSystem, parts: sceneParts, maxTokens: 3200, thinking: 'low', mediaResolution: 'medium', temperature: 0.5, label: 'scene-rich' }), 60000, 'scene rich'); }
       catch (e: any) {
@@ -212,9 +213,9 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
       const n = normalize({ ...r.json, page, v: 1, anchors: { ...anchorsFromQuick, ...(r.json.anchors ?? {}) } }, { dropTexts: [quick.title] });
       if (!n.scene) { console.warn('[build] rich scene invalid:', n.issues.slice(0, 3).map((i) => i.message).join('; ')); return undefined; }
       let rich = n.scene, richIssues = n.issues;
-      // liveliness: a scene in which fewer than three things move gets one more pass that adds motion showing the concept
+      // liveliness: a scene in which fewer than four things move gets one more pass that adds motion showing the concept
       const m = motionReport(rich);
-      if (m.moving.length < 3) {
+      if (m.moving.length < 4) {
         try {
           const r3 = await withTimeout(generateJson({ model: 'sceneRich', system: richSystem, parts: [...sceneParts, { text: `The scene below has only ${m.moving.length} moving element(s)${m.moving.length ? ` (${m.moving.join(', ')})` : ''}. Rewrite it as the complete LivingScene JSON with at least 3 elements that visibly move and SHOW the concept: particles (rate ≥ 30) flowing along a "path" or across a region on the figure (carbon dioxide into the leaf, water up the stem, electrons round the wires, rain from the cloud, vapour rising), objects whose x/y are bound to t or animated along the figure, arrows that draw themselves. Keep every value, label and narration unchanged.\n${JSON.stringify(rich)}` }], maxTokens: 3400, thinking: 'low', mediaResolution: 'medium', temperature: 0.4, label: 'scene-motion' }), 50000, 'scene motion');
           usages.push(r3.usage);

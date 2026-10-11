@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
 import { GeminiSpark } from '../components/GeminiSpark';
-import { ownerId } from '../lib/api';
+import { authHeaders } from '../lib/api';
 
 type Job = { id: string; status: 'queued' | 'generating' | 'recording' | 'encoding' | 'ready' | 'failed'; detail: string; url?: string; error?: string; title?: string; experienceId?: string };
 const STEPS: { key: Job['status'][]; label: string }[] = [
@@ -23,7 +23,7 @@ export function ReelView({ onBack }: { onBack: () => void }) {
   async function submit(file: File) {
     setError(''); setBusy(true);
     try {
-      const res = await fetch('/api/reels?seconds=50', { method: 'POST', body: file, headers: { 'content-type': file.type || 'application/octet-stream', 'x-owner-id': ownerId() } });
+      const res = await fetch('/api/reels?seconds=50', { method: 'POST', body: file, headers: await authHeaders({ 'content-type': file.type || 'application/octet-stream' }) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({ error: `server error ${res.status}` }))).error || 'could not start');
       setJob(await res.json());
     } catch (e: any) { setError(String(e?.message || e)); }
@@ -83,6 +83,7 @@ export function ReelView({ onBack }: { onBack: () => void }) {
             </div>
           </div>
         )}
+        {!job && <a className="link" href="/teach">A whole chapter? Make a chapter film for the class</a>}
         <button className="link" onClick={onBack}>Back</button>
       </div>
     </div>

@@ -50,7 +50,7 @@ export const SCENE_LANGUAGE = `LivingScene v1 (JSON). Coordinates are page units
   {"id":"lbl","type":"label","text":"h = {h:0.1} m","x":..,"y":..,"size":28,"color":"#1a1a1a","bg":"#ffd166","align":"center","maxW":400},   // {expr:fmt} templates
   {"id":"s","type":"shape","shape":"rect"|"circle"|"ellipse"|"line"|"arrow"|"polygon"|"star"|"square","x":..,"y":..,"w":..,"h":..,"points":[[x,y],...],"away":[x,y],"fill":"#..","stroke":"#..","strokeW":3,"glow":true},   // square: the true square built on the segment points[0]→points[1], on the side away from the point "away" (e.g. the triangle's opposite vertex); it may extend beyond the figure box
   {"id":"p","type":"path","points":[[x,y],...],"stroke":"#e63946","strokeW":4,"draw":true,"dashed":false},   // draw animates the stroke
-  {"id":"fx","type":"particles","preset":"sparkle"|"rain"|"snow"|"bubbles"|"smoke"|"confetti"|"fire"|"leaves"|"stars"|"dust"|"electrons","region":[x0,y0,x1,y1],"rate":40,"color":"#..","speed":"expr","path":[[x,y],...]},
+  {"id":"fx","type":"particles","preset":"sparkle"|"rain"|"snow"|"bubbles"|"smoke"|"confetti"|"fire"|"leaves"|"stars"|"dust"|"electrons","region":[x0,y0,x1,y1],"rate":40,"color":"#..","speed":"expr","path":[[x,y],...]},   // with a "path", any preset flows along it, evenly spaced and looping: current, heat, light, blood, water
   {"id":"pl","type":"plot","fn":"0.5*g*x^2","xdomain":[0,3],"ydomain":[0,50],"marker":"t","x":..,"y":..,"w":400,"h":300,"stroke":"#2a6cdf","xlabel":"t (s)","ylabel":"h (m)"},
   {"id":"bb","type":"bubble","text":"...","speaker":"Wolf","x":..,"y":..,"tail":[x,y],"style":"speech"|"thought"|"shout"|"caption","size":26},
   {"id":"tl","type":"timeline","events":[{"at":"1857","label":"...","detail":"..."}],"x":..,"y":..,"w":..,"orient":"h"}

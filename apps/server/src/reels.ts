@@ -71,15 +71,16 @@ async function makeReel(job: ReelJob, input: { image: Buffer; mime: string; owne
   if (!revealed || !rec.scene) throw new Error('no usable scene');
   job.experienceId = rec.id;
   job.status = 'recording'; job.detail = 'Recording the lesson';
-  const mp4 = await record(rec.id, job);
+  const mp4 = await recordLesson(rec.id, job.seconds, (done) => { job.detail = `Recording the lesson (${done} of ${job.seconds} s)`; }, job.id);
   job.status = 'encoding'; job.detail = 'Saving the reel';
   job.url = await store.putFile(rec.id, 'reel', mp4, 'video/mp4');
   job.status = 'ready'; job.detail = 'Ready';
   console.log(`[reel] ${job.id} ready: ${job.url} (${(mp4.length / 1e6).toFixed(1)} MB)`);
 }
 
-/** Play the experience in presentation mode in headless Chromium, capture video, then mix the tutor's voice in. */
-async function record(experienceId: string, job: ReelJob): Promise<Buffer> {
+/** Play the experience in presentation mode in headless Chromium, capture video, then mix the tutor's voice in.
+ *  Used by reels and by chapter films; `onTick` hears how many seconds are recorded so far. */
+export async function recordLesson(experienceId: string, seconds: number, onTick?: (done: number) => void, label = experienceId.slice(0, 8)): Promise<Buffer> {
   const { chromium } = await import('playwright');
   const port = Number(process.env.PORT || 8080);
   const base = `http://127.0.0.1:${port}`;
@@ -102,17 +103,16 @@ async function record(experienceId: string, job: ReelJob): Promise<Buffer> {
     const t0 = await page.evaluate(() => performance.now());
     const loaded = Date.now();
     const ready = await page.waitForFunction("document.documentElement.dataset.assetsReady === '1'", null, { timeout: 30000 }).then(() => true).catch(() => false);
-    console.log(`[reel] ${job.id} browser ${browser.version()} launched in ${opened - launched} ms, page loaded in ${loaded - opened} ms, ready ${ready} after ${Date.now() - loaded} ms`);
+    console.log(`[reel] ${label} browser ${browser.version()} launched in ${opened - launched} ms, page loaded in ${loaded - opened} ms, ready ${ready} after ${Date.now() - loaded} ms`);
     if (!ready) {
       const gl = await page.evaluate("(() => { const c = document.createElement('canvas'); const g = c.getContext('webgl2') || c.getContext('webgl'); if (!g) return 'none'; const d = g.getExtension('WEBGL_debug_renderer_info'); return d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : 'yes'; })()").catch((e: any) => `probe failed: ${e?.message}`);
-      console.error(`[reel] ${job.id} page did not render; webgl: ${gl}; ${diag.slice(0, 6).join(' | ') || 'no console errors'}`);
+      console.error(`[reel] ${label} page did not render; webgl: ${gl}; ${diag.slice(0, 6).join(' | ') || 'no console errors'}`);
       throw new Error('the page did not render in the recorder');
     }
-    const seconds = job.seconds;
-    for (let s = 0; s < seconds; s += 5) { await page.waitForTimeout(Math.min(5000, (seconds - s) * 1000)); job.detail = `Recording the lesson (${Math.min(seconds, s + 5)} of ${seconds} s)`; }
+    for (let s = 0; s < seconds; s += 5) { await page.waitForTimeout(Math.min(5000, (seconds - s) * 1000)); onTick?.(Math.min(seconds, s + 5)); }
     const live: { at: number; data: string }[] = await page.evaluate('(window.__liveAudio || []).slice()');
     const clips: { at: number; url: string }[] = await page.evaluate('(window.__clipLog || []).slice()');
-    console.log(`[reel] ${job.id} recorded ${seconds} s: ${live.length} tutor audio chunks, ${clips.length} clips${diag.length ? `; ${diag.slice(0, 3).join(' | ')}` : ''}`);
+    console.log(`[reel] ${label} recorded ${seconds} s: ${live.length} tutor audio chunks, ${clips.length} clips${diag.length ? `; ${diag.slice(0, 3).join(' | ')}` : ''}`);
     await page.close(); await ctx.close();
     const webm = (await fs.readdir(work)).find((f) => f.endsWith('.webm'));
     if (!webm) throw new Error('no video captured');

@@ -18,6 +18,9 @@ import { Icon } from '../components/Icon';
 import { CameraSession } from '../ar/camera';
 import { cornersToMatrix3d, type Corners, type TrackerState } from '../ar/PageTracker';
 import { executeTool, type Scene } from '@living-book/scene';
+import { QuizSheet } from '../components/QuizSheet';
+import { track } from '../lib/progress';
+import type { LessonMeta } from '../lib/types';
 
 type Props = { onBack: () => void };
 const LOST_TO_PHOTO_MS = 1800;     // a found page that stays lost this long falls back to the frozen capture
@@ -80,7 +83,11 @@ export function ExperienceView({ onBack }: Props) {
   const [paused, setPaused] = useState(false);
   const [vars, setVars] = useState<Record<string, number>>({});
   const [knob, setKnob] = useState<string | null>(null);
-  const [whatIf, setWhatIf] = useState(false);     // progressive disclosure: knobs appear only when asked for
+  const [whatIf, setWhatIf] = useState(false);
+  const [quizOpen, setQuizOpen] = useState(false);
+  const [lessonDone, setLessonDone] = useState(false);
+  const questionTimer = useRef<number | null>(null);
+  const questionText = useRef('');     // progressive disclosure: knobs appear only when asked for
   const [speaking, setSpeaking] = useState(false);
   const [fit, setFit] = useState({ scale: 1, x: 0, y: 0 });
   const [arState, setArState] = useState<TrackerState>('idle');
@@ -100,6 +107,59 @@ export function ExperienceView({ onBack }: Props) {
   const arAvailable = !!session && session.tracker.state !== 'idle';
   const revealed = revealedVersion > 0;
   const report = (event: string, detail = '') => { const id = useStore.getState().id; if (!id || CONTAIN) return; try { void fetch(`/api/experiences/${id}/metrics`, { method: 'POST', body: JSON.stringify({ at: Date.now(), tutor: event, detail: detail.slice(0, 160), ua: navigator.userAgent.slice(0, 80) }), headers: { 'content-type': 'application/json' }, keepalive: true }); } catch { /* best effort */ } };
+
+  // recordings and debugging can read the simulation's state
+  useEffect(() => {
+    if (!PRESENT && !DEBUG) return;
+    (window as any).__lbState = () => { const r = active(); if (!r) return null; const rt: any = r.runtime; const tv = rt.scene.vars.find((v: any) => v.role === 'time'); return { t: tv ? rt.getVar(tv.id) : null, max: tv?.max, playing: rt.playing, step: rt.stepIndex, paused: pausedRef.current, tutor: tutorRef.current ? (tutorRef.current as any).state : null }; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---------- progress: what the reader did, for their own record (Firestore) and the analytics (BigQuery) ----------
+  const tracking = !CONTAIN;
+  const meta = (): Partial<LessonMeta> => { const q = useStore.getState().quickPartial; return { title: q?.title, subject: q?.subject, kind: q?.kind, language: q?.language, pageImageUrl: useStore.getState().pageImageUrl ?? undefined }; };
+  const openedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tracking || !revealed || !experienceId || !scene || openedFor.current === experienceId) return;
+    openedFor.current = experienceId;
+    track({ ...meta(), experienceId, event: 'lesson_open', totalSteps: scene.steps.length });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealed, experienceId]);
+  useEffect(() => {
+    if (!tracking || !revealed || !experienceId || !scene) return;
+    track({ ...meta(), experienceId, event: 'step', step: stepIndex, totalSteps: scene.steps.length });
+    if (stepIndex >= scene.steps.length - 1 && !lessonDone) { setLessonDone(true); track({ ...meta(), experienceId, event: 'lesson_complete', totalSteps: scene.steps.length }); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex, revealed, experienceId]);
+  useEffect(() => {
+    // time on the page, in half-minute slices while it is open and visible; the remainder when the reader leaves
+    if (!tracking || !revealed || !experienceId) return;
+    let last = Date.now();
+    const flush = () => { const ms = Date.now() - last; last = Date.now(); if (ms >= 3000 && document.visibilityState === 'visible') track({ ...meta(), experienceId, event: 'time', durationMs: ms }); };
+    const id = window.setInterval(flush, 30000);
+    const onHide = () => { if (document.visibilityState === 'hidden') { const ms = Date.now() - last; last = Date.now(); if (ms >= 3000) track({ ...meta(), experienceId, event: 'time', durationMs: ms }); } else last = Date.now(); };
+    document.addEventListener('visibilitychange', onHide);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onHide); flush(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealed, experienceId]);
+  /** A spoken question arrives in pieces; it is counted once the reader has stopped talking for a moment. */
+  function noteQuestion(text: string) {
+    if (!tracking) return;
+    questionText.current = text;
+    if (questionTimer.current) clearTimeout(questionTimer.current);
+    questionTimer.current = window.setTimeout(() => {
+      const id = useStore.getState().id; const q = questionText.current.trim();
+      if (id && q.length > 3) track({ ...meta(), experienceId: id, event: 'question', detail: q.slice(0, 300) });
+      questionText.current = '';
+    }, 2500);
+  }
+  function openQuiz() { setQuizOpen(true); tutorRef.current?.setOutputMuted(true); speechRef.current.clear(); }
+  function closeQuiz() { setQuizOpen(false); tutorRef.current?.setOutputMuted(muted || pausedRef.current); }
+  function explainInLesson(prompt: string) {
+    setQuizOpen(false);
+    const t = tutorRef.current;
+    if (t && tutorLive.current) { t.setOutputMuted(muted); t.sendText(prompt); }
+  }
 
   // ---------- page image (crops + fallback background) ----------
   useEffect(() => {
@@ -318,7 +378,7 @@ export function ExperienceView({ onBack }: Props) {
         if (st === 'unavailable' || st === 'reconnecting' || st === 'listening' || st === 'speaking') report(`tutor-${st}`, detail ?? '');
         if (st === 'unavailable' && tutorLive.current) { tutorLive.current = false; setPhase('ready'); const sc = useStore.getState().scene; if (!pausedRef.current && sc) startNarration(sc, active()?.runtime.stepIndex ?? 0); }
       },
-      onTranscript: (role, text) => say(text, role === 'user' ? 'you' : 'tutor'),
+      onTranscript: (role, text) => { say(text, role === 'user' ? 'you' : 'tutor'); if (role === 'user') noteQuestion(text); },
       onTool: (name, args) => runToolRef.current(name, args),
     });
     tutorRef.current = t;
@@ -456,11 +516,13 @@ export function ExperienceView({ onBack }: Props) {
             <button className="round big" onClick={togglePause} aria-label={paused ? 'Play' : 'Pause'}><Icon name={paused ? 'play' : 'pause'} size={26} /></button>
             <button className={`pill tutor ${tutor === 'off' || tutor === 'ready' ? '' : tutor}`} onClick={toggleMic} aria-label={micOn ? 'Stop listening' : 'Ask a question'} disabled={status !== 'ready'} title={tutorNote || undefined}>{micOn ? <Icon name="mic" size={18} /> : <GeminiSpark size={18} state={tutor === 'unavailable' ? 'error' : 'idle'} />}{micLabel}</button>
             {sliders.length > 0 && <button className={`pill ${whatIf ? 'on' : ''}`} onClick={toggleWhatIf} aria-pressed={whatIf}><Icon name="knob" size={18} />What if?</button>}
+            {experienceId && <button className={`pill quiz-pill ${lessonDone ? 'ready' : ''}`} onClick={openQuiz}><Icon name="check" size={18} />Quiz</button>}
             {scene.steps.length > 1 && !tutorLive.current && <button className="round small" onClick={nextStep} aria-label="Next" title="Next"><Icon name="next" size={20} /></button>}
           </div>
         )}
         {scene && scene.steps.length > 1 && !PRESENT && <div className="dots">{scene.steps.map((s, i) => <span key={s.id} className={i === stepIndex ? 'on' : ''} />)}</div>}
       </div>}
+      {quizOpen && experienceId && <QuizSheet experienceId={experienceId} meta={meta()} onClose={closeQuiz} onExplain={tutorLive.current ? explainInLesson : undefined} />}
     </div>
   );
 }

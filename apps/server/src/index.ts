@@ -17,6 +17,7 @@ import { showcase, askShowcase } from './showcase.js';
 import { userFromRequest, ownerOf } from './auth.js';
 import { recordEvent, touchUser, me, insights } from './progress.js';
 import { quizFor } from './quiz.js';
+import { startChapter, getChapter, waitChapter } from './chapters.js';
 import type { PipelineEvent } from '@living-book/scene';
 
 const app = new Hono();
@@ -55,11 +56,28 @@ app.get('/api/experiences/:id', async (c) => {
   return c.json(c.req.query('events') ? rec : rest, 200, { 'Cache-Control': 'private, max-age=60' });
 });
 
+/** Public web configuration: Firebase (sign-in, analytics) comes from the environment, so no keys live in the repo. */
+app.get('/api/config', (c) => {
+  const apiKey = process.env.FIREBASE_API_KEY, appId = process.env.FIREBASE_APP_ID;
+  const firebase = apiKey && appId ? { apiKey, appId, projectId: config.project, authDomain: process.env.FIREBASE_AUTH_DOMAIN || `${config.project}.firebaseapp.com`, messagingSenderId: appId.split(':')[1], measurementId: process.env.FIREBASE_MEASUREMENT_ID || undefined } : null;
+  return c.json({ firebase }, 200, { 'Cache-Control': 'public, max-age=300' });
+});
+/** On first sign-in on a device, the pages made there before signing in move to the reader's account. */
+app.post('/api/me/claim', async (c) => {
+  const user = await userFromRequest(c); if (!user) return c.json({ error: 'sign in first' }, 401);
+  const anon = c.req.header('x-owner-id');
+  if (!anon || anon === user.uid || anon === 'anonymous' || anon === 'eval' || anon === 'showcase') return c.json({ moved: 0 });
+  const recs = await store.listRecords(anon, 500);
+  for (const r of recs) await store.patchRecord(r.id, { ownerId: user.uid });
+  return c.json({ moved: recs.length });
+});
+
 /** A signed-in reader: profile and progress, insights, and the events that feed them. Anonymous events are kept too. */
 app.get('/api/me', async (c) => {
   const user = await userFromRequest(c); if (!user) return c.json({ error: 'sign in first' }, 401);
   await touchUser(user);
-  return c.json({ ...(await me(user)), user: { ...(await me(user)).user, uid: user.uid, name: user.name, email: user.email, picture: user.picture } });
+  const m = await me(user);
+  return c.json({ ...m, user: { ...m.user, uid: user.uid, name: user.name, email: user.email, picture: user.picture } });
 });
 app.get('/api/me/insights', async (c) => {
   const user = await userFromRequest(c); if (!user) return c.json({ error: 'sign in first' }, 401);
@@ -85,6 +103,18 @@ app.post('/api/showcase/ask', async (c) => {
   const r = await askShowcase({ id: String(body?.id ?? ''), question: String(body?.question ?? ''), ip }).catch((e) => ({ error: String(e?.message || e).slice(0, 120), status: 400 as const }));
   return 'error' in r ? c.json({ error: r.error }, r.status) : c.json(r);
 });
+
+/** Chapter films for teachers: a chapter PDF in, a narrated 16:9 explainer of its key ideas out (long-polled like reels). */
+app.post('/api/chapters', async (c) => {
+  const body = Buffer.from(await c.req.arrayBuffer());
+  if (body.length < 1000 || body.subarray(0, 4).toString() !== '%PDF') return c.json({ error: 'send the chapter as a PDF' }, 400);
+  if (body.length > 30 * 1024 * 1024) return c.json({ error: 'the PDF is larger than 30 MB' }, 413);
+  const { owner, user } = await ownerOf(c);
+  const job = startChapter({ pdf: body, ownerId: owner, sections: Number(c.req.query('sections')) || undefined });
+  void recordEvent(user, owner, { event: 'chapter', detail: `started ${job.id}` }, c.req.header('user-agent') || '').catch(() => {});
+  return c.json(job);
+});
+app.get('/api/chapters/:id', async (c) => { const wait = Math.min(50000, Math.max(0, Number(c.req.query('wait')) || 0)); const j = wait ? await waitChapter(c.req.param('id'), wait) : getChapter(c.req.param('id')); return j ? c.json(j) : c.json({ error: 'not found' }, 404); });
 
 /** Explainer reels: a page in, a short film of its lesson out (the job runs on this instance, one at a time). */
 app.post('/api/reels', async (c) => {

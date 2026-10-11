@@ -7,6 +7,8 @@ import { Icon } from '../components/Icon';
 import { GeminiSpark } from '../components/GeminiSpark';
 import { ScenePreview } from '../components/ScenePreview';
 import { QrModal } from '../components/QrModal';
+import { GoogleButton } from '../components/GoogleButton';
+import { useReader } from '../lib/firebase';
 import '../home.css';
 
 type Sample = { id: string; title: string; slider?: string };
@@ -30,9 +32,10 @@ const REDUCED = typeof matchMedia === 'function' && matchMedia('(prefers-reduced
 const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 const PHONE = COARSE || (typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent));
 
-type Props = { onScan: () => void; onPhoto: (file: File) => void; onLibrary: () => void; onReel: () => void; onOpen: (id: string) => void };
+type Props = { onScan: () => void; onPhoto: (file: File) => void; onLibrary: () => void; onReel: () => void; onOpen: (id: string) => void; onProgress: () => void; onTeach: () => void };
 
-export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen }: Props) {
+export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen, onProgress, onTeach }: Props) {
+  const reader = useReader();
   const [show, setShow] = useState<Showcase>(FALLBACK);
   const [qr, setQr] = useState(false);
   const rootRef = useRef<HTMLElement>(null);
@@ -55,6 +58,9 @@ export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen }: Props) 
         <nav className="home-nav">
           <button className="link" onClick={onLibrary}>Saved pages</button>
           <button className="link nav-reel" onClick={onReel}>Make a reel</button>
+          {reader
+            ? <button className="me-btn" onClick={onProgress} aria-label="My progress" title="My progress">{reader.photo ? <img className="avatar small" src={reader.photo} alt="" referrerPolicy="no-referrer" /> : <span className="avatar small">{(reader.name || reader.email || '?').slice(0, 1).toUpperCase()}</span>}</button>
+            : <GoogleButton className="secondary small nav-signin" label="Sign in" />}
           <button className="primary try-small" onClick={tryNow}>Try now</button>
         </nav>
       </header>
@@ -158,6 +164,27 @@ export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen }: Props) 
 
       <section className="ask">
         <AskCard sample={show.ask} onOpen={onOpen} />
+      </section>
+
+      {/* it checks what stuck: the quiz and the reader's progress */}
+      <section className="stuck">
+        <h2 className="reveal">It checks what stuck<span className="marker-dot">.</span></h2>
+        <div className="stuck-row">
+          <QuizDemo />
+          <ProgressDemo />
+        </div>
+        <button className="secondary reveal" onClick={onProgress}>{reader ? 'My progress' : 'Sign in to keep your progress'}</button>
+      </section>
+
+      {/* for teachers */}
+      <section className="teachers">
+        <span className="postit teachers-tag reveal">For teachers</span>
+        <h2 className="reveal">A chapter in, a film out<span className="marker-dot">.</span></h2>
+        <div className="teachers-frame reveal">
+          <span className="tape" aria-hidden="true" />
+          <LoopClip src="/home/chapter.mp4" poster="/home/chapter.jpg" label="A chapter film: a title card, then each part's lesson beside its key ideas" className="teachers-clip" />
+        </div>
+        <button className="primary reveal" onClick={onTeach}><Icon name="film" size={22} /> Make a chapter film</button>
       </section>
 
       <section className="final">
@@ -300,6 +327,32 @@ function Way({ tag, rot, decoration, line, children }: { tag: string; rot: strin
       <span className="postit way-tag">{tag}</span>
       <p className="way-line">{line}</p>
     </article>
+  );
+}
+
+/** The quiz as a reader sees it, mid-answer: a real question from the pendulum page. */
+function QuizDemo() {
+  const options = ['The bob', 'The timer', 'The stand', 'The thread'];
+  return (
+    <div className="demo-card quiz-demo reveal" aria-label="A quiz question with the right answer marked">
+      <span className="tape" aria-hidden="true" />
+      <div className="demo-head"><span className="postit">Quiz</span><span className="demo-dots"><i className="done" /><i className="on" /><i /><i /></span></div>
+      <h3>What is the small metallic ball of a simple pendulum called?</h3>
+      <div className="demo-options">{options.map((o, k) => <div key={o} className={`demo-option ${k === 0 ? 'right' : k === 1 ? 'wrong' : ''}`}><span className="letter">{'ABCD'[k]}</span>{o}{k === 0 && <Icon name="check" size={20} />}{k === 1 && <Icon name="cross" size={20} />}</div>)}</div>
+    </div>
+  );
+}
+
+/** A reader's week at a glance: the tiles and bars of the progress page. */
+function ProgressDemo() {
+  const bars = [2, 0, 5, 8, 3, 0, 6, 9, 4, 7, 0, 5, 10, 6];
+  return (
+    <div className="demo-card progress-demo reveal" aria-label="A progress page: pages learned, minutes, quiz accuracy, a streak and two weeks of activity">
+      <span className="tack" aria-hidden="true" />
+      <div className="demo-tiles"><div><b>12</b>pages</div><div><b>47</b>minutes</div><div><b>83%</b>right</div><div className="hot"><b>4</b>day streak</div></div>
+      <div className="demo-bars" aria-hidden="true">{bars.map((b, k) => <span key={k} className={`${b === 0 ? 'zero' : ''} ${k === bars.length - 1 ? 'today' : ''}`} style={{ height: `${Math.max(6, b * 10)}%` }} />)}</div>
+      <div className="demo-note"><GeminiSpark size={18} /> Revisit Ohm's law: ask the tutor what happens when the resistance doubles.</div>
+    </div>
   );
 }
 
