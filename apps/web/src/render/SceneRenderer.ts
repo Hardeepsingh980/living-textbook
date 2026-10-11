@@ -10,12 +10,25 @@ export type RendererOptions = {
   onTap?: (elementId: string) => void;
 };
 
-const FONT: Record<string, string> = {
-  sans: '"Noto Sans", "Noto Sans Devanagari", system-ui, sans-serif',
-  serif: '"Noto Serif", "Noto Serif Devanagari", Georgia, serif',
-  rounded: '"Nunito", "Noto Sans Devanagari", system-ui, sans-serif',
-  mono: 'ui-monospace, Menlo, monospace',
-};
+const SKETCH = '"Kalam", "Patrick Hand", "Noto Sans Devanagari", system-ui, sans-serif';
+const FONT: Record<string, string> = { sans: SKETCH, serif: SKETCH, rounded: SKETCH, mono: 'ui-monospace, Menlo, monospace', sketch: SKETCH };
+const PENCIL = 0x2d2d2d, MARKER = 0xff4d4d, PAPER = 0xffffff;
+/** A hand-drawn rectangle: bowed sides and corners that overshoot a little, deterministic per seed. */
+function roughRect(g: Graphics, x: number, y: number, w: number, h: number, seed = 1) {
+  const j = (k: number) => Math.sin(seed * 12.9898 + k * 78.233) * 0.5;
+  const bx = Math.min(10, w * 0.03), by = Math.min(10, h * 0.03);
+  g.moveTo(x + bx * j(1), y + by * j(2));
+  g.bezierCurveTo(x + w * 0.3, y - by * (1 + j(3)), x + w * 0.7, y + by * j(4), x + w + bx * j(5), y + by * j(6));
+  g.bezierCurveTo(x + w + bx * (1 + j(7)), y + h * 0.35, x + w - bx * j(8), y + h * 0.7, x + w + bx * j(9), y + h + by * j(10));
+  g.bezierCurveTo(x + w * 0.65, y + h + by * (1 + j(11)), x + w * 0.3, y + h - by * j(12), x + bx * j(13), y + h + by * j(14));
+  g.bezierCurveTo(x - bx * (1 + j(15)), y + h * 0.7, x + bx * j(16), y + h * 0.3, x + bx * j(17), y + by * j(18));
+  g.closePath();
+}
+/** A paper card with a pencil border and a hard offset shadow, the way every note in the app is drawn. */
+function paperCard(g: Graphics, x: number, y: number, w: number, h: number, fill: number | string, seed = 1, border = 2.5) {
+  roughRect(g, x + 4, y + 4, w, h, seed + 5); g.fill({ color: PENCIL });
+  roughRect(g, x, y, w, h, seed); g.fill({ color: fill }).stroke({ color: PENCIL, width: border, join: 'round' });
+}
 
 const REDUCED_MOTION = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -71,7 +84,7 @@ export class SceneRenderer {
     if (!text) return;
     const el = elementId ? this.scene.elements.find((e) => e.id === elementId) : undefined;
     const node = new Container();
-    const t = new Text({ text, style: new TextStyle({ fontFamily: FONT[this.scene.style.font] ?? FONT.sans, fontSize: 26, fill: '#1a1a1a', wordWrap: true, wordWrapWidth: Math.min(this.scene.page.w * 0.55, 460), align: 'center', lineHeight: 32 }) });
+    const t = new Text({ text, style: new TextStyle({ fontFamily: SKETCH, fontSize: 30, fill: '#2d2d2d', wordWrap: true, wordWrapWidth: Math.min(this.scene.page.w * 0.55, 460), align: 'center', lineHeight: 36 }) });
     t.resolution = 2; t.anchor.set(0.5);
     const pad = 18, w = t.width + pad * 2, h = t.height + pad * 1.4;
     const g = new Graphics().roundRect(-w / 2, -h / 2, w, h, 18).fill({ color: 0xffffff }).stroke({ color: 0x333333, width: 3 });
@@ -184,9 +197,9 @@ export class SceneRenderer {
   }
 
   private makeText(el: Extract<Element, { type: 'label' | 'bubble' }>) {
-    const size = el.size;
+    const size = Math.max(30, el.size * 1.12); // readable at phone size: nothing smaller than 30 page units
     const style = new TextStyle({
-      fontFamily: FONT[this.scene.style.font] ?? FONT.sans, fontSize: size, fill: el.type === 'label' ? el.color : '#1a1a1a', fontWeight: el.type === 'label' && el.weight === 'bold' ? 'bold' : 'normal',
+      fontFamily: FONT[this.scene.style.font] ?? SKETCH, fontSize: size, fill: el.type === 'label' ? el.color : '#2d2d2d', fontWeight: el.type === 'label' && el.weight === 'bold' ? 'bold' : 'normal',
       wordWrap: true, wordWrapWidth: el.type === 'label' ? (el.maxW ?? this.scene.page.w * 0.6) : Math.min(this.scene.page.w * 0.5, 420), align: el.type === 'label' ? el.align : 'center', lineHeight: size * 1.25,
     });
     const t = new Text({ text: '', style });
@@ -244,7 +257,7 @@ export class SceneRenderer {
         if (t.text !== text) t.text = text;
         const g = node.getChildAt(0) as Graphics;
         g.clear();
-        if (el.bg) { const pad = el.size * 0.45; g.roundRect(-t.width / 2 - pad, -t.height / 2 - pad * 0.6, t.width + pad * 2, t.height + pad * 1.2, el.size * 0.4).fill({ color: el.bg }); }
+        { const pad = el.size * 0.45; const bg = el.bg && !/^(none|transparent)$/i.test(el.bg) ? el.bg : PAPER; paperCard(g, -t.width / 2 - pad, -t.height / 2 - pad * 0.6, t.width + pad * 2, t.height + pad * 1.2, bg, hashId(el.id) * 10); }
         t.anchor.set(el.align === 'left' ? 0 : el.align === 'right' ? 1 : 0.5, 0.5);
         t.scale.set(r.scale);
         // keep the whole label on the page
@@ -260,9 +273,9 @@ export class SceneRenderer {
         const g = node.getChildAt(0) as Graphics;
         const pad = el.size * 0.6, w = t.width + pad * 2, h = t.height + pad * 1.4;
         g.clear();
-        if (el.style === 'thought') { g.ellipse(0, 0, w / 2 + 6, h / 2 + 6).fill({ color: 0xffffff }).stroke({ color: 0x333333, width: 3 }); }
-        else if (el.style === 'caption') { g.roundRect(-w / 2, -h / 2, w, h, 10).fill({ color: 0x1b1f3b, alpha: 0.85 }); }
-        else { g.roundRect(-w / 2, -h / 2, w, h, el.style === 'shout' ? 4 : 18).fill({ color: 0xffffff }).stroke({ color: 0x333333, width: 3 }); }
+        if (el.style === 'thought') { g.ellipse(4, 4, w / 2 + 6, h / 2 + 6).fill({ color: PENCIL }); g.ellipse(0, 0, w / 2 + 6, h / 2 + 6).fill({ color: PAPER }).stroke({ color: PENCIL, width: 2.5 }); }
+        else if (el.style === 'caption') { paperCard(g, -w / 2, -h / 2, w, h, 0xfff9c4, hashId(el.id) * 10); }
+        else { paperCard(g, -w / 2, -h / 2, w, h, PAPER, hashId(el.id) * 10, el.style === 'shout' ? 3.5 : 2.5); }
         if (r.points === undefined && el.tail) {
           const scope = this.runtime.values();
           const an = el.anchor ? this.scene.anchors[el.anchor] : undefined; // the tail target is in the bubble's own frame
@@ -272,10 +285,10 @@ export class SceneRenderer {
             // keep the tail short: point towards the target but never further than 1.2× the bubble height
             const len = Math.hypot(tx, ty), max = h * 1.2;
             if (len > max) { tx *= max / len; ty *= max / len; }
-            g.poly([-14, h / 2 - 2, 14, h / 2 - 2, tx, ty]).fill({ color: 0xffffff }).stroke({ color: 0x333333, width: 2 });
+            g.poly([-14, h / 2 - 2, 14, h / 2 - 2, tx, ty]).fill({ color: PAPER }).stroke({ color: PENCIL, width: 2.5 });
           }
         }
-        t.anchor.set(0.5); t.style.fill = el.style === 'caption' ? '#ffffff' : '#1a1a1a';
+        t.anchor.set(0.5); t.style.fill = '#2d2d2d';
         node.position.set(Math.min(Math.max(r.x, (w * r.scale) / 2 + 8), this.scene.page.w - (w * r.scale) / 2 - 8), Math.min(Math.max(r.y, (h * r.scale) / 2 + 8), this.scene.page.h - (h * r.scale) / 2 - 8)); node.scale.set(r.scale);
         break;
       }
@@ -290,14 +303,19 @@ export class SceneRenderer {
   private drawShape(g: Graphics, el: Extract<Element, { type: 'shape' }>, r: ResolvedElement) {
     g.clear();
     const fill = el.fill ? { color: el.fill } : undefined;
-    const stroke = el.stroke ? { color: el.stroke, width: el.strokeW } : undefined;
+    const stroke = el.stroke ? { color: el.stroke, width: Math.max(3.5, el.strokeW) } : undefined;
     const w = (r.w ?? 100) * r.scale, h = (r.h ?? w) * r.scale;
-    const pts = r.points ?? [];
+    const pts0 = r.points ?? [];
+    // a quick sketch: the outline is traced twice, the second pass a touch off and lighter
+    for (const pass of [0, 1]) {
+    const dx = pass ? 1.6 : 0, dy = pass ? -1.2 : 0;
+    const pts = pts0.map((p) => [p[0] + dx, p[1] + dy] as [number, number]);
+    const rx = r.x + dx, ry = r.y + dy;
     switch (el.shape) {
-      case 'rect': g.roundRect(r.x, r.y, w, h, el.radius ?? 0); break;
-      case 'circle': g.circle(r.x + w / 2, r.y + w / 2, w / 2); break;
-      case 'ellipse': g.ellipse(r.x + w / 2, r.y + h / 2, w / 2, h / 2); break;
-      case 'star': g.star(r.x + w / 2, r.y + w / 2, 5, w / 2, w / 4); break;
+      case 'rect': roughRect(g, rx, ry, w, h, hashId(el.id) * 10 + pass); break;
+      case 'circle': g.circle(rx + w / 2, ry + w / 2, w / 2); break;
+      case 'ellipse': g.ellipse(rx + w / 2, ry + h / 2, w / 2, h / 2); break;
+      case 'star': g.star(rx + w / 2, ry + w / 2, 5, w / 2, w / 4); break;
       case 'polygon': if (pts.length >= 3) g.poly(pts.flat()); break;
       case 'square': {
         // the square built on the segment P→Q, on the side away from `away` (default: to the left of the direction of travel)
@@ -321,8 +339,10 @@ export class SceneRenderer {
         break;
       }
     }
-    if (fill && el.shape !== 'line' && el.shape !== 'arrow') g.fill(fill);
-    if (stroke) g.stroke({ ...stroke, cap: 'round', join: 'round' }); else if (el.shape === 'line' || el.shape === 'arrow') g.stroke({ color: el.fill ?? '#e63946', width: el.strokeW, cap: 'round' });
+    if (pass === 0 && fill && el.shape !== 'line' && el.shape !== 'arrow') g.fill(fill);
+    const sw = stroke ?? ((el.shape === 'line' || el.shape === 'arrow') ? { color: el.fill ?? '#e63946', width: Math.max(3.5, el.strokeW) } : undefined);
+    if (sw) g.stroke({ ...sw, width: pass ? sw.width * 0.7 : sw.width, alpha: pass ? 0.4 : 1, cap: 'round', join: 'round' });
+    }
     if (el.glow) { if (!(g as any).__glow) { (g as any).__glow = new BlurFilter({ strength: 6 }); g.filters = [(g as any).__glow]; } } else if (g.filters && (g.filters as any).length) g.filters = [];
   }
 
@@ -338,7 +358,11 @@ export class SceneRenderer {
     const all = el.closed ? [...pts, pts[0]!] : pts;
     for (let i = 1; i <= segs && i < all.length; i++) g.lineTo(all[i]![0], all[i]![1]);
     if (segs + 1 < all.length && frac > 0) { const a = all[segs]!, b = all[segs + 1]!; g.lineTo(a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac); }
-    g.stroke({ color: el.stroke, width: el.strokeW, cap: 'round', join: 'round', alpha: 1 });
+    g.stroke({ color: el.stroke, width: Math.max(3.5, el.strokeW), cap: 'round', join: 'round', alpha: 1 });
+    g.moveTo(pts[0]![0] + 1.5, pts[0]![1] - 1.2);
+    for (let i = 1; i <= segs && i < all.length; i++) g.lineTo(all[i]![0] + 1.5, all[i]![1] - 1.2);
+    if (segs + 1 < all.length && frac > 0) { const a = all[segs]!, b = all[segs + 1]!; g.lineTo(a[0] + (b[0] - a[0]) * frac + 1.5, a[1] + (b[1] - a[1]) * frac - 1.2); }
+    g.stroke({ color: el.stroke, width: Math.max(2.5, el.strokeW * 0.7), cap: 'round', join: 'round', alpha: 0.4 });
     if (el.dashed) g.alpha = 0.7;
   }
 
@@ -453,7 +477,7 @@ export class SceneRenderer {
       const box = this.scene.anchors[id]; if (!box) continue;
       const [x0, y0, x1, y1] = box;
       const pulse = 0.55 + 0.25 * Math.sin(now * 4);
-      g.clear().roundRect(x0 - 10, y0 - 10, x1 - x0 + 20, y1 - y0 + 20, 16).stroke({ color: 0x7fd3ff, width: 5, alpha: pulse }).fill({ color: 0x7fd3ff, alpha: 0.08 });
+      g.clear(); roughRect(g, x0 - 12, y0 - 12, x1 - x0 + 24, y1 - y0 + 24, 3); g.stroke({ color: MARKER, width: 6, alpha: pulse }).fill({ color: 0xfff9c4, alpha: 0.12 });
       g.visible = true;
     }
     // elements the tutor or a step points at: a ring around what is drawn
@@ -467,7 +491,7 @@ export class SceneRenderer {
       const x0 = node.position.x + b.x * node.scale.x, y0 = node.position.y + b.y * node.scale.y, w = b.width * node.scale.x, h = b.height * node.scale.y;
       if (!(w > 0 && h > 0)) continue;
       const pulse = 0.55 + 0.25 * Math.sin(now * 4);
-      g.clear().roundRect(x0 - pad, y0 - pad, w + pad * 2, h + pad * 2, 14).stroke({ color: 0x4c8dff, width: 5, alpha: pulse }).fill({ color: 0x4c8dff, alpha: 0.08 });
+      g.clear(); roughRect(g, x0 - pad, y0 - pad, w + pad * 2, h + pad * 2, 5); g.stroke({ color: MARKER, width: 6, alpha: pulse }).fill({ color: 0xfff9c4, alpha: 0.12 });
       g.visible = true;
     }
     for (const [id, g] of this.highlights) if (!want.has(id)) g.visible = false;

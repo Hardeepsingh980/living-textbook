@@ -86,9 +86,9 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
   stage('read', 'start', { detail: 'reading the page', model: config.models.quick.id });
   const tRead = Date.now();
   let partialSent = 0;
-  const quickRes = await withTimeout(generateJson<any>({
-    model: 'quick', system: QUICK_SYSTEM, schema: QUICK_SCHEMA, parts: [imagePart(quickJpeg), { text: 'Read this page.' }],
-    maxTokens: 700, thinking: 'minimal', mediaResolution: 'low', temperature: 0.2, label: 'quick', // 768 px + low: first token ≈1.4 s, done ≈2 s (measured 2026-10-10)
+  const quickRead = (nudge: string, temperature: number) => withTimeout(generateJson<any>({
+    model: 'quick', system: QUICK_SYSTEM, schema: QUICK_SCHEMA, parts: [imagePart(quickJpeg), { text: `Read this page.${nudge}` }],
+    maxTokens: 700, thinking: 'minimal', mediaResolution: 'low', temperature, label: 'quick', // 768 px + low: first token ≈1.4 s, done ≈2 s (measured 2026-10-10)
     onText: (so) => {
       const got: Partial<QuickRead> = {};
       for (const key of ['kind', 'subject', 'language', 'title', 'gist'] as const) {
@@ -99,6 +99,9 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
       if (n > partialSent) { partialSent = n; send({ type: 'quick-partial', data: got, t: T() }); }
     },
   }), 20000, 'quick read');
+  let quickRes: Awaited<ReturnType<typeof quickRead>>;
+  try { quickRes = await quickRead('', 0.2); }
+  catch (e: any) { if (!/JSON/i.test(String(e?.message))) throw e; console.warn('[read] malformed JSON, retrying once:', String(e?.message).slice(0, 120)); quickRes = await quickRead(' Answer with strictly valid JSON only: escape every quotation mark inside strings and never break a string across lines.', 0.1); }
   usages.push(quickRes.usage);
   const q = quickRes.json;
   const quick: QuickRead = {
@@ -453,6 +456,8 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
     const r1 = await verifyScene(ex, scene, 1);
     scene = r1.scene;
     timings.ready = T();
+    // the tutor may connect from this moment: a provisional record (verified scene v1, clips and pictures so far) is saved now
+    try { await store.putRecord({ id, createdAt: new Date(t0).toISOString(), ownerId: input.ownerId, bookId: input.bookId, page: { ...page, imageUrl: pageUrl, ink }, quick, extraction: ex, scene, sceneVersion: 1, audio: [...audioClips], assets: [...assets], tracking: undefined, verification: r1.v, timings: { ...timings }, costUsd: usages.reduce((a, u) => a + u.costUsd, 0), events: [] }); } catch (e: any) { console.warn('[pipeline] provisional save failed', String(e?.message || e).slice(0, 120)); }
     send({ type: 'ready', t: T(), experienceId: id });
     const rich = await richP;
     if (!rich) return r1.v;

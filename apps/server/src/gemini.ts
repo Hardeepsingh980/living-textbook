@@ -55,7 +55,19 @@ export function extractJson(text: string): any {
   const start = cleaned.indexOf('{');
   const end = cleaned.lastIndexOf('}');
   if (start < 0 || end <= start) throw new Error('no JSON object in model output');
-  return JSON.parse(cleaned.slice(start, end + 1));
+  const raw = cleaned.slice(start, end + 1);
+  try { return JSON.parse(raw); }
+  catch (e) {
+    // repair the usual slips before giving up: raw line breaks inside strings, trailing commas, smart quotes as delimiters
+    let fixed = '';
+    let inStr = false, esc = false;
+    for (const ch of raw) {
+      if (inStr) { if (esc) { fixed += ch; esc = false; } else if (ch === '\\') { fixed += ch; esc = true; } else if (ch === '"') { fixed += ch; inStr = false; } else if (ch === '\n') fixed += '\\n'; else if (ch === '\r') continue; else if (ch === '\t') fixed += '\\t'; else fixed += ch; }
+      else if (ch === '"') { fixed += ch; inStr = true; } else fixed += ch;
+    }
+    fixed = fixed.replace(/,\s*([}\]])/g, '$1');
+    try { return JSON.parse(fixed); } catch { throw e; }
+  }
 }
 
 export type GenJsonOptions = {

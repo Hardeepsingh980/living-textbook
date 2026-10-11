@@ -7,16 +7,18 @@ const args = Object.fromEntries(process.argv.slice(2).map((a, i, arr) => (a.star
 const SERVER = args.server || 'http://localhost:8080';
 const RUNS = Number(args.runs || 1);
 const ONLY = args.only ? String(args.only) : null;
+const PAGES_DIR = args.pages ? path.resolve(String(args.pages)) : null; // another page set, e.g. eval/pages-ncert
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname));
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const outDir = path.join(root, 'output', stamp);
 await fs.mkdir(outDir, { recursive: true });
 
-const pages = (await fs.readdir(path.join(root, 'pages'))).filter((f) => /\.(jpe?g|png)$/i.test(f) && (!ONLY || f.includes(ONLY)));
+const pagesDir = PAGES_DIR ?? path.join(root, 'pages');
+const pages = (await fs.readdir(pagesDir)).filter((f) => /\.(jpe?g|png)$/i.test(f) && (!ONLY || f.includes(ONLY)));
 const results = [];
 
 async function runPage(file) {
-  const img = await fs.readFile(path.join(root, 'pages', file));
+  const img = await fs.readFile(path.join(pagesDir, file));
   const t0 = Date.now();
   const res = await fetch(`${SERVER}/api/experiences`, { method: 'POST', body: img, headers: { 'content-type': 'image/jpeg', 'x-owner-id': 'eval' } });
   const text = await res.text();
@@ -64,7 +66,7 @@ function score(file, truth, events) {
 
 for (const file of pages) {
   let truth = null;
-  try { truth = JSON.parse(await fs.readFile(path.join(root, 'truth', file.replace(/\.(jpe?g|png)$/i, '.json')), 'utf8')); } catch { /* no truth */ }
+  try { truth = JSON.parse(await fs.readFile(path.join(PAGES_DIR ? path.join(pagesDir, 'truth') : path.join(root, 'truth'), file.replace(/\.(jpe?g|png)$/i, '.json')), 'utf8')); } catch { /* no truth */ }
   for (let i = 0; i < RUNS; i++) {
     process.stdout.write(`${file} run ${i + 1}/${RUNS} … `);
     try {

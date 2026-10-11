@@ -28,6 +28,8 @@ export class LiveTutor {
   private attempts = 0;
   private stopped = false;
   private lastUserSpeechAt = 0;
+  private outputMuted = false;
+  private lastError = '';
 
   constructor(private experienceId: string, private getState: () => Record<string, number>, private ev: TutorEvents = {}) {}
 
@@ -37,8 +39,21 @@ export class LiveTutor {
 
   private setState(s: TutorState, detail?: string) { if (this.state === s) return; this.state = s; this.ev.onState?.(s, detail); }
 
-  /** Open the session (no microphone yet). Resolves once the tutor can take a question. */
+  /** Open the session (no microphone yet). Resolves once the tutor can take a question; a record that is still being saved is retried. */
   async connect() {
+    if (this.ws?.readyState === WebSocket.OPEN && this.sessionReady) return; // already open
+    if (this.connecting) return this.connecting;
+    this.connecting = (async () => { try { await this.connectLoop(); } finally { this.connecting = null; } })();
+    return this.connecting;
+  }
+  private connecting: Promise<void> | null = null;
+  private async connectLoop() {
+    for (let attempt = 0; ; attempt++) {
+      try { await this.connectOnce(); return; }
+      catch (e: any) { if (attempt < 3 && /not found|did not answer/i.test(String(e?.message))) { this.setState('connecting'); await new Promise((r) => setTimeout(r, 1500)); continue; } throw e; }
+    }
+  }
+  private async connectOnce() {
     this.stopped = false;
     mixer.unlock();
     this.setState(this.attempts ? 'reconnecting' : 'connecting');
@@ -49,7 +64,8 @@ export class LiveTutor {
     ws.send(JSON.stringify({ type: 'start', experienceId: this.experienceId, state: this.getState() }));
     ws.onmessage = (e) => { try { this.onMessage(JSON.parse(e.data)); } catch (err) { console.warn('[tutor] message', err); } };
     ws.onclose = () => this.onSocketClosed();
-    await new Promise<void>((res, rej) => { const t = setTimeout(() => rej(new Error('tutor did not answer')), 12000); const check = () => { if (this.sessionReady) { clearTimeout(t); res(); } else if (this.state === 'unavailable') { clearTimeout(t); rej(new Error('unavailable')); } else setTimeout(check, 50); }; check(); });
+    this.lastError = '';
+    await new Promise<void>((res, rej) => { const t = setTimeout(() => rej(new Error('tutor did not answer')), 12000); const check = () => { if (this.sessionReady) { clearTimeout(t); res(); } else if (this.lastError) { clearTimeout(t); rej(new Error(this.lastError)); } else if (this.state === 'unavailable') { clearTimeout(t); rej(new Error('unavailable')); } else setTimeout(check, 50); }; check(); });
     this.attempts = 0;
   }
 
@@ -87,6 +103,10 @@ export class LiveTutor {
     if (this.state === 'listening') this.setState('ready');
   }
 
+  /** Ask the tutor to teach the lesson from the first step (it drives the steps through the tools). */
+  beginLesson() { this.sendText('begin'); }
+  /** Pause and resume the tutor's voice locally; the session stays open. */
+  setOutputMuted(m: boolean) { this.outputMuted = m; if (m) this.cutPlayback(); }
   sendState() { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'state', state: this.getState() })); }
   sendText(text: string) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'text', text })); }
 
@@ -103,6 +123,7 @@ export class LiveTutor {
       case 'ready': this.sessionReady = true; this.setState(this.micOn ? 'listening' : 'ready'); break;
       case 'reconnecting': this.sessionReady = false; this.cutPlayback(); this.setState('reconnecting'); break;
       case 'audio': {
+        if (this.outputMuted) break;
         const bytes = Uint8Array.from(atob(m.data), (c) => c.charCodeAt(0));
         const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
         const buf = ctx.createBuffer(1, pcm.length, 24000);
@@ -111,6 +132,7 @@ export class LiveTutor {
         const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
         const now = ctx.currentTime;
         if (this.playhead < now + 0.05) this.playhead = now + 0.05;
+        if ((window as any).__captureLive) ((window as any).__liveAudio ??= []).push({ at: performance.now() + (this.playhead - now) * 1000, rate: 24000, data: m.data });
         src.start(this.playhead); this.playhead += buf.duration;
         src.onended = () => { this.scheduled = this.scheduled.filter((x) => x !== src); };
         this.scheduled.push(src);
@@ -138,7 +160,7 @@ export class LiveTutor {
         { const waitMs = Math.max(0, (this.playhead - ctx.currentTime) * 1000); setTimeout(() => { if (this.state === 'speaking' || this.state === 'thinking') this.setState(this.micOn ? 'listening' : 'ready'); }, waitMs + 80); }
         break;
       case 'interrupted': this.cutPlayback(); this.modelText = ''; this.setState('interrupted'); setTimeout(() => { if (this.state === 'interrupted') this.setState(this.micOn ? 'listening' : 'ready'); }, 600); break;
-      case 'error': console.warn('[tutor]', m.message); if (!this.sessionReady) this.setState('unavailable', m.message); break;
+      case 'error': console.warn('[tutor]', m.message); if (!this.sessionReady) { const notFound = /not found/i.test(String(m.message)); this.lastError = String(m.message); if (!notFound) this.setState('unavailable', m.message); else this.ws?.close(); } break;
       case 'closed': this.sessionReady = false; if (!this.stopped) this.setState('unavailable', m.reason); break;
     }
   }
@@ -147,6 +169,7 @@ export class LiveTutor {
     this.sessionReady = false;
     this.ws = null;
     if (this.stopped) { this.setState('off'); return; }
+    if (this.lastError) return; // connect() is handling it
     // the connection dropped: try to come back a few times, keeping the microphone as it was
     const delay = RECONNECT_DELAYS[this.attempts];
     if (delay === undefined) { this.setState('unavailable', 'connection lost'); return; }

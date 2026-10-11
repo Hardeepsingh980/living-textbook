@@ -1,4 +1,4 @@
-// Single-weight line icons (24-unit grid, 2 px stroke). One visual language across the app; no emoji anywhere.
+// Single-weight line icons (24-unit grid, 2.5 px marker stroke). One visual language across the app; no emoji anywhere.
 import type { SVGProps } from 'react';
 
 const PATHS: Record<string, string> = {
@@ -27,7 +27,7 @@ const PATHS: Record<string, string> = {
 export function Icon({ name, size = 22, ...rest }: { name: keyof typeof PATHS | string; size?: number } & SVGProps<SVGSVGElement>) {
   const d = PATHS[name] ?? PATHS.question!;
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill={name === 'play' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...rest}>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={name === 'play' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...rest}>
       <path d={d} />
     </svg>
   );

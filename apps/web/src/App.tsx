@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react';
-import { ScanExperience, type CaptureResult } from './views/ScanExperience';
+import { ScanExperience, type CaptureResult, fileToCapture } from './views/ScanExperience';
+import { LandingView } from './views/LandingView';
 import { ExperienceView } from './views/ExperienceView';
 import { LibraryView } from './views/LibraryView';
 import { useStore } from './lib/store';
 import { createExperience, getExperience } from './lib/api';
 
-type Route = { name: 'capture' } | { name: 'experience'; id?: string } | { name: 'library' };
+type Route = { name: 'landing' } | { name: 'capture' } | { name: 'experience'; id?: string } | { name: 'library' };
 
 function parseRoute(): Route {
   const p = location.pathname;
   const m = /^\/x\/([^/]+)/.exec(p);
   if (m) return { name: 'experience', id: decodeURIComponent(m[1]!) };
   if (p.startsWith('/library')) return { name: 'library' };
-  return { name: 'capture' };
+  if (p.startsWith('/scan')) return { name: 'capture' };
+  return { name: 'landing' };
 }
 
 export function App() {
@@ -30,7 +32,7 @@ export function App() {
 
   // open a saved experience by URL
   useEffect(() => {
-    if (route.name === 'experience' && route.id === 'new' && status === 'idle') { go({ name: 'capture' }, '/'); return; }
+    if (route.name === 'experience' && route.id === 'new' && status === 'idle') { go({ name: 'landing' }, '/'); return; }
     if (route.name === 'experience' && route.id && route.id !== 'new' && route.id !== currentId && status !== 'generating') {
       getExperience(route.id).then(loadRecord).catch((e) => fail(String(e?.message || e)));
     }
@@ -49,7 +51,8 @@ export function App() {
     } catch (e: any) { if (!signal.aborted) fail(String(e?.message || e)); }
   }
 
-  if (route.name === 'experience') return <ExperienceView onBack={() => { reset(); go({ name: 'capture' }, '/'); }} />;
-  if (route.name === 'library') return <LibraryView onOpen={(id) => go({ name: 'experience', id }, `/x/${id}`)} onBack={() => go({ name: 'capture' }, '/')} />;
-  return <ScanExperience onCapture={onCapture} onLibrary={() => go({ name: 'library' }, '/library')} />;
+  if (route.name === 'experience') return <ExperienceView onBack={() => { reset(); go({ name: 'landing' }, '/'); }} />;
+  if (route.name === 'library') return <LibraryView onOpen={(id) => go({ name: 'experience', id }, `/x/${id}`)} onBack={() => go({ name: 'landing' }, '/')} />;
+  if (route.name === 'capture') return <ScanExperience autoStart onCapture={onCapture} onBack={() => go({ name: 'landing' }, '/')} />;
+  return <LandingView onScan={() => go({ name: 'capture' }, `/scan${location.search}`)} onPhoto={(f) => { void fileToCapture(f).then((r) => { if (r) onCapture(r); }); }} onLibrary={() => go({ name: 'library' }, '/library')} />;
 }

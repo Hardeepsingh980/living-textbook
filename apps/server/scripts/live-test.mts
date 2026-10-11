@@ -9,7 +9,8 @@ const ws = new WebSocket(BASE.replace(/^http/, 'ws') + '/api/live');
 const log = (...a: unknown[]) => console.log(`${String(((performance.now() - t0) / 1000).toFixed(1)).padStart(5)}s`, ...a);
 const t0 = performance.now();
 let audioChunks = 0, modelText = '', ready = false, turns = 0, qi = 0;
-const ask = () => { if (qi < questions.length) { const q = questions[qi++]!; log('YOU:', q); ws.send(JSON.stringify({ type: 'text', text: q })); } else { log('done'); ws.send(JSON.stringify({ type: 'end' })); setTimeout(() => process.exit(0), 300); } };
+const WAIT = Number(process.env.LB_WAIT || 0);
+const ask = () => { if (qi < questions.length) { const q = questions[qi++]!; log('YOU:', q); ws.send(JSON.stringify({ type: 'text', text: q })); } else if (WAIT) { log(`listening for ${WAIT / 1000}s more`); setTimeout(() => { log('done'); ws.send(JSON.stringify({ type: 'end' })); setTimeout(() => process.exit(0), 300); }, WAIT); } else { log('done'); ws.send(JSON.stringify({ type: 'end' })); setTimeout(() => process.exit(0), 300); } };
 ws.onopen = () => ws.send(JSON.stringify({ type: 'start', experienceId: id, state: rt.values() }));
 ws.onmessage = (e) => {
   const m = JSON.parse(String(e.data));
@@ -23,4 +24,4 @@ ws.onmessage = (e) => {
   else if (m.type === 'error' || m.type === 'closed') log(m.type, m.message ?? m.reason ?? '');
 };
 ws.onclose = () => { log('socket closed'); process.exit(0); };
-setTimeout(() => { log('timeout; ready =', ready, 'turns =', turns); process.exit(1); }, 90000);
+setTimeout(() => { log('timeout; ready =', ready, 'turns =', turns); process.exit(1); }, 90000 + WAIT);

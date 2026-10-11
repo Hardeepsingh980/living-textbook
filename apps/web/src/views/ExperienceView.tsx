@@ -1,8 +1,9 @@
 // The experience, AR-only: the live camera stays on from the first frame; the page layer is warped onto the physical
 // page once it is found, and sits on the frozen capture only when there is no camera or the page is lost for a while.
-// Nothing is drawn or spoken until the first verified scene has its narration and pictures and the renderer is up;
-// a richer version cross-fades in at a step boundary. Narration, character lines and steps then play continuously;
-// the reader can pause, replay, nudge the "what if" knobs, or talk to the tutor.
+// Nothing is drawn or spoken until the first verified scene has its pictures and the renderer is up; a richer
+// version cross-fades in later. From the reveal the tutor narrates the lesson over Gemini Live, moving the scene
+// through its steps with the scene tools, listening for the reader all the while; recorded narration is the
+// fallback when the live session is not available.
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useStore, type AudioClip, type Phase } from '../lib/store';
 import { SceneRenderer } from '../render/SceneRenderer';
@@ -24,6 +25,12 @@ const SEARCH_GIVE_UP_MS = 4000;    // a revealed scene whose page was never foun
 const REVEAL_TIMEOUT_MS = 75000;   // generation that produces nothing usable in this time is reported, not waited for
 const DEBUG = new URLSearchParams(location.search).has('debug');
 const REVIEW = new URLSearchParams(location.search).has('review'); // chrome-free rendering for screenshots and judging
+const PRESENT = new URLSearchParams(location.search).has('present'); // whole page, title and captions, no controls: for recordings
+const CONTAIN = REVIEW || PRESENT;
+const LIVE_LESSON = !REVIEW;       // the tutor narrates over Gemini Live; judging screenshots use the recorded clips
+// recordings: when each clip starts (page time), so narration can be mixed into the captured video afterwards
+const clipLog: { id: string; url: string; text: string; at: number; durationMs: number }[] = ((window as any).__clipLog ??= []);
+const logClip = (c: AudioClip) => { if (PRESENT || REVIEW) clipLog.push({ id: c.id, url: c.url, text: c.text, at: performance.now(), durationMs: c.durationMs }); };
 
 /** The narration clip of a scene version's first step exists (or the step has nothing to say). */
 function narrationReady(scene: Scene, version: number, audio: AudioClip[]) {
@@ -38,6 +45,7 @@ export function ExperienceView({ onBack }: Props) {
   const revealedVersion = useStore((s) => s.revealedVersion);
   const markRevealed = useStore((s) => s.markRevealed);
   const verifications = useStore((s) => s.verifications);
+  const pendingVersion = useStore((s) => s.pendingVersion);
   const pageImageUrl = useStore((s) => s.pageImageUrl);
   const page = useStore((s) => s.page);
   const assets = useStore((s) => s.assets);
@@ -60,11 +68,14 @@ export function ExperienceView({ onBack }: Props) {
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([null, null]); // two slots so a new version can cross-fade over the old one
   const renderers = useRef<(SceneRenderer | null)[]>([null, null]);
   const [activeSlot, setActiveSlot] = useState<number>(-1);
+  const activeSlotRef = useRef(-1); // read by callbacks that outlive a render (speech queue, timers, tools)
   const [prepared, setPrepared] = useState<Record<number, boolean>>({}); // renderer initialised and pictures loaded, per version
   const speechRef = useRef(new SpeechQueue());
-  const tutorRef = useRef<LiveTutor | null>(null);   // one session per lesson; the microphone toggles on and off
+  const tutorRef = useRef<LiveTutor | null>(null);   // one session per lesson
+  const tutorLive = useRef(false);                   // the tutor is narrating: recorded clips stay quiet
   const [pageImg, setPageImg] = useState<HTMLImageElement | null>(null);
   const [caption, setCaption] = useState('');
+  const [captionBy, setCaptionBy] = useState<'tutor' | 'you' | 'line'>('tutor');
   const [stepIndex, setStepIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [vars, setVars] = useState<Record<string, number>>({});
@@ -79,6 +90,7 @@ export function ExperienceView({ onBack }: Props) {
   const everFound = useRef(false);
   const [tutor, setTutor] = useState<TutorState>('off');
   const [tutorNote, setTutorNote] = useState('');
+  const [micOn, setMicOn] = useState(false);
   const [stats, setStats] = useState('');
   const stepTimer = useRef<number | null>(null);
   const lostSince = useRef<number | null>(null);
@@ -97,7 +109,8 @@ export function ExperienceView({ onBack }: Props) {
   }, [pageImageUrl]);
 
   // ---------- a renderer per scene version, prepared offscreen in its own slot ----------
-  const active = () => (activeSlot >= 0 ? renderers.current[activeSlot] : null);
+  const active = () => (activeSlotRef.current >= 0 ? renderers.current[activeSlotRef.current] : null);
+  const say = (text: string, by: 'tutor' | 'you' | 'line' = 'tutor') => { setCaption(text); setCaptionBy(by); };
   useEffect(() => {
     if (!scene || !pageImg || sceneVersion < 1) return;
     const slot = sceneVersion % 2;
@@ -106,26 +119,19 @@ export function ExperienceView({ onBack }: Props) {
     const r = new SceneRenderer({ scene, pageImage: pageImg, assetUrls: assets });
     renderers.current[slot]?.destroy();
     renderers.current[slot] = r;
-    speechRef.current.clear();
-    if (stepTimer.current) { clearTimeout(stepTimer.current); stepTimer.current = null; }
     r.init(canvas).then(() => {
       if (cancelled) { r.destroy(); return; }
-      setVars(Object.fromEntries(scene.vars.map((v) => [v.id, r.runtime.getVar(v.id) ?? v.init])));
-      setStepIndex(Math.max(0, r.runtime.stepIndex));
       r.runtime.on((e) => {
-        if (renderers.current[slot] !== r) return;
+        if (renderers.current[slot] !== r || activeSlotRef.current !== slot) return;
         if (e.type === 'say') playLine(e.lineId);
         if (e.type === 'sfx') mixer.sfx(e.name);
-        if (e.type === 'step') { setStepIndex(e.index); narrateStep(scene, e.index); }
+        if (e.type === 'step') { setStepIndex(e.index); if (!tutorLive.current) narrateStep(scene, e.index); else showStepLines(scene, e.index); }
         if (e.type === 'play' && !e.playing && !pausedRef.current) {
           // simulation reached the end of its time range: breathe, then run again
           const tv = scene.vars.find((v) => v.role === 'time');
           if (tv && (r.runtime.getVar(tv.id) ?? 0) >= tv.max) window.setTimeout(() => { if (!pausedRef.current && renderers.current[slot] === r) { r.runtime.resetTime(); r.runtime.setPlaying(true); } }, 1200);
         }
       });
-      // continuous: simulations run on their own even if no step says play (the clock starts at the reveal)
-      const tv = scene.vars.find((v) => v.role === 'time');
-      if (tv && !scene.steps.some((s) => s.play !== undefined)) r.runtime.setPlaying(true);
       const done = () => { if (renderers.current[slot] === r) { document.documentElement.dataset.assetsReady = '1'; setPrepared((m) => ({ ...m, [sceneVersion]: true })); } };
       if (r.pendingAssets <= 0) done();
       else { document.documentElement.dataset.assetsReady = '0'; const wait = window.setInterval(() => { if (r.pendingAssets <= 0 || renderers.current[slot] !== r) { clearInterval(wait); done(); } }, 150); }
@@ -135,7 +141,7 @@ export function ExperienceView({ onBack }: Props) {
   }, [scene, sceneVersion, pageImg]);
   // pictures that arrive after the renderer was built
   useEffect(() => { for (const r of renderers.current) if (r) void Promise.all(Object.entries(assets).map(([id, url]) => r.addAsset(id, url))); }, [assets]);
-  useEffect(() => { mixer.setMuted(muted || REVIEW); }, [muted]);
+  useEffect(() => { mixer.setMuted(muted || CONTAIN); tutorRef.current?.setOutputMuted(muted || pausedRef.current); }, [muted]);
   useEffect(() => { const id = window.setInterval(() => setSpeaking((s) => (s === speechRef.current.busy ? s : speechRef.current.busy)), 250); return () => clearInterval(id); }, []);
   useEffect(() => () => { speechRef.current.clear(); for (const r of renderers.current) r?.destroy(); mixer.destroy(); CameraSession.current?.stop(); tutorRef.current?.stop(); }, []);
 
@@ -145,15 +151,33 @@ export function ExperienceView({ onBack }: Props) {
   useEffect(() => {
     if (!validated || !scene || sceneVersion <= revealedVersion) return;
     const slot = sceneVersion % 2, other = 1 - slot;
+    const old = renderers.current[other];
+    const prevStep = revealedVersion > 0 && old ? old.runtime.stepIndex : -1; // a richer version continues from the same step
+    activeSlotRef.current = slot;
     setActiveSlot(slot);
     markRevealed(sceneVersion);
-    if (sceneVersion >= 1 && ver?.status === 'unverified' && ver.checks.length === 0) setPhase('ready');
     const r = renderers.current[slot];
-    if (r) { r.runtime.resetTime(); if (r.runtime.stepIndex < 0 && scene.steps.length) r.runtime.goToStep(0); if (scene.audio.ambience) mixer.setAmbience(scene.audio.ambience); startNarration(scene, Math.max(0, r.runtime.stepIndex)); }
-    const old = renderers.current[other];
-    if (old) window.setTimeout(() => { if (renderers.current[other] === old) { old.destroy(); renderers.current[other] = null; } }, 800);
+    if (r) {
+      setVars(Object.fromEntries(scene.vars.map((v) => [v.id, r.runtime.getVar(v.id) ?? v.init])));
+      r.runtime.resetTime();
+      const step = prevStep >= 0 ? Math.min(prevStep, scene.steps.length - 1) : 0;
+      if (scene.steps.length) r.runtime.goToStep(step, true);
+      setStepIndex(Math.max(0, r.runtime.stepIndex));
+      if (scene.audio.ambience) mixer.setAmbience(scene.audio.ambience);
+      const tv = scene.vars.find((v) => v.role === 'time');
+      if (tv && !scene.steps.some((s) => s.play !== undefined)) r.runtime.setPlaying(true);
+      if (revealedVersion === 0) startLesson(scene); // the first reveal starts the lesson
+      else if (!tutorLive.current && !pausedRef.current) startNarration(scene, Math.max(0, r.runtime.stepIndex));
+    }
+    if (old) window.setTimeout(() => { if (renderers.current[other] === old) { old.destroy(); renderers.current[other] = null; } }, 900);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [validated, sceneVersion]);
+  // a richer version that is verified takes over while the tutor is between sentences (or at a loop boundary otherwise)
+  useEffect(() => {
+    if (!pendingVersion || !tutorLive.current) return;
+    const st = useStore.getState();
+    if (st.pendingScene && st.verifications[st.pendingVersion] && (tutor === 'ready' || tutor === 'listening')) st.applyPendingScene();
+  }, [pendingVersion, tutor, verifications]);
   // generation that never becomes usable is reported instead of leaving the loading treatment on forever
   useEffect(() => {
     if (revealed || status === 'error') return;
@@ -161,24 +185,62 @@ export function ExperienceView({ onBack }: Props) {
     return () => clearTimeout(id);
   }, [revealed, status, fail]);
 
-  // ---------- narration: steps in order, looping; a richer version takes over at a step boundary ----------
+  // the tutor's session opens as soon as the experience has an id (its provisional record exists), so the lesson can start the moment the scene is revealed
+  useEffect(() => { if (LIVE_LESSON && experienceId && !REVIEW) { const t = ensureTutor(); t?.connect().catch(() => { /* the reveal retries and falls back */ }); } // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [experienceId]);
+
+  // the lesson keeps moving: when the tutor has finished a step and gone quiet, it is asked to carry on (unless the
+  // lesson is over, paused, or the reader is in the middle of something)
+  useEffect(() => {
+    if (!tutorLive.current || !revealed || !scene || paused) return;
+    if (!(tutor === 'ready' || tutor === 'listening') || stepIndex >= scene.steps.length - 1) return;
+    const id = window.setTimeout(() => { const t = tutorRef.current; if (t && (t.current === 'ready' || t.current === 'listening') && !pausedRef.current) t.sendText('continue'); }, 3000);
+    return () => clearTimeout(id);
+  }, [tutor, stepIndex, revealed, scene, paused]);
+
+  // ---------- the lesson: the tutor narrates over Gemini Live and drives the steps; recorded clips are the fallback ----------
+  function startLesson(sc: Scene) {
+    if (!LIVE_LESSON || !experienceId) { startNarration(sc, 0); return; }
+    const t = ensureTutor(); if (!t) { startNarration(sc, 0); return; }
+    tutorLive.current = true;
+    say(sc.steps[0]?.narration ?? '', 'tutor');
+    (async () => {
+      try {
+        await t.connect();
+        if (!CONTAIN) { try { await t.listen(); setMicOn(true); } catch (e: any) { setTutorNote(/NotAllowed|denied/i.test(String(e?.message || e?.name)) ? 'microphone not allowed' : ''); } }
+        setPhase('live');
+        t.beginLesson();
+      } catch (e) {
+        console.warn('[tutor] live lesson unavailable, using recorded narration', e);
+        tutorLive.current = false; setTutor('unavailable'); setTutorNote('voice unavailable');
+        startNarration(sc, Math.max(0, active()?.runtime.stepIndex ?? 0));
+      }
+    })();
+  }
+  function showStepLines(sc: Scene, index: number) {
+    // in a live lesson the characters' printed lines appear as bubbles while the tutor tells the story
+    const s = sc.steps[index]; if (!s) return;
+    (s.say ?? []).forEach((l, i) => window.setTimeout(() => active()?.sayBubble(l.el, l.text, 2500 + l.text.length * 70), i * 2600));
+  }
+
+  // ---------- recorded narration (fallback and review mode): steps in order, looping ----------
   const clipFor = useCallback((pred: (a: AudioClip) => boolean) => { const st = useStore.getState(); const v = Math.max(1, st.revealedVersion || st.sceneVersion); return st.audio.find((a) => (a.version ?? 1) === v && pred(a)); }, []);
   useEffect(() => {
     // narration for the current step may arrive after the step started
     const sc = scene; const s = sc?.steps[stepIndex];
-    if (revealed && sc && s && !speechRef.current.busy && !pausedRef.current && !tutorRef.current?.listening) startNarration(sc, stepIndex);
+    if (revealed && sc && s && !tutorLive.current && !speechRef.current.busy && !pausedRef.current) startNarration(sc, stepIndex);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audio]);
-
   function startNarration(sc: Scene, index: number) {
+    if (tutorLive.current) return;
     const s = sc.steps[index]; if (!s) return;
     const q = speechRef.current;
     if (q.busy) return;
     const items = [] as { clip: AudioClip; onStart?: () => void }[];
     const narration = clipFor((a) => a.kind === 'narration' && a.stepId === s.id);
-    if (narration) items.push({ clip: narration, onStart: () => setCaption(narration.text) });
-    else if (s.narration) setCaption(s.narration);
-    (s.say ?? []).forEach((l, i) => { const c = clipFor((a) => a.id === `say-${s.id}-${i}` && a.text === l.text) ?? clipFor((a) => a.kind === 'line' && a.text === l.text); if (c) items.push({ clip: c, onStart: () => { setCaption(`${l.speaker}: ${l.text}`); active()?.sayBubble(l.el, l.text, c.durationMs); } }); });
+    if (narration) items.push({ clip: narration, onStart: () => { say(narration.text); logClip(narration); } });
+    else if (s.narration) say(s.narration);
+    (s.say ?? []).forEach((l, i) => { const c = clipFor((a) => a.id === `say-${s.id}-${i}` && a.text === l.text) ?? clipFor((a) => a.kind === 'line' && a.text === l.text); if (c) items.push({ clip: c, onStart: () => { say(`${l.speaker}: ${l.text}`, 'line'); logClip(c); active()?.sayBubble(l.el, l.text, c.durationMs); } }); });
     if (!items.length) { scheduleAdvance(sc, index, (s.dur ?? 3) * 1000); return; }
     q.onIdle = () => scheduleAdvance(sc, index, (s.dur ?? 1) * 1000);
     q.enqueue(...items);
@@ -186,11 +248,11 @@ export function ExperienceView({ onBack }: Props) {
   function scheduleAdvance(sc: Scene, index: number, waitMs: number) {
     if (stepTimer.current) clearTimeout(stepTimer.current);
     stepTimer.current = window.setTimeout(() => {
-      const r = active(); if (!r || pausedRef.current || r.runtime.stepIndex !== index || tutorRef.current?.listening) return;
+      const r = active(); if (!r || pausedRef.current || r.runtime.stepIndex !== index || tutorLive.current) return;
       if (index + 1 < sc.steps.length) r.runtime.nextStep();
       else { // loop: a breath, then from the top; a richer version that is verified and voiced takes over here
         stepTimer.current = window.setTimeout(() => {
-          if (pausedRef.current || active() !== r || tutorRef.current?.listening) return;
+          if (pausedRef.current || active() !== r || tutorLive.current) return;
           const st = useStore.getState();
           if (st.pendingScene && st.verifications[st.pendingVersion] && narrationReady(st.pendingScene, st.pendingVersion, st.audio)) { st.applyPendingScene(); return; } // the reveal effect cross-fades it in
           r.runtime.resetTime(); r.runtime.goToStep(0);
@@ -200,21 +262,32 @@ export function ExperienceView({ onBack }: Props) {
   }
   function narrateStep(sc: Scene, index: number) { speechRef.current.clear(); if (stepTimer.current) clearTimeout(stepTimer.current); startNarration(sc, index); }
   function playLine(lineId: string) {
-    const clip = clipFor((a) => a.id === `line-${lineId}`);
     const l = scene?.audio.lines.find((x) => x.id === lineId);
-    if (clip) speechRef.current.enqueue({ clip, onStart: () => { setCaption(`${clip.speaker ?? ''}: ${clip.text}`); active()?.sayBubble(l?.el, clip.text, clip.durationMs); } });
-    else if (l) setCaption(`${l.speaker}: ${l.text}`);
+    if (tutorLive.current) { if (l) { say(`${l.speaker}: ${l.text}`, 'line'); active()?.sayBubble(l.el, l.text, 2500 + l.text.length * 70); } return; }
+    const clip = clipFor((a) => a.id === `line-${lineId}`);
+    if (clip) speechRef.current.enqueue({ clip, onStart: () => { say(`${clip.speaker ?? ''}: ${clip.text}`, 'line'); logClip(clip); active()?.sayBubble(l?.el, clip.text, clip.durationMs); } });
+    else if (l) say(`${l.speaker}: ${l.text}`, 'line');
   }
   function togglePause() {
     const r = active(); if (!r) return;
     const next = !paused; setPaused(next); pausedRef.current = next;
-    if (next) { speechRef.current.clear(); if (stepTimer.current) clearTimeout(stepTimer.current); r.runtime.setPlaying(false); }
-    else { if (scene) startNarration(scene, r.runtime.stepIndex); if (scene?.vars.some((v) => v.role === 'time')) r.runtime.setPlaying(true); }
+    if (next) { speechRef.current.clear(); if (stepTimer.current) clearTimeout(stepTimer.current); r.runtime.setPlaying(false); tutorRef.current?.setOutputMuted(true); }
+    else { tutorRef.current?.setOutputMuted(muted); if (tutorLive.current) tutorRef.current?.sendText('continue'); else if (scene) startNarration(scene, r.runtime.stepIndex); if (scene?.vars.some((v) => v.role === 'time')) r.runtime.setPlaying(true); }
   }
-  function replay() { const r = active(); if (!r || !scene) return; setPaused(false); pausedRef.current = false; r.runtime.resetTime(); speechRef.current.clear(); r.runtime.goToStep(0); if (scene.vars.some((v) => v.role === 'time')) r.runtime.setPlaying(true); }
-  function nextStep() { const r = active(); if (!r || !scene) return; if (r.runtime.stepIndex + 1 < scene.steps.length) r.runtime.nextStep(); else replay(); }
+  function replay() {
+    const r = active(); if (!r || !scene) return;
+    setPaused(false); pausedRef.current = false; tutorRef.current?.setOutputMuted(muted);
+    r.runtime.resetTime(); speechRef.current.clear(); r.runtime.goToStep(0); setStepIndex(0);
+    if (scene.vars.some((v) => v.role === 'time')) r.runtime.setPlaying(true);
+    if (tutorLive.current) tutorRef.current?.sendText('replay');
+  }
+  function nextStep() {
+    const r = active(); if (!r || !scene) return;
+    if (r.runtime.stepIndex + 1 < scene.steps.length) { r.runtime.nextStep(); if (tutorLive.current) tutorRef.current?.sendText(`continue from step ${r.runtime.stepIndex + 1}`); }
+    else replay();
+  }
 
-  // ---------- the tutor: one live session per lesson; "Ask" turns the microphone on and off ----------
+  // ---------- the tutor: one live session per lesson; the microphone pill turns listening on and off ----------
   const runTool = useCallback((name: string, args: Record<string, unknown>) => {
     const r = active(); if (!r) return { ok: false, reason: 'the scene is not ready yet' };
     const result = executeTool(r.runtime, name, args);
@@ -223,25 +296,27 @@ export function ExperienceView({ onBack }: Props) {
     if (name === 'reset_simulation' && result.ok) { setVars(Object.fromEntries(r.runtime.scene.vars.map((v) => [v.id, v.init]))); setStepIndex(0); }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSlot]);
+  }, [activeSlot]); // re-created when the active slot changes so the tool executor sees the current renderer
   const runToolRef = useRef(runTool); runToolRef.current = runTool;
   function ensureTutor() {
     if (tutorRef.current || !experienceId) return tutorRef.current;
     const t = new LiveTutor(experienceId, () => ({ ...(active()?.runtime.values() ?? {}) }), {
-      onState: (st, detail) => { setTutor(st); setTutorNote(detail ?? ''); if (st === 'unavailable') { setPhase('ready'); if (!pausedRef.current && scene) startNarration(scene, active()?.runtime.stepIndex ?? 0); } },
-      onTranscript: (role, text) => setCaption(role === 'user' ? `You: ${text}` : text),
+      onState: (st, detail) => {
+        setTutor(st); setTutorNote(detail ?? ''); setMicOn(t.listening);
+        if (st === 'unavailable' && tutorLive.current) { tutorLive.current = false; setPhase('ready'); const sc = useStore.getState().scene; if (!pausedRef.current && sc) startNarration(sc, active()?.runtime.stepIndex ?? 0); }
+      },
+      onTranscript: (role, text) => say(text, role === 'user' ? 'you' : 'tutor'),
       onTool: (name, args) => runToolRef.current(name, args),
     });
     tutorRef.current = t;
     return t;
   }
-  async function toggleVoice() {
+  async function toggleMic() {
     const t = ensureTutor(); if (!t) return;
-    if (t.listening) { t.mute(); setPhase('ready'); if (!pausedRef.current && scene) startNarration(scene, active()?.runtime.stepIndex ?? 0); return; }
-    // narration pauses while the reader talks; the scene keeps moving
-    speechRef.current.clear(); if (stepTimer.current) clearTimeout(stepTimer.current);
-    try { await t.listen(); setPhase('live'); setCaption('I am listening. Ask me anything about this page.'); }
-    catch (e: any) { setTutor('unavailable'); setTutorNote(/NotAllowed|denied/i.test(String(e?.message || e?.name)) ? 'microphone not allowed' : 'voice not available'); setPhase('ready'); }
+    if (t.listening) { t.mute(); setMicOn(false); return; }
+    if (!tutorLive.current) { speechRef.current.clear(); if (stepTimer.current) clearTimeout(stepTimer.current); }
+    try { await t.listen(); setMicOn(true); setPhase('live'); if (!tutorLive.current) say('I am listening. Ask me anything about this page.'); }
+    catch (e: any) { setTutorNote(/NotAllowed|denied/i.test(String(e?.message || e?.name)) ? 'microphone not allowed' : 'voice not available'); setMicOn(false); }
   }
   useEffect(() => { tutorRef.current?.sendState(); }, [vars]);
 
@@ -302,7 +377,7 @@ export function ExperienceView({ onBack }: Props) {
   const computeFit = useCallback(() => {
     const st = stageRef.current; if (!st || !page) return;
     const cw = st.clientWidth, ch = st.clientHeight, { w, h } = page;
-    const scale = REVIEW ? Math.min(cw / w, ch / h) : Math.max(cw / w, ch / h); // review mode: the whole page for judging
+    const scale = CONTAIN ? Math.min(cw / w, ch / h) : Math.max(cw / w, ch / h); // review and presentation modes: the whole page
     setFit({ scale, x: (cw - w * scale) / 2, y: (ch - h * scale) / 2 });
   }, [page]);
   useEffect(() => { computeFit(); window.addEventListener('resize', computeFit); return () => window.removeEventListener('resize', computeFit); }, [computeFit]);
@@ -315,11 +390,12 @@ export function ExperienceView({ onBack }: Props) {
   const showKnob = knob ? scene?.vars.find((v) => v.id === knob) : undefined;
   const touchKnob = (id: string) => { setKnob(id); setWhatIf(true); if (knobTimer.current) clearTimeout(knobTimer.current); knobTimer.current = window.setTimeout(() => { setKnob(null); setWhatIf(false); }, 10000); };
   const toggleWhatIf = () => { if (whatIf) { setWhatIf(false); setKnob(null); if (knobTimer.current) clearTimeout(knobTimer.current); } else if (sliders[0]?.type === 'slider') touchKnob(sliders[0].var); };
-  const spark: SparkState = status === 'error' || tutor === 'unavailable' ? 'error' : tutor === 'listening' ? 'listening' : tutor === 'speaking' || speaking ? 'speaking' : tutor === 'thinking' || tutor === 'acting' || tutor === 'connecting' || tutor === 'reconnecting' || working ? 'thinking' : 'idle';
-  const tutorLabel: Record<TutorState, string> = { off: 'Ask', ready: 'Ask', connecting: 'One moment', listening: 'Listening', thinking: 'Thinking', acting: 'Changing the scene', speaking: 'Answering', interrupted: 'Go on', reconnecting: 'Reconnecting', unavailable: tutorNote === 'microphone not allowed' ? 'Microphone off' : 'Voice unavailable' };
+  const spark: SparkState = status === 'error' || tutor === 'unavailable' ? 'error' : tutor === 'listening' && !speaking ? 'listening' : tutor === 'speaking' || speaking ? 'speaking' : tutor === 'thinking' || tutor === 'acting' || tutor === 'connecting' || tutor === 'reconnecting' || working ? 'thinking' : 'idle';
+  const micLabel = tutor === 'unavailable' ? (tutorNote === 'microphone not allowed' ? 'Mic off' : 'Voice off') : tutor === 'reconnecting' ? 'Reconnecting' : tutor === 'connecting' ? 'One moment' : tutor === 'acting' ? 'Changing it' : tutor === 'thinking' ? 'Thinking' : micOn ? (tutor === 'speaking' ? 'Interrupt' : 'Listening') : 'Ask';
   const title = quick?.title || quick?.subject || '';
   const mainFigure = quick?.figures?.[0]?.box as [number, number, number, number] | undefined;
   const errorText = /^(camera|network|fetch|server)/i.test(error ?? '') ? 'The connection dropped while the page was being prepared.' : error === 'timeout' || error === 'no scene' || error === 'renderer' ? "I couldn't build this lesson safely yet. You can retry, or point at the main illustration or diagram." : "I couldn't confidently read this page. Try moving closer, with the whole page in the frame.";
+  const captionParts = captionBy === 'line' && /^([^:]{1,24}): (.+)$/s.test(caption) ? { who: caption.split(': ')[0]!, text: caption.slice(caption.indexOf(': ') + 2) } : null;
 
   return (
     <div className={`experience ${onPhoto ? 'on-photo' : 'on-camera'} ${arLive && revealedVersion > 0 ? 'found' : ''} ${revealed ? 'revealed' : 'working'}`}>
@@ -332,14 +408,14 @@ export function ExperienceView({ onBack }: Props) {
         </div>
         {working && !layerPlaced && !REVIEW && <GenerationOverlay phase={phase} page={page ?? { w: 1000, h: 1400 }} title={title} floating />}
         {status === 'error' && <div className="error-card enter"><b>I couldn't bring this page to life yet.</b><div className="muted">{errorText}</div><button className="primary" onClick={onBack}>Try again</button></div>}
-        {arAvailable && !arLive && revealed && status !== 'error' && arState !== 'idle' && everFound.current && <div className="ar-hint">Point the camera at the page</div>}
+        {arAvailable && !arLive && revealed && status !== 'error' && arState !== 'idle' && everFound.current && <div className="ar-hint note-pill">Point the camera at the page</div>}
       </div>
 
-      {!REVIEW && <div className="top-bar">
-        <button className="round" onClick={onBack} aria-label="Back"><Icon name="back" /></button>
-        {phrase || title ? <div className={`title-pill ${phrase ? 'working' : ''}`}>{phrase ? <GeminiSpark state="thinking" size={16} /> : null}<span>{phrase || title}</span></div> : <div className="spacer" />}
-        <button className="round small" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute' : 'Mute'}><Icon name={muted ? 'soundOff' : 'sound'} size={18} /></button>
-        <button className={`round small spark-button ${theatreOpen ? 'on' : ''}`} onClick={() => setTheatre(!theatreOpen)} aria-label="How it was made" title="How it was made"><GeminiSpark state={spark} size={20} /></button>
+      {!REVIEW && <div className={`top-bar ${PRESENT ? 'present' : ''}`}>
+        {!PRESENT && <button className="round" onClick={onBack} aria-label="Back"><Icon name="back" /></button>}
+        {phrase || title ? <div className={`title-pill ${phrase ? 'working' : ''}`}>{phrase ? <GeminiSpark state="thinking" size={18} /> : null}<span>{phrase || title}</span></div> : <div className="spacer" />}
+        {!PRESENT && <button className="round small" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute' : 'Mute'}><Icon name={muted ? 'soundOff' : 'sound'} size={20} /></button>}
+        {!PRESENT && <button className={`round small spark-button ${theatreOpen ? 'on' : ''}`} onClick={() => setTheatre(!theatreOpen)} aria-label="How it was made" title="How it was made"><GeminiSpark state={spark} size={22} /></button>}
         <ValidationStatus compact />
       </div>}
       {theatreOpen && !REVIEW && <div className="theatre-dock"><Theatre compact={status === 'ready'} /></div>}
@@ -347,7 +423,7 @@ export function ExperienceView({ onBack }: Props) {
 
       {!REVIEW && revealed && <div className="bottom">
         {showKnob && (
-          <div className="knob-panel">
+          <div className="knob-panel enter">
             <label className="knob-label">{showKnob.label ?? showKnob.id}: <b>{(vars[showKnob.id] ?? showKnob.init).toFixed(showKnob.step && showKnob.step < 1 ? 2 : 1)}{showKnob.unit ? ` ${showKnob.unit}` : ''}</b></label>
             <input type="range" min={showKnob.min} max={showKnob.max} step={showKnob.step ?? (showKnob.max - showKnob.min) / 100} value={vars[showKnob.id] ?? showKnob.init}
               onChange={(e) => { const val = Number(e.target.value); r?.runtime.setVar(showKnob.id, val); setVars((s) => ({ ...s, [showKnob.id]: val })); touchKnob(showKnob.id); }} />
@@ -360,17 +436,17 @@ export function ExperienceView({ onBack }: Props) {
             ); })}
           </div>
         )}
-        {caption && <div className="caption" onClick={nextStep}>{/^([^:]{1,24}): (.+)$/s.test(caption) ? <><span className="who">{caption.split(': ')[0]}</span>{caption.slice(caption.indexOf(': ') + 2)}</> : caption}</div>}
-        {scene && (
+        {caption && <div key={captionBy + caption.slice(0, 12)} className={`caption ${captionBy === 'you' ? 'you' : ''}`} onClick={nextStep}>{captionParts ? <><span className="who">{captionParts.who}</span>{captionParts.text}</> : captionBy === 'you' ? <><span className="who">You</span>{caption}</> : caption}</div>}
+        {scene && !PRESENT && (
           <div className="actions-row">
             <button className="round small" onClick={replay} aria-label="Replay" title="Replay"><Icon name="replay" size={20} /></button>
-            <button className="round big" onClick={togglePause} aria-label={paused ? 'Play' : 'Pause'}><Icon name={paused ? 'play' : 'pause'} size={24} /></button>
-            <button className={`pill tutor ${tutor === 'off' || tutor === 'ready' ? '' : tutor}`} onClick={toggleVoice} aria-label={tutorRef.current?.listening ? 'Stop listening' : 'Ask a question'} disabled={status !== 'ready'} title={tutorNote || undefined}>{tutorRef.current?.listening ? <Icon name="stop" size={16} /> : <GeminiSpark size={16} state={tutor === 'unavailable' ? 'error' : 'idle'} />}{tutorLabel[tutor]}</button>
-            {sliders.length > 0 && <button className={`pill ${whatIf ? 'on' : ''}`} onClick={toggleWhatIf} aria-pressed={whatIf}><Icon name="knob" size={16} />What if?</button>}
-            {scene.steps.length > 1 && <button className="round small" onClick={nextStep} aria-label="Next" title="Next"><Icon name="next" size={20} /></button>}
+            <button className="round big" onClick={togglePause} aria-label={paused ? 'Play' : 'Pause'}><Icon name={paused ? 'play' : 'pause'} size={26} /></button>
+            <button className={`pill tutor ${tutor === 'off' || tutor === 'ready' ? '' : tutor}`} onClick={toggleMic} aria-label={micOn ? 'Stop listening' : 'Ask a question'} disabled={status !== 'ready'} title={tutorNote || undefined}>{micOn ? <Icon name="mic" size={18} /> : <GeminiSpark size={18} state={tutor === 'unavailable' ? 'error' : 'idle'} />}{micLabel}</button>
+            {sliders.length > 0 && <button className={`pill ${whatIf ? 'on' : ''}`} onClick={toggleWhatIf} aria-pressed={whatIf}><Icon name="knob" size={18} />What if?</button>}
+            {scene.steps.length > 1 && !tutorLive.current && <button className="round small" onClick={nextStep} aria-label="Next" title="Next"><Icon name="next" size={20} /></button>}
           </div>
         )}
-        {scene && scene.steps.length > 1 && <div className="dots">{scene.steps.map((s, i) => <span key={s.id} className={i === stepIndex ? 'on' : ''} />)}</div>}
+        {scene && scene.steps.length > 1 && !PRESENT && <div className="dots">{scene.steps.map((s, i) => <span key={s.id} className={i === stepIndex ? 'on' : ''} />)}</div>}
       </div>}
     </div>
   );

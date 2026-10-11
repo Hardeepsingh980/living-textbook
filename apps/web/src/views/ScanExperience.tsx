@@ -1,5 +1,5 @@
-// Scan: almost nothing on screen. Point at a page, the spark says it will bring it to life. While the reader frames
-// the page the tracker warms up, a quality gate gives one quiet hint, and "Bring it to life" starts the transformation.
+// Scan: the camera opens straight away, a pencil-drawn frame shows where the page should sit, and one button
+// brings it to life. While the reader frames the page the tracker warms up and a quality gate gives one quiet hint.
 import { useEffect, useRef, useState } from 'react';
 import { mixer } from '../audio/mixer';
 import { quality } from '../lib/quality';
@@ -8,9 +8,25 @@ import { Icon } from '../components/Icon';
 import { GeminiSpark } from '../components/GeminiSpark';
 
 export type CaptureResult = { blob: Blob; previewUrl: string; size: { w: number; h: number }; session: CameraSession | null };
-type Props = { onCapture: (r: CaptureResult) => void; onLibrary: () => void };
+type Props = { onCapture: (r: CaptureResult) => void; onBack: () => void; autoStart?: boolean };
 
-export function ScanExperience({ onCapture, onLibrary }: Props) {
+/** A chosen picture becomes a capture (resized like a camera frame); null when the file is not an image. */
+export async function fileToCapture(f: File): Promise<CaptureResult | null> {
+  mixer.unlock();
+  const bmp = await createImageBitmap(f).catch(() => null);
+  if (!bmp) return null;
+  const scale = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas'); c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+  c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
+  const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), 'image/jpeg', 0.9));
+  CameraSession.current?.stop();
+  return { blob, previewUrl: URL.createObjectURL(blob), size: { w: c.width, h: c.height }, session: null };
+}
+
+// a hand-drawn rectangle: four slightly bowed sides with overshooting corners, like a quick pencil frame
+const FRAME_PATH = 'M 6 10 C 40 4, 70 7, 100 6 C 96 40, 98 70, 97 94 C 70 97, 36 96, 4 95 C 7 66, 5 38, 6 10 Z';
+
+export function ScanExperience({ onCapture, onBack, autoStart = false }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -40,7 +56,8 @@ export function ScanExperience({ onCapture, onLibrary }: Props) {
     CameraSession.current?.stop();
     setCameraOn(false);
   }
-  useEffect(() => () => { if (gateRef.current) clearInterval(gateRef.current); }, []);
+  useEffect(() => { if (autoStart) void startCamera(); return () => { if (gateRef.current) clearInterval(gateRef.current); }; // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function checkQuality(session: CameraSession) {
     const v = session.video; if (!v.videoWidth) return;
@@ -60,44 +77,39 @@ export function ScanExperience({ onCapture, onLibrary }: Props) {
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]; if (!f) return;
-    setBusy(true); mixer.unlock();
-    const bmp = await createImageBitmap(f).catch(() => null);
-    if (!bmp) { setCameraError('That file is not a picture.'); setBusy(false); return; }
-    const scale = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
-    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
-    c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
-    const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), 'image/jpeg', 0.9));
-    closeCamera();
-    onCapture({ blob, previewUrl: URL.createObjectURL(blob), size: { w: c.width, h: c.height }, session: null });
+    setBusy(true);
+    const r = await fileToCapture(f);
+    if (!r) { setCameraError('That file is not a picture.'); setBusy(false); return; }
+    if (gateRef.current) clearInterval(gateRef.current);
+    setCameraOn(false);
+    onCapture(r);
   }
 
   return (
-    <div className="capture">
+    <div className={`capture ${cameraOn ? '' : 'paper'}`}>
       <div ref={stageRef} className={`capture-stage ${cameraOn ? 'on' : ''}`} />
       {!cameraOn && (
         <div className="capture-intro enter">
-          <div className="wordmark"><span className="mark" />Living Book</div>
-          <h1>Point at a page</h1>
-          <GeminiSpark size={28} />
-          <p className="lede">I'll bring it to life.</p>
+          <GeminiSpark state={cameraError ? 'error' : 'thinking'} size={30} />
+          <h1>{cameraError ? 'No camera here' : 'Opening the camera'}</h1>
+          {cameraError && <p className="lede">{cameraError}</p>}
           <div className="actions">
-            <button className="primary big" onClick={startCamera} disabled={busy}><Icon name="camera" /> Open camera</button>
+            {cameraError && <button className="primary" onClick={startCamera} disabled={busy}><Icon name="camera" /> Try the camera again</button>}
             <label className="secondary"><Icon name="upload" size={18} /> Use a photo<input type="file" accept="image/*" onChange={onFile} hidden /></label>
-            <button className="link" onClick={onLibrary}><Icon name="library" size={18} /> Saved pages</button>
+            <button className="link" onClick={onBack}>Back</button>
           </div>
-          {cameraError && <div className="note">{cameraError}</div>}
         </div>
       )}
       {cameraOn && (
         <>
           <div className="guide">
-            <div className={`guide-frame ${trackerState === 'ready' ? 'ready' : ''}`}><i /></div>
+            <div className={`guide-frame ${trackerState === 'ready' ? 'ready' : ''}`}><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d={FRAME_PATH} vectorEffect="non-scaling-stroke" /></svg></div>
             <div className="guide-text"><span>{trackerState !== 'ready' && trackerState !== 'unavailable' ? <GeminiSpark state="thinking" size={16} /> : null}{hint || (trackerState === 'ready' || trackerState === 'unavailable' ? 'Fit the whole page in the frame' : 'Getting ready')}</span></div>
           </div>
           <div className="capture-actions">
             <label className="round" aria-label="Use a photo"><Icon name="upload" /><input type="file" accept="image/*" onChange={onFile} hidden /></label>
             <button className="primary big" onClick={captureFromCamera} disabled={busy}>Bring it to life</button>
-            <button className="round" onClick={closeCamera} aria-label="Close"><Icon name="close" /></button>
+            <button className="round" onClick={() => { closeCamera(); onBack(); }} aria-label="Close"><Icon name="close" /></button>
           </div>
         </>
       )}
