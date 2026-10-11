@@ -2,9 +2,10 @@
 // real SceneRuntime (as the browser would), and print transcripts.  pnpm exec tsx scripts/live-test.mts <experienceId> "<question>" ...
 import { SceneRuntime, executeTool } from '../../../packages/scene/src/index.ts';
 const [id, ...questions] = process.argv.slice(2);
-const rec = await fetch(`http://localhost:8080/api/experiences/${id}`).then((r) => r.json());
+const BASE = process.env.LB_SERVER || 'http://localhost:8080';
+const rec = await fetch(`${BASE}/api/experiences/${id}`).then((r) => r.json());
 const rt = new SceneRuntime(rec.scene);
-const ws = new WebSocket('ws://localhost:8080/api/live');
+const ws = new WebSocket(BASE.replace(/^http/, 'ws') + '/api/live');
 const log = (...a: unknown[]) => console.log(`${String(((performance.now() - t0) / 1000).toFixed(1)).padStart(5)}s`, ...a);
 const t0 = performance.now();
 let audioChunks = 0, modelText = '', ready = false, turns = 0, qi = 0;
