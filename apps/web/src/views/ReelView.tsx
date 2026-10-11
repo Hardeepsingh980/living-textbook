@@ -45,7 +45,7 @@ export function ReelView({ onBack }: { onBack: () => void }) {
   return (
     <div className="reel paper enter-page">
       <div className="reel-inner">
-        <div className="wordmark"><span className="mark" />Living Book</div>
+        <div className="wordmark"><span className="mark" />Living Textbook</div>
         <h1>Make a reel</h1>
         <p className="lede">A page in, a short explainer film out, narrated by the tutor.</p>
         {!job && (

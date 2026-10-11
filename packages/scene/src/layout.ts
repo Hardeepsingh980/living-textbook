@@ -171,7 +171,22 @@ export function layoutScene(scene: Scene, ink: InkMap, issues: LayoutIssue[] = [
   for (let i = 0; i < labels.length; i++) for (let j = i + 1; j < labels.length; j++) if (intersects(labels[i]!.box, labels[j]!.box, labels[i]!.el.size * 0.6)) parent[find(i)] = find(j);
   const groups = new Map<number, number[]>();
   labels.forEach((_, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r)!.push(i); });
-  for (const members of groups.values()) items.push({ ids: members.map((i) => labels[i]!.el.id), els: members.map((i) => labels[i]!.el), box: members.map((i) => labels[i]!.box).reduce(union), kind: 'label' });
+  for (const members of groups.values()) {
+    if (members.length > 1) {
+      // stacked readouts never cover each other: a label that overlaps the one above it slides down below it
+      members.sort((a, b) => labels[a]!.box[1] - labels[b]!.box[1]);
+      for (let k = 1; k < members.length; k++) {
+        const prev = labels[members[k - 1]!]!, cur = labels[members[k]!]!;
+        const need = prev.box[3] + 6 - cur.box[1];
+        if (need > 0 && cur.box[0] < prev.box[2] && cur.box[2] > prev.box[0]) {
+          (cur.el as any).y = (resolve(cur.el.y) ?? 0) + Math.round(need);
+          cur.box = [cur.box[0], cur.box[1] + need, cur.box[2], cur.box[3] + need];
+          issues.push({ level: 'warn', where: `elements.${cur.el.id}`, message: `moved down ${Math.round(need)} so it does not cover ${prev.el.id}` });
+        }
+      }
+    }
+    items.push({ ids: members.map((i) => labels[i]!.el.id), els: members.map((i) => labels[i]!.el), box: members.map((i) => labels[i]!.box).reduce(union), kind: 'label' });
+  }
   items.sort((a, b) => (a.kind === b.kind ? area(b.box) - area(a.box) : a.kind === 'plot' ? -1 : b.kind === 'plot' ? 1 : a.kind === 'label' ? -1 : 1));
 
   const W = scene.page.w, H = scene.page.h, step = field.cell, margin = 6;

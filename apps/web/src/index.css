@@ -1,4 +1,4 @@
-/* Living Book, hand-drawn. Warm paper, pencil lines, a red correction marker and a blue ballpoint; wobbly borders, hard
+/* Living Textbook, hand-drawn. Warm paper, pencil lines, a red correction marker and a blue ballpoint; wobbly borders, hard
    offset shadows, handwritten type. Tokens live here (see UI_PROMPT.md); components only use them. */
 :root {
   color-scheme: light;
@@ -63,29 +63,11 @@ button:focus-visible, label:focus-visible, input:focus-visible { outline: 3px da
 .spark-button { color: var(--marker); }
 .spark-button.on { background: var(--postit); }
 
-/* landing: one page of a sketchbook */
-.landing { position: fixed; inset: 0; overflow: auto; display: grid; place-items: center; padding: var(--space-6) var(--space-5) calc(var(--space-6) + var(--safe-bottom)); }
-.landing-inner { display: grid; justify-items: center; gap: var(--space-5); max-width: 520px; width: 100%; text-align: center; }
 .wordmark { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-head); font-weight: 700; font-size: 22px; letter-spacing: 0.01em; transform: rotate(-2deg); }
 .wordmark .mark { width: 18px; height: 24px; border: 2.5px solid var(--pencil); border-radius: 3px 8px 8px 3px; background: var(--postit); box-shadow: 2px 2px 0 0 var(--pencil); }
-.landing h1 { font-size: clamp(38px, 10vw, 54px); line-height: 1.08; }
-.landing h1 .bang { display: inline-block; color: var(--marker); animation: bang 3s var(--ease-inout) infinite; transform-origin: 50% 90%; }
 @keyframes bang { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(10deg); } }
-.landing .lede { font-size: 22px; color: var(--pencil-soft); max-width: 24ch; }
-.sketch { width: min(78vw, 300px); height: auto; transform: rotate(-2deg); }
-.sketch .float { animation: bob 3s var(--ease-inout) infinite; transform-origin: center; }
 @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
-.landing .actions { display: grid; gap: var(--space-4); justify-items: center; }
-.actions-row-landing { display: flex; gap: var(--space-3); flex-wrap: wrap; justify-content: center; }
-.how { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; gap: var(--space-2); width: 100%; }
-.how-step { display: grid; justify-items: center; gap: 4px; width: 30%; max-width: 150px; }
-.how-art { width: 100%; height: auto; }
-.how-art .float { animation: bob 2.6s var(--ease-inout) infinite; transform-origin: center; }
-.how-word { font-family: var(--font-head); font-weight: 700; font-size: 18px; background: var(--white); border: 2px solid var(--pencil); border-radius: var(--wobbly-sm); padding: 2px 12px; box-shadow: var(--shadow-sm); }
-.how-arrow { width: 44px; flex: none; }
-.how-arrow svg { width: 100%; height: auto; }
 @media (max-width: 380px) { .how-arrow { display: none; } .how-step { width: 32%; } }
-.landing .arrow { width: 60px; height: 40px; color: var(--pencil); transform: rotate(8deg); }
 
 /* scan */
 .capture { position: fixed; inset: 0; display: grid; place-items: center; }

@@ -13,6 +13,7 @@ import { warmTracking } from './tracking.js';
 import { WebSocketServer } from 'ws';
 import { handleLiveSocket } from './live.js';
 import { startReel, getReel, waitReel } from './reels.js';
+import { showcase, askShowcase } from './showcase.js';
 import type { PipelineEvent } from '@living-book/scene';
 
 const app = new Hono();
@@ -49,6 +50,15 @@ app.get('/api/experiences/:id', async (c) => {
   if (!rec) return c.json({ error: 'not found' }, 404);
   const { events, ...rest } = rec;
   return c.json(c.req.query('events') ? rec : rest, 200, { 'Cache-Control': 'private, max-age=60' });
+});
+
+/** The homepage's living samples, and a text preview of the tutor about one of them. */
+app.get('/api/showcase', (c) => c.json(showcase()));
+app.post('/api/showcase/ask', async (c) => {
+  const body = await c.req.json().catch(() => ({} as any));
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'local';
+  const r = await askShowcase({ id: String(body?.id ?? ''), question: String(body?.question ?? ''), ip }).catch((e) => ({ error: String(e?.message || e).slice(0, 120), status: 400 as const }));
+  return 'error' in r ? c.json({ error: r.error }, r.status) : c.json(r);
 });
 
 /** Explainer reels: a page in, a short film of its lesson out (the job runs on this instance, one at a time). */

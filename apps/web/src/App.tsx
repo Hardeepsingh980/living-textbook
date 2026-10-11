@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ScanExperience, type CaptureResult, fileToCapture } from './views/ScanExperience';
-import { LandingView } from './views/LandingView';
+import { HomeView } from './views/HomeView';
 import { ReelView } from './views/ReelView';
 import { ExperienceView } from './views/ExperienceView';
 import { LibraryView } from './views/LibraryView';
@@ -57,5 +57,5 @@ export function App() {
   if (route.name === 'library') return <LibraryView onOpen={(id) => go({ name: 'experience', id }, `/x/${id}`)} onBack={() => go({ name: 'landing' }, '/')} />;
   if (route.name === 'capture') return <ScanExperience autoStart onCapture={onCapture} onBack={() => go({ name: 'landing' }, '/')} />;
   if (route.name === 'reel') return <ReelView onBack={() => go({ name: 'landing' }, '/')} />;
-  return <LandingView onScan={() => go({ name: 'capture' }, `/scan${location.search}`)} onPhoto={(f) => { void fileToCapture(f).then((r) => { if (r) onCapture(r); }); }} onLibrary={() => go({ name: 'library' }, '/library')} onReel={() => go({ name: 'reel' }, '/reel')} />;
+  return <HomeView onScan={() => go({ name: 'capture' }, `/scan${location.search}`)} onPhoto={(f) => { void fileToCapture(f).then((r) => { if (r) onCapture(r); }); }} onLibrary={() => go({ name: 'library' }, '/library')} onReel={() => go({ name: 'reel' }, '/reel')} onOpen={(id) => go({ name: 'experience', id }, `/x/${id}`)} />;
 }

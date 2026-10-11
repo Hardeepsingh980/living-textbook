@@ -47,7 +47,8 @@ describe('layout', () => {
     layoutScene(sc, ink, []);
     const a = sc.elements[0]!, b = sc.elements[1]!;
     expect(a.anchor).toBe('fig1');
-    expect(Number(b.y) - Number(a.y)).toBe(35);
+    expect(Number(b.y) - Number(a.y)).toBeGreaterThanOrEqual(35); // the lower one slides down so the notes do not overlap
+    expect(Number(b.y) - Number(a.y)).toBeLessThan(90);
     expect(Number(a.x)).toBe(Number(b.x));
   });
   it('drops a plot that has no clean space', () => {
@@ -91,5 +92,21 @@ describe('layout: a stack with no shared home', () => {
     expect(r.worstAfter).toBeLessThan(0.02);
     const v = sc.elements.find((e) => e.id === 'v')!, i = sc.elements.find((e) => e.id === 'i')!;
     expect(Math.abs(Number(v.y) - Number(i.y))).toBeGreaterThan(100); // one pocket each
+  });
+});
+
+describe('layout: stacked readouts that overlap', () => {
+  const { grey, w, h } = syntheticPage();
+  const ink = inkMapFromGrey(grey, w, h);
+  it('slides the lower one down so both can be read', () => {
+    const sc = scene([
+      { id: 'd', type: 'label', text: 'Distance: {d:0.1} km', x: 500, y: 1150, size: 28, bg: '#ffd166' },
+      { id: 't', type: 'label', text: 'Time: {t:0.1} h', x: 500, y: 1170, size: 28, bg: '#ffd166' },
+    ]);
+    const issues: any[] = [];
+    layoutScene(sc, ink, issues);
+    const d = sc.elements.find((e) => e.id === 'd')!, t = sc.elements.find((e) => e.id === 't')!;
+    expect(Number(t.y) - Number(d.y)).toBeGreaterThan(50);
+    expect(issues.some((x) => /moved down/.test(x.message))).toBe(true);
   });
 });
