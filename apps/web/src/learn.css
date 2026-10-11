@@ -67,6 +67,7 @@
 .suggestion:nth-child(2) { transform: rotate(1deg); } .suggestion:nth-child(3) { transform: rotate(-0.8deg); }
 .suggestion h3 { font-size: 22px; }
 .suggestion .tack { top: -12px; }
+.suggestion .secondary { justify-self: start; margin-top: var(--space-2); }
 .subject-rows { display: grid; gap: var(--space-3); }
 .subject-row { display: grid; grid-template-columns: 120px 1fr auto; gap: var(--space-3); align-items: center; font-size: 18px; }
 .subject-row .name { font-family: var(--font-head); font-weight: 700; text-transform: capitalize; }
