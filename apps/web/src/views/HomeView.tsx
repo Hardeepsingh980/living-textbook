@@ -94,7 +94,7 @@ export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen, onProgres
             </article>
           ))}
         </div>
-        <p className="fineprint muted">The app, as recorded, on photographs made for these pages.</p>
+        <p className="fineprint muted">The screen shows the app's own recording; the hands and the room were made with Gemini and Veo.</p>
       </section>
 
       {/* the same page: print on the right, the real engine on the left */}
