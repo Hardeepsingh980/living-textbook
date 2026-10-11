@@ -1,63 +1,107 @@
-// Voice Q&A client: microphone → 16 kHz PCM over WebSocket → server proxy → Gemini Live; 24 kHz PCM back, played
-// gap-free through Web Audio; transcripts surface as captions.
+// The live tutor client: one session per lesson. Microphone → 16 kHz PCM over WebSocket → server proxy → Gemini
+// Live; 24 kHz PCM back, played gap-free through Web Audio; transcripts surface as captions. Tool calls arrive from
+// the server, run on the live scene through the executor the view provides, and the confirmed result goes back.
+// The microphone can be switched off while the session stays alive, so a later question costs no new session.
 import { mixer } from './mixer';
 
-export type LiveEvents = {
-  onStatus?: (s: 'connecting' | 'listening' | 'thinking' | 'speaking' | 'closed' | 'error', detail?: string) => void;
+export type TutorState = 'off' | 'connecting' | 'ready' | 'listening' | 'thinking' | 'acting' | 'speaking' | 'interrupted' | 'reconnecting' | 'unavailable';
+export type TutorEvents = {
+  onState?: (s: TutorState, detail?: string) => void;
   onTranscript?: (role: 'user' | 'model', text: string, final: boolean) => void;
+  onTool?: (name: string, args: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown>>;
 };
 
-export class LiveVoice {
+const RECONNECT_DELAYS = [800, 1600, 3200];
+
+export class LiveTutor {
   private ws: WebSocket | null = null;
   private mediaStream: MediaStream | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private processor: ScriptProcessorNode | null = null;
+  private scheduled: AudioBufferSourceNode[] = [];
   private playhead = 0;
   private modelText = '';
   private userText = '';
-  private speaking = false;
-  active = false;
+  private state: TutorState = 'off';
+  private micOn = false;
+  private sessionReady = false;
+  private attempts = 0;
+  private stopped = false;
+  private lastUserSpeechAt = 0;
 
-  constructor(private experienceId: string, private getState: () => Record<string, number>, private ev: LiveEvents = {}) {}
+  constructor(private experienceId: string, private getState: () => Record<string, number>, private ev: TutorEvents = {}) {}
 
-  async start() {
+  get current() { return this.state; }
+  get listening() { return this.micOn; }
+  get active() { return this.state !== 'off' && this.state !== 'unavailable'; }
+
+  private setState(s: TutorState, detail?: string) { if (this.state === s) return; this.state = s; this.ev.onState?.(s, detail); }
+
+  /** Open the session (no microphone yet). Resolves once the tutor can take a question. */
+  async connect() {
+    this.stopped = false;
     mixer.unlock();
-    const ctx = mixer.ctx!;
-    this.ev.onStatus?.('connecting');
+    this.setState(this.attempts ? 'reconnecting' : 'connecting');
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/api/live`);
     this.ws = ws;
     await new Promise<void>((res, rej) => { ws.onopen = () => res(); ws.onerror = () => rej(new Error('voice connection failed')); });
     ws.send(JSON.stringify({ type: 'start', experienceId: this.experienceId, state: this.getState() }));
-    ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
-    ws.onclose = () => { this.ev.onStatus?.('closed'); this.stop(); };
-    // microphone at the context rate, downsampled to 16 kHz PCM16
-    this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
-    this.source = ctx.createMediaStreamSource(this.mediaStream);
-    const proc = ctx.createScriptProcessor(4096, 1, 1);
-    this.processor = proc;
-    const ratio = ctx.sampleRate / 16000;
-    proc.onaudioprocess = (ev) => {
-      if (!this.active || ws.readyState !== ws.OPEN) return;
-      const input = ev.inputBuffer.getChannelData(0);
-      const n = Math.floor(input.length / ratio);
-      const out = new Int16Array(n);
-      for (let i = 0; i < n; i++) { let acc = 0, c = 0; const s0 = Math.floor(i * ratio), s1 = Math.floor((i + 1) * ratio); for (let j = s0; j < s1 && j < input.length; j++) { acc += input[j]!; c++; } const v = c ? acc / c : 0; out[i] = Math.max(-1, Math.min(1, v)) * 32767; }
-      ws.send(JSON.stringify({ type: 'audio', data: b64(out.buffer) }));
-    };
-    this.source.connect(proc); proc.connect(ctx.destination); // destination needed for the processor to run; it outputs silence
-    this.active = true;
+    ws.onmessage = (e) => { try { this.onMessage(JSON.parse(e.data)); } catch (err) { console.warn('[tutor] message', err); } };
+    ws.onclose = () => this.onSocketClosed();
+    await new Promise<void>((res, rej) => { const t = setTimeout(() => rej(new Error('tutor did not answer')), 12000); const check = () => { if (this.sessionReady) { clearTimeout(t); res(); } else if (this.state === 'unavailable') { clearTimeout(t); rej(new Error('unavailable')); } else setTimeout(check, 50); }; check(); });
+    this.attempts = 0;
+  }
+
+  /** Start listening (asks for the microphone the first time). */
+  async listen() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) await this.connect();
+    const ctx = mixer.ctx!;
+    if (!this.mediaStream) {
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      this.source = ctx.createMediaStreamSource(this.mediaStream);
+      const proc = ctx.createScriptProcessor(4096, 1, 1);
+      this.processor = proc;
+      const ratio = ctx.sampleRate / 16000;
+      proc.onaudioprocess = (ev) => {
+        const ws = this.ws;
+        if (!this.micOn || !ws || ws.readyState !== ws.OPEN) return;
+        const input = ev.inputBuffer.getChannelData(0);
+        const n = Math.floor(input.length / ratio);
+        const out = new Int16Array(n);
+        let energy = 0;
+        for (let i = 0; i < n; i++) { let acc = 0, c = 0; const s0 = Math.floor(i * ratio), s1 = Math.floor((i + 1) * ratio); for (let j = s0; j < s1 && j < input.length; j++) { acc += input[j]!; c++; } const v = c ? acc / c : 0; energy += v * v; out[i] = Math.max(-1, Math.min(1, v)) * 32767; }
+        if (n && energy / n > 0.0004) this.lastUserSpeechAt = performance.now();
+        ws.send(JSON.stringify({ type: 'audio', data: b64(out.buffer) }));
+      };
+      this.source.connect(proc); proc.connect(ctx.destination); // the processor needs a destination to run; it outputs silence
+    }
+    this.micOn = true;
     mixer.stopSpeech();
-    this.ev.onStatus?.('listening');
+    if (this.state === 'ready' || this.state === 'interrupted') this.setState('listening');
+  }
+
+  /** Stop listening but keep the session for the next question. */
+  mute() {
+    this.micOn = false;
+    if (this.state === 'listening') this.setState('ready');
   }
 
   sendState() { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'state', state: this.getState() })); }
   sendText(text: string) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'text', text })); }
 
-  private onMessage(m: any) {
+  /** Stop the model's voice right now (the reader interrupted, or the lesson moved on). */
+  private cutPlayback() {
+    for (const s of this.scheduled) { try { s.stop(); } catch { /* already done */ } }
+    this.scheduled = [];
+    this.playhead = 0;
+  }
+
+  private async onMessage(m: any) {
     const ctx = mixer.ctx!;
     switch (m.type) {
-      case 'ready': this.ev.onStatus?.('listening'); break;
+      case 'ready': this.sessionReady = true; this.setState(this.micOn ? 'listening' : 'ready'); break;
+      case 'reconnecting': this.sessionReady = false; this.cutPlayback(); this.setState('reconnecting'); break;
       case 'audio': {
         const bytes = Uint8Array.from(atob(m.data), (c) => c.charCodeAt(0));
         const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
@@ -68,27 +112,61 @@ export class LiveVoice {
         const now = ctx.currentTime;
         if (this.playhead < now + 0.05) this.playhead = now + 0.05;
         src.start(this.playhead); this.playhead += buf.duration;
-        if (!this.speaking) { this.speaking = true; this.ev.onStatus?.('speaking'); }
+        src.onended = () => { this.scheduled = this.scheduled.filter((x) => x !== src); };
+        this.scheduled.push(src);
+        if (this.state !== 'speaking') this.setState('speaking');
         break;
       }
       case 'transcript':
-        if (m.role === 'user') { this.userText += m.text; this.ev.onTranscript?.('user', this.userText, !!m.final); if (m.final) this.userText = ''; }
-        else { this.modelText += m.text; this.ev.onTranscript?.('model', this.modelText, !!m.final); }
+        if (m.role === 'user') {
+          this.userText += m.text; this.ev.onTranscript?.('user', this.userText, !!m.final);
+          if (m.final) { this.userText = ''; if (this.state === 'listening' || this.state === 'interrupted') this.setState('thinking'); }
+          else if (this.state === 'listening') this.setState('thinking');
+        } else { this.modelText += m.text; this.ev.onTranscript?.('model', this.modelText, !!m.final); }
         break;
-      case 'turnComplete': this.speaking = false; this.ev.onTranscript?.('model', this.modelText, true); this.modelText = ''; this.ev.onStatus?.('listening'); break;
-      case 'interrupted': this.playhead = 0; this.speaking = false; this.modelText = ''; break;
-      case 'error': this.ev.onStatus?.('error', m.message); break;
-      case 'closed': this.ev.onStatus?.('closed'); break;
+      case 'tool': {
+        this.setState('acting');
+        let result: Record<string, unknown> = { ok: false, reason: 'no scene is running' };
+        try { result = (await this.ev.onTool?.(String(m.name), m.args ?? {})) ?? result; } catch (e: any) { result = { ok: false, reason: String(e?.message || e) }; }
+        if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'tool-result', id: m.id, result }));
+        if (this.state === 'acting') this.setState('thinking');
+        break;
+      }
+      case 'turnComplete':
+        this.ev.onTranscript?.('model', this.modelText, true); this.modelText = '';
+        // the audio tail is still scheduled: switch back once it has played
+        { const waitMs = Math.max(0, (this.playhead - ctx.currentTime) * 1000); setTimeout(() => { if (this.state === 'speaking' || this.state === 'thinking') this.setState(this.micOn ? 'listening' : 'ready'); }, waitMs + 80); }
+        break;
+      case 'interrupted': this.cutPlayback(); this.modelText = ''; this.setState('interrupted'); setTimeout(() => { if (this.state === 'interrupted') this.setState(this.micOn ? 'listening' : 'ready'); }, 600); break;
+      case 'error': console.warn('[tutor]', m.message); if (!this.sessionReady) this.setState('unavailable', m.message); break;
+      case 'closed': this.sessionReady = false; if (!this.stopped) this.setState('unavailable', m.reason); break;
     }
   }
 
+  private onSocketClosed() {
+    this.sessionReady = false;
+    this.ws = null;
+    if (this.stopped) { this.setState('off'); return; }
+    // the connection dropped: try to come back a few times, keeping the microphone as it was
+    const delay = RECONNECT_DELAYS[this.attempts];
+    if (delay === undefined) { this.setState('unavailable', 'connection lost'); return; }
+    this.attempts++;
+    this.setState('reconnecting');
+    setTimeout(() => { if (!this.stopped) this.connect().catch(() => this.setState('unavailable', 'connection lost')); }, delay);
+  }
+
+  /** End the session and release the microphone. */
   stop() {
-    this.active = false;
+    this.stopped = true;
+    this.micOn = false;
+    this.cutPlayback();
     try { this.processor?.disconnect(); this.source?.disconnect(); } catch { /* ok */ }
     this.mediaStream?.getTracks().forEach((t) => t.stop());
     this.mediaStream = null; this.processor = null; this.source = null;
     if (this.ws && this.ws.readyState === WebSocket.OPEN) { try { this.ws.send(JSON.stringify({ type: 'end' })); } catch { /* ok */ } this.ws.close(); }
     this.ws = null;
+    this.sessionReady = false;
+    this.setState('off');
   }
 }
 

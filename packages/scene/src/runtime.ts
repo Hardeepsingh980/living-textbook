@@ -153,6 +153,9 @@ export class SceneRuntime {
   }
 
   isHighlighted(id: string) { return this.highlighted.has(id); }
+  highlightedIds(): string[] { return [...this.highlighted]; }
+  /** Replace the current highlights (the tutor drawing attention to something); a step change resets them. */
+  setHighlights(ids: string[]) { this.highlighted = new Set(ids); }
   highlightedAnchors(): string[] { return [...this.highlighted].filter((id) => id in this.scene.anchors); }
 
   show(id: string) { if (this.hidden.delete(id)) this.shownAt.set(id, this.clock); }

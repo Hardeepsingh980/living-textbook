@@ -456,6 +456,20 @@ export class SceneRenderer {
       g.clear().roundRect(x0 - 10, y0 - 10, x1 - x0 + 20, y1 - y0 + 20, 16).stroke({ color: 0x7fd3ff, width: 5, alpha: pulse }).fill({ color: 0x7fd3ff, alpha: 0.08 });
       g.visible = true;
     }
+    // elements the tutor or a step points at: a ring around what is drawn
+    for (const id of this.runtime.highlightedIds()) {
+      if (id in this.scene.anchors) continue;
+      const node = this.nodes.get(id); if (!node || !node.visible) continue;
+      want.add(id);
+      let g = this.highlights.get(id);
+      if (!g) { g = new Graphics(); this.layers.under.addChild(g); this.highlights.set(id, g); }
+      const b = node.getLocalBounds(); const pad = 12;
+      const x0 = node.position.x + b.x * node.scale.x, y0 = node.position.y + b.y * node.scale.y, w = b.width * node.scale.x, h = b.height * node.scale.y;
+      if (!(w > 0 && h > 0)) continue;
+      const pulse = 0.55 + 0.25 * Math.sin(now * 4);
+      g.clear().roundRect(x0 - pad, y0 - pad, w + pad * 2, h + pad * 2, 14).stroke({ color: 0x4c8dff, width: 5, alpha: pulse }).fill({ color: 0x4c8dff, alpha: 0.08 });
+      g.visible = true;
+    }
     for (const [id, g] of this.highlights) if (!want.has(id)) g.visible = false;
   }
 
