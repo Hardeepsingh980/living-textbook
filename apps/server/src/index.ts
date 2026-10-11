@@ -53,7 +53,7 @@ app.get('/api/experiences/:id', async (c) => {
 });
 
 /** The homepage's living samples, and a text preview of the tutor about one of them. */
-app.get('/api/showcase', (c) => c.json(showcase()));
+app.get('/api/showcase', async (c) => c.json(await showcase()));
 app.post('/api/showcase/ask', async (c) => {
   const body = await c.req.json().catch(() => ({} as any));
   const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'local';

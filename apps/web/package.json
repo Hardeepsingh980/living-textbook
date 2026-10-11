@@ -15,12 +15,14 @@
     "@tensorflow/tfjs": "4.22.0",
     "mind-ar": "1.2.5",
     "pixi.js": "8.22.0",
+    "qrcode": "1.5.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-router-dom": "^7.9.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@types/qrcode": "1.5.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.0",

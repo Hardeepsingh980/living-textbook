@@ -1,31 +1,52 @@
-// The homepage: the cover of a sketchbook. Mostly pictures. A page that is actually alive (the real engine running a
-// saved lesson), a wipe between print and the living version, three ways in, a small live preview of the tutor, one
-// ask. Nothing here touches the lesson flow; the samples are saved experiences the server curates.
+// The homepage: the cover of a sketchbook, mostly pictures. A phone held over a real book with the app alive on its
+// screen (the AR part, first and loudest), clips of it in the room, the same page print-versus-alive with the real
+// engine, three ways in, what happens in ten seconds, any page, a page in and a film out, ask the page, and one ask.
+// Nothing here touches the lesson flow; the samples are saved experiences the server curates.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Icon } from '../components/Icon';
 import { GeminiSpark } from '../components/GeminiSpark';
 import { ScenePreview } from '../components/ScenePreview';
+import { QrModal } from '../components/QrModal';
 import '../home.css';
 
 type Sample = { id: string; title: string; slider?: string };
-type Showcase = { hero: Sample; explore: Sample; ask: Sample };
+type GalleryItem = { id: string; title: string; subject: string; pageImageUrl: string; verification?: string; moving: number };
+type Showcase = { hero: Sample; explore: Sample; ask: Sample; gallery?: GalleryItem[] };
 const FALLBACK: Showcase = {
   hero: { id: '9aee2e9b-606b-4086-bb15-1f872b687149', title: 'Motion and Time', slider: 'L' },
   explore: { id: '26361c93-7794-401c-99a7-9c4c6c9d30c9', title: 'Resistors in Series', slider: 'V' },
   ask: { id: '9aee2e9b-606b-4086-bb15-1f872b687149', title: 'Motion and Time' },
 };
 const QUESTIONS = ['What is one oscillation?', 'How is the time period measured?', 'Where is the mean position?'];
+const ROOM = [
+  { src: '/home/ar-desk.mp4', poster: '/home/ar-desk.jpg', tag: 'Locked to the page', label: 'A phone held over a physics textbook; the pendulum on its screen swings on the printed page' },
+  { src: '/home/ar-kitchen.mp4', poster: '/home/ar-kitchen.jpg', tag: 'Live values', label: 'A phone over a circuit diagram; dots flow along the printed wires and a note shows the current' },
+  { src: '/home/ar-class.mp4', poster: '/home/ar-class.jpg', tag: 'Any table', label: 'Two students with a tablet over a graph; a marker travels along the printed line' },
+];
+const STEPS: { icon: string; word: string }[] = [
+  { icon: 'camera', word: 'Point' }, { icon: 'library', word: 'It reads the page' }, { icon: 'layers', word: 'Draws on it' }, { icon: 'sound', word: 'Speaks' }, { icon: 'check', word: 'Checks itself' },
+];
 const REDUCED = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+const PHONE = COARSE || (typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent));
 
 type Props = { onScan: () => void; onPhoto: (file: File) => void; onLibrary: () => void; onReel: () => void; onOpen: (id: string) => void };
 
 export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen }: Props) {
   const [show, setShow] = useState<Showcase>(FALLBACK);
+  const [qr, setQr] = useState(false);
   const rootRef = useRef<HTMLElement>(null);
-  useEffect(() => { fetch('/api/showcase').then((r) => (r.ok ? r.json() : null)).then((j) => { if (j?.hero?.id) setShow(j); }).catch(() => { /* the fallback samples stay */ }); }, []);
+  useEffect(() => {
+    // ?sample=<id>&slider=<var> previews another saved page in the wipe (used to record the showcase clips)
+    const q = new URLSearchParams(location.search); const sample = q.get('sample');
+    const override = (sc: Showcase): Showcase => (sample ? { ...sc, hero: { id: sample, title: sc.hero.title, slider: q.get('slider') || undefined } } : sc);
+    setShow((sc) => override(sc));
+    fetch('/api/showcase').then((r) => (r.ok ? r.json() : null)).then((j) => { if (j?.hero?.id) setShow(override(j)); }).catch(() => { /* the fallback samples stay */ });
+  }, []);
   useReveal(rootRef);
+  const tryNow = () => { if (PHONE) onScan(); else setQr(true); };
   const photo = <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) onPhoto(f); e.target.value = ''; }} />;
+  const gallery = show.gallery?.length ? show.gallery : [];
 
   return (
     <main ref={rootRef} className="home paper">
@@ -34,41 +55,57 @@ export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen }: Props) 
         <nav className="home-nav">
           <button className="link" onClick={onLibrary}>Saved pages</button>
           <button className="link nav-reel" onClick={onReel}>Make a reel</button>
+          <button className="primary try-small" onClick={tryNow}>Try now</button>
         </nav>
       </header>
 
+      {/* the AR part first: a phone over the real book, the app alive on its screen */}
       <section className="hero">
         <Doodles />
         <div className="hero-words reveal">
+          <span className="postit ar-tag"><span className="live-dot" aria-hidden="true" />AR, on the real page</span>
           <h1>Your textbook,<br /><span className="alive-word">alive<MarkerUnderline /></span><span className="bang">!</span></h1>
-          <p className="lede">Point your phone at a page. It moves, it speaks, it answers.</p>
+          <p className="lede">Point your phone at a page. The diagram moves on the page itself, a tutor speaks, and it answers you.</p>
         </div>
-        <div className="hero-card-wrap reveal">
-          <TiltCard className="hero-card">
-            <span className="tape" aria-hidden="true" />
-            <ScenePreview id={show.hero.id} slider={show.hero.slider} className="hero-scene" />
-            <span className="postit hero-postit"><span className="live-dot" aria-hidden="true" />{show.hero.title}</span>
-          </TiltCard>
+        <div className="hero-stage-wrap reveal">
+          <Stage />
         </div>
         <div className="hero-actions reveal">
-          <button className="primary big" onClick={onScan}><Icon name="camera" size={26} /> Open camera</button>
+          <button className="primary big" onClick={tryNow}><Icon name="camera" size={26} /> Try now</button>
           <label className="secondary"><Icon name="upload" size={20} /> Use a photo{photo}</label>
           <HeroArrow />
         </div>
       </section>
 
-      <section className="wipe-section">
-        <h2 className="reveal">Same page<span className="marker-dot">.</span></h2>
-        <div className="reveal"><Wipe /></div>
+      {/* in the room */}
+      <section className="room">
+        <h2 className="reveal">In the room<span className="marker-dot">.</span></h2>
+        <div className="room-row">
+          {ROOM.map((c, i) => (
+            <article key={c.src} className="room-card reveal" style={{ '--rot': `${i === 1 ? 1.2 : i === 0 ? -1.6 : -0.6}deg` } as CSSProperties}>
+              <LoopClip src={c.src} poster={c.poster} label={c.label} className="room-clip" delay={i * 400} />
+              <span className="postit room-tag">{c.tag}</span>
+            </article>
+          ))}
+        </div>
+        <p className="fineprint muted">Concept clips made with Veo. The phone above shows the real app.</p>
       </section>
 
+      {/* the same page: print on the right, the real engine on the left */}
+      <section className="wipe-section">
+        <h2 className="reveal">Same page<span className="marker-dot">.</span></h2>
+        <p className="section-line muted reveal">Drag the line. Drag the length.</p>
+        <div className="reveal"><WipeLive id={show.hero.id} slider={show.hero.slider} /></div>
+      </section>
+
+      {/* three ways in */}
       <section className="ways">
         <div className="ways-grid">
           <Way tag="Learn" rot="-1.5deg" decoration="tape" line="The tutor teaches the page, step by step.">
             <LoopClip src="/home/learn.mp4" poster="/home/learn.jpg" label="The tutor teaching a page about refraction" />
           </Way>
           <Way tag="Explore" rot="1.2deg" decoration="tack" line="Change a value. Watch the page respond.">
-            <ScenePreview id={show.explore.id} slider={show.explore.slider} stepEveryMs={9000} />
+            <LoopClip src="/home/explore.mp4" poster="/home/explore.jpg" label="A voltage slider changing the live values on a circuit page" />
           </Way>
           <Way tag="Story" rot="-0.8deg" decoration="tape" line="Storybook characters speak their printed lines.">
             <StorySketch />
@@ -76,14 +113,58 @@ export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen }: Props) 
         </div>
       </section>
 
+      {/* what happens */}
+      <section className="how">
+        <h2 className="reveal">Ten seconds<span className="marker-dot">.</span></h2>
+        <ol className="pipeline reveal">
+          {STEPS.map((s, i) => (
+            <li key={s.word} className="step" style={{ '--i': i } as CSSProperties}>
+              <span className="step-icon"><Icon name={s.icon} size={30} /></span>
+              <span className="step-word">{s.word}</span>
+            </li>
+          ))}
+          <svg className="pipeline-line" viewBox="0 0 1000 40" preserveAspectRatio="none" aria-hidden="true"><path d="M20 24 C 200 4, 300 40, 500 20 S 800 4, 980 22" /></svg>
+        </ol>
+      </section>
+
+      {/* any page */}
+      {gallery.length > 0 && (
+        <section className="gallery">
+          <h2 className="reveal">Any page<span className="marker-dot">.</span></h2>
+          <div className="marquee reveal" aria-label="Pages brought to life">
+            <div className="marquee-track">
+              {[...gallery, ...gallery].map((g, i) => (
+                <button key={`${g.id}-${i}`} className="page-card" style={{ '--rot': `${((i % 3) - 1) * 1.4}deg` } as CSSProperties} onClick={() => onOpen(g.id)} aria-label={`Open ${g.title}`}>
+                  <img src={g.pageImageUrl} alt="" loading="lazy" draggable={false} />
+                  <span className="page-title">{g.title}</span>
+                  {g.verification && <span className="page-check" title="verified against the page"><Icon name="check" size={16} /></span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* a page in, a film out */}
+      <section className="film">
+        <h2 className="reveal">A page in, a film out<span className="marker-dot">.</span></h2>
+        <div className="film-card reveal">
+          <span className="tape" aria-hidden="true" />
+          <SoundClip src="/home/reel.mp4" poster="/home/reel.jpg" label="A thirty-second explainer reel of the pendulum page, narrated by the tutor" />
+          <span className="postit film-tag">30 s, narrated</span>
+        </div>
+        <button className="secondary reveal" onClick={onReel}><Icon name="film" size={20} /> Make one from your page</button>
+      </section>
+
       <section className="ask">
         <AskCard sample={show.ask} onOpen={onOpen} />
       </section>
 
       <section className="final">
+        <div className="final-desk" aria-hidden="true" />
         <h2 className="reveal">Point it at a page<span className="marker-dot">.</span></h2>
         <div className="final-actions reveal">
-          <button className="primary big" onClick={onScan}><Icon name="camera" size={26} /> Open camera</button>
+          <button className="primary big" onClick={tryNow}><Icon name="camera" size={26} /> Try now</button>
           <label className="secondary"><Icon name="upload" size={20} /> Use a photo{photo}</label>
           <button className="secondary" onClick={onReel}><Icon name="film" size={20} /> Make a reel</button>
         </div>
@@ -92,6 +173,8 @@ export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen }: Props) 
           <button className="link" onClick={onLibrary}>Saved pages</button>
         </footer>
       </section>
+
+      <QrModal open={qr} url={`${location.origin}/scan`} onClose={() => setQr(false)} onContinue={() => { setQr(false); onScan(); }} />
     </main>
   );
 }
@@ -100,53 +183,72 @@ export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen }: Props) 
 function useReveal(root: React.RefObject<HTMLElement | null>) {
   useEffect(() => {
     const el = root.current; if (!el) return;
-    const items = Array.from(el.querySelectorAll<HTMLElement>('.reveal'));
-    if (REDUCED || typeof IntersectionObserver === 'undefined') { items.forEach((i) => i.classList.add('in')); return; }
-    const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { root: el, threshold: 0.15 });
-    items.forEach((i) => io.observe(i));
-    return () => io.disconnect();
+    const all = () => Array.from(el.querySelectorAll<HTMLElement>('.reveal:not(.in)'));
+    if (REDUCED || typeof IntersectionObserver === 'undefined') { all().forEach((i) => i.classList.add('in')); const mo = new MutationObserver(() => all().forEach((i) => i.classList.add('in'))); mo.observe(el, { childList: true, subtree: true }); return () => mo.disconnect(); }
+    const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { root: el, threshold: 0.12 });
+    all().forEach((i) => io.observe(i));
+    // sections that arrive later (the gallery, once the server answers) are picked up too
+    const mo = new MutationObserver(() => all().forEach((i) => io.observe(i)));
+    mo.observe(el, { childList: true, subtree: true });
+    return () => { io.disconnect(); mo.disconnect(); };
   }, [root]);
 }
 
-/** A card that leans towards the pointer, like a sheet held up to the light. Touch devices keep it flat. */
-function TiltCard({ className = '', children }: { className?: string; children: ReactNode }) {
+/** The hero: a photograph of the open book, a drawn phone floating above it with the app on its screen; the phone
+ *  and the book drift apart a little under the pointer, the way a camera view separates from the table. */
+function Stage() {
   const ref = useRef<HTMLDivElement>(null);
-  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+  const move = (e: React.PointerEvent<HTMLDivElement>) => {
     if (REDUCED || COARSE) return;
     const el = ref.current; if (!el) return;
     const r = el.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width - 0.5, py = (e.clientY - r.top) / r.height - 0.5;
-    el.style.setProperty('--ry', `${(px * 12).toFixed(2)}deg`); el.style.setProperty('--rx', `${(-py * 9).toFixed(2)}deg`);
+    el.style.setProperty('--px', ((e.clientX - r.left) / r.width - 0.5).toFixed(3));
+    el.style.setProperty('--py', ((e.clientY - r.top) / r.height - 0.5).toFixed(3));
   };
-  const onLeave = () => { const el = ref.current; if (el) { el.style.setProperty('--ry', '0deg'); el.style.setProperty('--rx', '0deg'); } };
-  return <div ref={ref} className={`tilt ${className}`} onPointerMove={onMove} onPointerLeave={onLeave}>{children}</div>;
+  const leave = () => { const el = ref.current; if (el) { el.style.setProperty('--px', '0'); el.style.setProperty('--py', '0'); } };
+  return (
+    <div ref={ref} className="hero-stage" onPointerMove={move} onPointerLeave={leave}>
+      <div className="desk" />
+      <div className="phone-float">
+        <div className="phone">
+          <span className="phone-notch" aria-hidden="true" />
+          <LoopClip src="/home/hero.mp4" poster="/home/hero.jpg" label="The series-circuit page alive on a phone screen: live values, a glowing lamp and the tutor's caption" className="phone-screen" eager />
+        </div>
+      </div>
+      <span className="postit ar-badge" aria-hidden="true"><span className="live-dot" />AR</span>
+      <span className="postit hero-postit">Series combination of resistors</span>
+    </div>
+  );
 }
 
-/** Print on the left, the living version on the right; the divider sweeps once, then follows the finger. */
-function Wipe() {
+/** Print on the right, the real engine on the left; the divider sweeps once, then follows the finger. */
+function WipeLive({ id, slider }: { id: string; slider?: string }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState(4);
-  const swept = useRef(false);
+  const fixed = typeof location !== 'undefined' ? Number(new URLSearchParams(location.search).get('wipe')) : 0; // ?wipe=<percent> holds the divider (recording aid)
+  const [pos, setPos] = useState(fixed || 4);
+  const [pageUrl, setPageUrl] = useState('');
+  const swept = useRef(!!fixed);
   useEffect(() => {
     const el = ref.current; if (!el) return;
-    if (REDUCED || typeof IntersectionObserver === 'undefined') { setPos(66); return; }
+    if (fixed) return;
+    if (REDUCED || typeof IntersectionObserver === 'undefined') { setPos(62); return; }
     const io = new IntersectionObserver((es) => {
       if (!es.some((e) => e.isIntersecting) || swept.current) return;
       swept.current = true; io.disconnect();
-      const t0 = performance.now(), from = 4, to = 66, ms = 1700;
+      const t0 = performance.now(), from = 4, to = 62, ms = 1700;
       const tick = (now: number) => { const k = Math.min(1, (now - t0) / ms); const e = 1 - Math.pow(1 - k, 3); setPos(from + (to - from) * e); if (k < 1) requestAnimationFrame(tick); };
       requestAnimationFrame(tick);
-    }, { threshold: 0.55 });
+    }, { threshold: 0.5 });
     io.observe(el);
     return () => io.disconnect();
   }, []);
   const at = (clientX: number) => { const r = ref.current?.getBoundingClientRect(); if (!r) return; swept.current = true; setPos(Math.max(2, Math.min(98, ((clientX - r.left) / r.width) * 100))); };
   return (
-    <div ref={ref} className="wipe" style={{ '--pos': `${pos}%` } as CSSProperties}
-      onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); at(e.clientX); }}
-      onPointerMove={(e) => { if (e.buttons) at(e.clientX); }}>
-      <img src="/home/before.jpg" alt="A printed textbook page about Ohm's law" draggable={false} />
-      <img className="wipe-after" src="/home/after.jpg" alt="The same page with a moving marker on its graph and live values" draggable={false} style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }} />
+    <div ref={ref} className="wipe live" style={{ '--pos': `${pos}%` } as CSSProperties}
+      onPointerDown={(e) => { if ((e.target as HTMLElement).closest('.scene-preview-slider')) return; e.currentTarget.setPointerCapture(e.pointerId); at(e.clientX); }}
+      onPointerMove={(e) => { if (e.buttons && !(e.target as HTMLElement).closest('.scene-preview-slider')) at(e.clientX); }}>
+      <ScenePreview id={id} slider={slider} className="wipe-scene" onRecord={(r) => setPageUrl(r.page.imageUrl)} />
+      {pageUrl && <img className="wipe-print" src={pageUrl} alt="The same page as printed" draggable={false} style={{ clipPath: `inset(0 0 0 ${pos}%)` }} />}
       <div className="wipe-handle" style={{ left: `${pos}%` }} aria-hidden="true"><span className="wipe-knob"><Icon name="knob" size={22} /></span></div>
       <span className="postit wipe-tag left">alive</span>
       <span className="postit wipe-tag right">print</span>
@@ -154,17 +256,40 @@ function Wipe() {
   );
 }
 
-/** A short muted loop that only plays while on screen. */
-function LoopClip({ src, poster, label }: { src: string; poster: string; label: string }) {
+/** A short muted loop that loads when it is near and plays only while on screen. */
+function LoopClip({ src, poster, label, className = '', eager = false, delay = 0 }: { src: string; poster: string; label: string; className?: string; eager?: boolean; delay?: number }) {
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const v = ref.current; if (!v) return;
     if (typeof IntersectionObserver === 'undefined') { v.play().catch(() => {}); return; }
-    const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) v.play().catch(() => {}); else v.pause(); }), { threshold: 0.3 });
+    let timer: number | undefined;
+    // clips that share a row start a few hundred milliseconds apart, so their decoders do not all spin up in one frame
+    const io = new IntersectionObserver((es) => es.forEach((e) => {
+      if (e.isIntersecting) { if (v.preload !== 'auto') v.preload = 'auto'; timer = window.setTimeout(() => v.play().catch(() => {}), delay); }
+      else { if (timer) clearTimeout(timer); v.pause(); }
+    }), { rootMargin: '120px', threshold: 0.2 });
+    io.observe(v);
+    return () => { io.disconnect(); if (timer) clearTimeout(timer); };
+  }, [delay]);
+  return <video ref={ref} className={`clip ${className}`} src={src} poster={poster} muted loop playsInline preload={eager ? 'auto' : 'none'} aria-label={label} />;
+}
+
+/** A loop with its sound off until the reader asks for it. */
+function SoundClip({ src, poster, label }: { src: string; poster: string; label: string }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [sound, setSound] = useState(false);
+  useEffect(() => {
+    const v = ref.current; if (!v || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { v.preload = 'auto'; v.play().catch(() => {}); } else { v.pause(); } }), { threshold: 0.3 });
     io.observe(v);
     return () => io.disconnect();
   }, []);
-  return <video ref={ref} className="clip" src={src} poster={poster} muted loop playsInline preload="metadata" aria-label={label} />;
+  return (
+    <div className="sound-clip">
+      <video ref={ref} className="clip" src={src} poster={poster} muted={!sound} loop playsInline preload="none" aria-label={label} />
+      <button className={`round sound-toggle ${sound ? 'on' : ''}`} onClick={() => { setSound((s) => !s); const v = ref.current; if (v) { v.muted = sound; v.play().catch(() => {}); } }} aria-label={sound ? 'Mute' : 'Hear the tutor'}><Icon name={sound ? 'sound' : 'play'} size={22} /></button>
+    </div>
+  );
 }
 
 function Way({ tag, rot, decoration, line, children }: { tag: string; rot: string; decoration: 'tape' | 'tack'; line: string; children: ReactNode }) {
@@ -232,7 +357,7 @@ function MarkerUnderline() {
   return <svg viewBox="0 0 200 24" preserveAspectRatio="none" aria-hidden="true"><path d="M4 16 C 40 8, 90 6, 196 12" /><path d="M10 20 C 60 14, 120 16, 180 18" opacity="0.55" /></svg>;
 }
 
-/** A dashed pencil arrow from the buttons to the living page (desktop only). */
+/** A dashed pencil arrow from the buttons to the phone (desktop only). */
 function HeroArrow() {
   return (
     <svg className="hero-arrow" viewBox="0 0 120 70" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -242,7 +367,7 @@ function HeroArrow() {
   );
 }
 
-/** Scribbles in the margins, drifting a little as the page scrolls. */
+/** Scribbles in the margins. */
 function Doodles() {
   return (
     <div className="doodles" aria-hidden="true">

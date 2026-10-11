@@ -13,7 +13,9 @@ import { compileTracking } from './tracking.js';
 import { store } from './store.js';
 import { config } from './config.js';
 
-export type PipelineInput = { id?: string; image: Buffer; mime: string; ownerId: string; bookId?: string };
+export type PipelineInput = { id?: string; image: Buffer; mime: string; ownerId: string; bookId?: string
+  emphasis?: string;              // extra direction for the scene model (showcase assets), appended to its instructions
+};
 type Emit = (e: PipelineEvent) => void;
 
 function pLimit(n: number) {
@@ -124,7 +126,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
 
 
   // ---- build: scene v1 fast (with one repair retry and a guaranteed fallback); scene v2 richer, in parallel ----
-  const system = sceneSystem(quick, page, freeRegionsFromInk(ink, quick.figures[0]?.box));
+  const system = sceneSystem(quick, page, freeRegionsFromInk(ink, quick.figures[0]?.box)) + (input.emphasis ? `\n${input.emphasis}` : '');
   // the main figure, cropped and overlaid with a labelled grid in anchor-relative units, so coordinates are read, not guessed
   const gridParts: Part[] = [];
   const mainFig = quick.figures[0];

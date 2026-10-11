@@ -8,6 +8,8 @@ export type RendererOptions = {
   pageImage: HTMLImageElement | ImageBitmap | null; // for crop assets
   assetUrls: Record<string, string>;                // generated assets by id
   onTap?: (elementId: string) => void;
+  resolution?: number;                              // backing store scale (default 0.75; previews use less)
+  maxFps?: number;                                  // previews draw at 30 to leave room for the rest of a page
 };
 
 const SKETCH = '"Kalam", "Patrick Hand", "Noto Sans Devanagari", system-ui, sans-serif';
@@ -66,11 +68,12 @@ export class SceneRenderer {
     const { w, h } = this.scene.page;
     this.app = new Application();
     // backing store at 0.75× page units keeps fill-rate reasonable on mid-range phones; CSS scales the canvas
-    await this.app.init({ canvas, width: w, height: h, backgroundAlpha: 0, antialias: true, resolution: 0.75, autoDensity: false, preference: 'webgl' });
+    await this.app.init({ canvas, width: w, height: h, backgroundAlpha: 0, antialias: true, resolution: this.opts.resolution ?? 0.75, autoDensity: false, preference: 'webgl' });
     this.app.stage.addChild(this.root);
     this.root.addChild(this.layers.under, this.layers.over, this.layers.fx);
     if (this.opts.pageImage) this.pageTexture = Texture.from(this.opts.pageImage as any);
     await this.loadAssets();
+    if (this.opts.maxFps) this.app.ticker.maxFPS = this.opts.maxFps;
     this.app.ticker.add(() => this.frame());
     this.app.stage.eventMode = 'static';
     this.app.stage.hitArea = new Rectangle(0, 0, w, h);
@@ -496,6 +499,11 @@ export class SceneRenderer {
     }
     for (const [id, g] of this.highlights) if (!want.has(id)) g.visible = false;
   }
+
+  /** Stop drawing (and the simulation clock) while the scene is off screen; resume() picks up where it left off. */
+  pause() { if (!this.destroyed && this.app?.ticker.started) this.app.ticker.stop(); }
+  resume() { if (!this.destroyed && this.app && !this.app.ticker.started) this.app.ticker.start(); }
+  get paused() { return !!this.app && !this.app.ticker.started; }
 
   destroy() {
     this.destroyed = true;

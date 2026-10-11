@@ -8,7 +8,23 @@ export const SHOWCASE = {
   explore: { id: '26361c93-7794-401c-99a7-9c4c6c9d30c9', title: 'Resistors in Series', slider: 'V' },
   ask: { id: '9aee2e9b-606b-4086-bb15-1f872b687149', title: 'Motion and Time' },
 };
-export function showcase() { return SHOWCASE; }
+// pages the homepage shows in its gallery: the verified textbook samples
+const GALLERY_IDS = ['9aee2e9b-606b-4086-bb15-1f872b687149', '26361c93-7794-401c-99a7-9c4c6c9d30c9', '376abcca-c784-459a-96d6-549b598a7314', '82071d9a-f9c4-449a-9ac4-0dc0e98f9db3', '582d7438-5ac7-4ed5-a8c6-2d8bd3a60e5b', 'd9f920c7-a321-43dd-9410-57ae8c618b15'];
+type GalleryItem = { id: string; title: string; subject: string; pageImageUrl: string; verification?: string; moving: number };
+let galleryCache: { at: number; items: GalleryItem[] } | null = null;
+export async function showcase() {
+  if (!galleryCache || Date.now() - galleryCache.at > 10 * 60_000) {
+    const items: GalleryItem[] = [];
+    for (const id of GALLERY_IDS) {
+      const rec = await store.getRecord(id).catch(() => null);
+      if (!rec) continue;
+      const moving = rec.scene.elements.filter((e) => e.anim?.length || e.type === 'particles').length;
+      items.push({ id, title: rec.quick.title, subject: rec.quick.subject, pageImageUrl: rec.page.imageUrl, verification: rec.verification?.status, moving });
+    }
+    galleryCache = { at: Date.now(), items };
+  }
+  return { ...SHOWCASE, gallery: galleryCache.items };
+}
 
 // a handful of questions a minute per visitor keeps the preview cheap
 const windows = new Map<string, number[]>();

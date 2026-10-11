@@ -2,6 +2,20 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-12 (early morning): the homepage, second pass
+
+Hardeep's notes on the first homepage: use the resistors recording as the hero loop with more moving parts, more video and animation, more sections, a stronger "Same page" example, the page hangs, dynamic content, "Try now" with a QR code, an end-to-end journey, and, above all, it looked like a 2D thing rather than AR; generate videos with Gemini that show it working in the room, and make the AR part impossible to miss.
+
+**The hang (commit after cb9b8f2).** The first version tore the live engine down whenever it scrolled 240 px out of view and rebuilt it on the way back, and it ran two engines; every scroll past the hero paid a Pixi initialisation. The renderer now has `pause()`, `resume()`, a `resolution` option and a frame-rate cap; the preview is built once, early (900 px before it is needed), paused off screen, drawn at 0.6 resolution and 30 fps; there is one engine on the page. Video clips load only when near, start a few hundred milliseconds apart in a row, and pause off screen. Sections below the hero use `content-visibility: auto`. Measured in headless Chromium (software GL, a pessimistic setting): long tasks during a full scroll went from one of 588 ms plus rebuilds on every pass to three of 150–370 ms that occur once, where the clips start.
+
+**AR, first (hero).** A photograph of the open textbook on a desk (generated with the image model from the actual page, `apps/server/scripts/backdrop.mts`), and a drawn phone floating above it whose screen plays the real app on that page: a livelier resistors scene made with a showcase emphasis in the scene prompt (`runPipeline` accepts `emphasis`; `scripts/showcase-scene.mts`), recorded in presentation mode and cropped to the phone. Electrons flow around the printed circuit, the lamp glows, the readouts breathe, the tutor's caption runs underneath. The phone and the book drift apart under the pointer. A red "AR" tag sits on the stage and "AR, on the real page" above the headline.
+
+**In the room (Veo).** Three vertical concept clips generated with `veo-3.1-fast-generate-001` on Vertex AI (`scripts/veo.mts`: predictLongRunning, polled; the project needed the `x-goog-user-project` header before the models were visible): hands holding a phone over a physics textbook with the pendulum swinging on the printed page under a red marker ring; a phone over a circuit page with dots along the wires and a sticky note; a tablet over a graph with a marker travelling along the printed line. Two prompts that mentioned a girl and students were filtered by Veo's policy; hands-only versions passed. They are labelled as concept clips on the page; the hero shows the real app.
+
+**Same page, alive.** The wipe now reveals the real engine (the pendulum page, length slider included) rather than a still; the divider sweeps once and then follows the finger. `?sample=<id>&slider=<var>&wipe=<percent>` swaps the page and holds the divider, which is how the Explore clip (the voltage slider moving the series-circuit readouts) was recorded from the page itself with Playwright.
+
+**More sections.** Ten seconds (point, read, draw, speak, check, lit in turn along a dashed line); Any page (a marquee of the verified sample pages from `GET /api/showcase`, each a link into its lesson); A page in, a film out (a real 30 s reel with the tutor's voice, sound on request); the final ask over a faded photograph of the desk. Try now opens a QR code that points at `/scan` on a desktop (the `qrcode` package, SVG) with "Continue here"; on a phone it opens the camera straight away.
+
 ## 2026-10-12 (night): the homepage
 
 Hardeep's brief: a new, visual-first homepage for Living Textbook (80 % visuals), cinematic hero, the textbook-to-life transformation, showcases for Learn, Explore and Story, a live tutor preview, a strong final ask; the hand-drawn language from `UI_PROMPT.md`; no change to the lesson itself and no invented capabilities.
