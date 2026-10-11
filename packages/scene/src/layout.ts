@@ -10,7 +10,7 @@ export type InkMap = { cols: number; rows: number; w: number; h: number; ink: nu
 export type LayoutIssue = { level: 'warn' | 'error'; where: string; message: string };
 
 /** Build an ink map from an 8-bit greyscale page image (w×h pixels, page units = pixels). */
-export function inkMapFromGrey(grey: Uint8Array, w: number, h: number, cols = 64): InkMap {
+export function inkMapFromGrey(grey: Uint8Array, w: number, h: number, cols = 100): InkMap {
   const cell = w / cols, rows = Math.max(1, Math.round(h / cell));
   // paper brightness: a high percentile of the pixels (photographed pages are rarely pure white)
   const hist = new Uint32Array(256);
@@ -18,7 +18,7 @@ export function inkMapFromGrey(grey: Uint8Array, w: number, h: number, cols = 64
   let total = 0; for (let v = 0; v < 256; v++) total += hist[v]!;
   let acc = 0, paper = 255;
   for (let v = 0; v < 256; v++) { acc += hist[v]!; if (acc >= total * 0.85) { paper = v; break; } }
-  const thr = paper * 0.74;
+  const thr = paper * 0.86;
   const dark = new Float64Array(cols * rows), count = new Float64Array(cols * rows);
   for (let y = 0; y < h; y++) {
     const r = Math.min(rows - 1, Math.floor(y / cell)), row = y * w;
@@ -80,22 +80,25 @@ export function freeRegionsFromInk(ink: InkMap, mainFigure?: BoxT): BoxT[] {
 
 type Item = { ids: string[]; els: Element[]; box: BoxT; kind: 'plot' | 'label' | 'bubble' };
 
-const CHAR_W = 0.56; // average glyph advance as a fraction of the font size (sans, Latin and Devanagari alike)
+const CHAR_W = 0.6; // average glyph advance as a fraction of the font size (handwritten faces are wide)
+const drawnSize = (size: number) => Math.max(30, size * 1.12); // the renderer's own rule
 
 function labelBox(el: Extract<Element, { type: 'label' }>, x: number, y: number, pageW: number): BoxT {
   const text = el.text.replace(/\{[^}]*\}/g, '00.0');
+  const size = drawnSize(el.size);
   const maxW = el.maxW ?? pageW * 0.6;
   let width = 0, lines = 0;
-  for (const ln of text.split('\n')) { const wdt = Math.max(1, ln.length) * el.size * CHAR_W; if (wdt <= maxW) { width = Math.max(width, wdt); lines++; } else { lines += Math.ceil(wdt / maxW); width = maxW; } }
-  const height = lines * el.size * 1.25;
-  const pad = el.bg ? el.size * 0.45 : el.size * 0.15;
+  for (const ln of text.split('\n')) { const wdt = Math.max(1, ln.length) * size * CHAR_W; if (wdt <= maxW) { width = Math.max(width, wdt); lines++; } else { lines += Math.ceil(wdt / maxW); width = maxW; } }
+  const height = lines * size * 1.25;
+  const pad = size * 0.45 + 6; // every label is drawn as a paper note with a border and a shadow
   const left = el.align === 'left' ? x : el.align === 'right' ? x - width : x - width / 2;
   return [left - pad, y - height / 2 - pad * 0.6, left + width + pad, y + height / 2 + pad * 0.6];
 }
 function bubbleBox(el: Extract<Element, { type: 'bubble' }>, x: number, y: number, pageW: number): BoxT {
   const maxW = Math.min(pageW * 0.5, 420);
-  const wdt = Math.max(1, el.text.length) * el.size * CHAR_W;
-  const width = Math.min(wdt, maxW), lines = Math.ceil(wdt / maxW), pad = el.size * 0.6;
+  const size = drawnSize(el.size);
+  const wdt = Math.max(1, el.text.length) * size * CHAR_W;
+  const width = Math.min(wdt, maxW), lines = Math.ceil(wdt / maxW), pad = size * 0.6;
   const w = width + pad * 2, h = lines * el.size * 1.25 + pad * 1.4;
   return [x - w / 2, y - h / 2, x + w / 2, y + h / 2];
 }
@@ -174,13 +177,13 @@ export function layoutScene(scene: Scene, ink: InkMap, issues: LayoutIssue[] = [
     const cost = (b: BoxT) => { const i = field.mean(b), mx = field.max(b), o = overlapFraction(b, occupied), f = it.kind === 'plot' ? overlapFraction(b, figures) : 0; return { i, mx, o, c: i * 3 + mx * 0.8 + o * 2.5 + f * 1.5 + (Math.hypot((b[0] + b[2]) / 2 - cx0, (b[1] + b[3]) / 2 - cy0) / W) * 1.2 }; };
     const here = cost(b0);
     before += here.i; report.worstBefore = Math.max(report.worstBefore, here.i);
-    const tooDirty = it.kind === 'bubble' ? 0.05 : 0.035;
-    const denseCell = it.kind === 'bubble' ? 0.3 : 0.22;
+    const tooDirty = it.kind === 'bubble' ? 0.03 : 0.012;
+    const denseCell = it.kind === 'bubble' ? 0.2 : 0.08;
     if (inside(b0) && here.i < tooDirty && here.mx < denseCell && here.o < 0.03 && !(it.kind === 'plot' && overlapFraction(b0, figures) > 0.3)) { occupied.push(b0); inks.push(here.i); continue; }
     // search the neighbourhood on the ink grid, nearest clean spot wins; bubbles stay near their speaker
-    const radius = it.kind === 'bubble' ? Math.min(320, W * 0.35) : Math.min(520, W * 0.6);
+    const radius = it.kind === 'bubble' ? Math.min(320, W * 0.35) : Math.min(640, W * 0.7);
     let best: { b: BoxT; c: number; i: number; mx: number; o: number } | null = null;
-    const consider = (b: BoxT) => { if (!inside(b)) return; const r = cost(b); if (r.i >= (it.kind === 'bubble' ? 0.1 : 0.06) || r.mx >= denseCell || r.o >= 0.05) return; if (!best || r.c < best.c) best = { b, ...r }; };
+    const consider = (b: BoxT) => { if (!inside(b)) return; const r = cost(b); if (r.i >= (it.kind === 'bubble' ? 0.06 : 0.02) || r.mx >= denseCell || r.o >= 0.05) return; if (!best || r.c < best.c) best = { b, ...r }; };
     for (let dy = -radius; dy <= radius; dy += step) for (let dx = -radius; dx <= radius; dx += step) consider(at(cx0 + dx, cy0 + dy));
     if (!best && it.kind !== 'bubble') { // anywhere on the page, then
       for (let cy = bh / 2 + margin; cy <= H - bh / 2 - margin; cy += step) for (let cx = bw / 2 + margin; cx <= W - bw / 2 - margin; cx += step) consider(at(cx, cy));
