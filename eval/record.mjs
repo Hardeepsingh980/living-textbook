@@ -24,7 +24,12 @@ for (const id of ids) {
   const name = names.get(id) ?? id;
   const work = path.join(OUT, `.work-${id}`);
   await fs.mkdir(work, { recursive: true });
-  const ctx = await browser.newContext({ viewport: { width: 540, height: 960 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, recordVideo: { dir: work, size: { width: 1080, height: 1920 } } });
+  // the viewport takes the page's own proportions, so the page fills the frame instead of floating in dark margins
+  const meta = await fetch(`${SERVER}/api/experiences/${id}`).then((r) => r.json()).catch(() => null);
+  const pw = meta?.page?.w ?? 1000, ph = meta?.page?.h ?? 1400;
+  // the recording is a 1:1 capture of the viewport, so the viewport is the video: a tall tablet-sized page
+  const width = 1080, height = Math.min(1600, Math.round((width * ph) / pw));
+  const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, recordVideo: { dir: work, size: { width, height } } });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e.message)));

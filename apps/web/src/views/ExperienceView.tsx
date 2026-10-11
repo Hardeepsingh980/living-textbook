@@ -398,7 +398,7 @@ export function ExperienceView({ onBack }: Props) {
   const captionParts = captionBy === 'line' && /^([^:]{1,24}): (.+)$/s.test(caption) ? { who: caption.split(': ')[0]!, text: caption.slice(caption.indexOf(': ') + 2) } : null;
 
   return (
-    <div className={`experience ${onPhoto ? 'on-photo' : 'on-camera'} ${arLive && revealedVersion > 0 ? 'found' : ''} ${revealed ? 'revealed' : 'working'}`}>
+    <div className={`experience ${onPhoto ? 'on-photo' : 'on-camera'} ${arLive && revealedVersion > 0 ? 'found' : ''} ${revealed ? 'revealed' : 'working'} ${PRESENT ? 'present' : ''}`}>
       <div ref={stageRef} className="stage" onClick={() => mixer.unlock()}>
         {pageImageUrl && page && <img className="page-photo" src={pageImageUrl} alt="" style={{ transform: fitTransform, width: page.w, height: page.h, opacity: onPhoto ? 1 : 0 }} />}
         <div ref={layerRef} className={`page-layer ${layerPlaced ? '' : 'hidden'}`} style={{ width: page?.w, height: page?.h, ...(onPhoto ? { transform: fitTransform } : {}) }}>

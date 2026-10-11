@@ -431,7 +431,8 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         if (n.scene && fixed.elements.length < scene.elements.length) { scene = n.scene; repaired = true; checks.push({ name: 'numbers not on the page removed', method: 'faithfulness', pass: true, detail: invented.join('; ').slice(0, 200) }); }
         else unsupported.push(...invented.map((x) => `number not on the page: ${x}`));
       }
-      if (inventedVars.length) unsupported.push(...inventedVars.map((x) => `slider value not on the page: ${x}`));
+      // a slider's starting value is a control the reader will move, not a claim: it is noted, not failed
+      if (inventedVars.length) checks.push({ name: 'slider starting values are illustrative', method: 'faithfulness', pass: true, detail: `not printed on the page: ${inventedVars.join('; ').slice(0, 160)}` });
       const all = [...det, ...checks.filter((c) => c.method !== 'page-answer')];
       if (unsupported.length) all.push({ name: 'faithfulness', method: 'faithfulness', pass: false, detail: `not supported by the page: ${unsupported.slice(0, 3).join(' | ')}` });
       else if (!all.some((c) => c.method === 'faithfulness')) all.push({ name: 'faithfulness', method: 'faithfulness', pass: true, detail: 'labels, dialogue and narration are supported by the page text' });

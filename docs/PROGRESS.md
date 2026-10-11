@@ -2,6 +2,18 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-11 (afternoon): hand-drawn design, the tutor as narrator, NCERT pages
+
+Hardeep's second brief: smoother loading, no fillers, Gemini Live as the narrator with control of the scene, the hand-drawn design language from `UI_PROMPT.md` at the repository root, bigger and better overlays, a minimal landing page, and videos from real NCERT pages.
+
+**Design (commit 47d1fa1).** Warm paper with a dot grain, pencil text, a red marker accent and a blue ballpoint, post-it yellow for notes; Kalam for headings and Patrick Hand for body (Kalam carries Devanagari); wobbly border radii, hard offset shadows that press flat, small rotations, tape on library cards. Every screen was redone: a landing page with one line and a pencil sketch of a page coming alive, the scan screen with a hand-drawn frame, the experience chrome (post-it title, paper pills, speech-bubble captions), the validation sheet, the notebook-style "how it was made". The overlays themselves are drawn in the same hand: labels are paper notes in Kalam with a pencil border and a hard shadow (minimum 30 units), shapes and paths are traced twice like a quick sketch, highlights are a red marker ring. The loading treatment is a pencil sketching a frame around the figure with dashed skeleton boxes, a post-it saying what is happening and a soft light sweep.
+
+**The tutor narrates (same commit).** From the reveal the Gemini Live session teaches the lesson itself: for each step it calls `navigate_to_step`, reads the step's script from the tool result and explains it in its own words, runs the simulation where there is one, then moves on; after the last step it invites a what-if and listens. The microphone opens at the reveal (if allowed) so the reader can interrupt at any moment; the client nudges "continue" when the tutor goes quiet before the last step. Recorded clips remain the fallback when the live session is unavailable. The session opens as soon as the experience has an id, which required a provisional record saved at the moment the scene is verified. Verified by text sessions (`apps/server/scripts/live-test.mts <id> begin`, with `LB_WAIT`): steps 1→2→3 navigated and narrated with the page's numbers, and in the browser flow (`eval/shoot-flow.mjs`) with the caption carrying the tutor's words and a richer scene version cross-fading in between its sentences.
+
+**Recordings.** `eval/record.mjs` records an experience in presentation mode (page-shaped viewport, title and captions) and mixes in the tutor's actual voice from the captured audio chunks, or the recorded clips when the tutor did not speak.
+
+**NCERT pages.** Fourteen pages rendered from NCERT chapter PDFs (class 10 electricity, light and triangles; class 7 motion; class 3 Santoor; class 1 Mridang and Sarangi; class 3 Veena; class 10 First Flight) under `eval/pages-ncert`. The first round exposed two faults, both fixed: a Hindi poem page died on a malformed quick-read answer (now repaired or retried), and several real pages failed verification on claims the verifier could not find on the page (under review in round 2).
+
 ## 2026-10-11 (midday): continuity, validated reveal, live tutor
 
 Hardeep's upgrade brief (capture continuity, no low-quality intermediate content, an interactive Gemini Live tutor, the design language everywhere) was implemented on the existing architecture; the plan and the root causes are in `docs/UPGRADE_PLAN.md`.

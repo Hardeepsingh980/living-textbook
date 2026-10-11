@@ -117,6 +117,7 @@ button:focus-visible, label:focus-visible, input:focus-visible { outline: 3px da
 .top-bar { position: absolute; left: var(--space-3); right: var(--space-3); top: calc(var(--space-2) + var(--safe-top)); display: flex; align-items: center; gap: var(--space-2); z-index: 6; }
 .top-bar .spacer { flex: 1; }
 .top-bar.present { justify-content: center; }
+.experience.present .top-bar, .experience.present .bottom { zoom: 1.6; } /* recordings are tablet-sized: the notes stay readable */
 .top-bar.present .title-pill { flex: 0 1 auto; }
 .title-pill { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--space-2); background: var(--postit); color: var(--pencil); border: 2px solid var(--pencil); border-radius: var(--wobbly-sm); padding: 8px 16px; font-family: var(--font-head); font-weight: 700; font-size: 18px; box-shadow: var(--shadow-sm); transform: rotate(-1deg); }
 .title-pill span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
