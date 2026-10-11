@@ -198,6 +198,21 @@ export function normalizeScene(input: unknown, ctx: NormalizeContext = {}): Norm
       const rw = typeof el.w === 'number' ? el.w : null, rh = typeof el.h === 'number' ? el.h : null;
       if (!(rw && rh && Math.abs(rw / rh - bw / bh) < 0.12 && rw >= bw * 0.9)) { el.w = bw; el.h = bh; } // keep a deliberate enlargement with the right proportions
     }
+    // a flow's path is drawn in its figure's units: it moves to page units before the anchor is dropped below, and a
+    // path in figure units without an anchor (it fits the figure's size but would land outside it) is moved too
+    if (el.type === 'particles' && el.path && el.path.length >= 2) {
+      const an = el.anchor ? scene.anchors[el.anchor] : undefined;
+      const main = an ?? Object.values(scene.anchors)[0];
+      if (main) {
+        const bw = main[2] - main[0], bh = main[3] - main[1];
+        const inPage = el.path.every(([x, y]) => x >= main[0] - 4 && x <= main[2] + 4 && y >= main[1] - 4 && y <= main[3] + 4);
+        const inFigureUnits = el.path.every(([x, y]) => x >= -4 && x <= bw + 4 && y >= -4 && y <= bh + 4);
+        if (an || (!inPage && inFigureUnits)) {
+          el.path = el.path.map(([x, y]) => [x + main[0], y + main[1]] as [number, number]);
+          issues.push({ level: 'warn', where, message: 'flow path moved from figure units to page units' });
+        }
+      }
+    }
     if (el.type === 'particles' && el.region && el.anchor && scene.anchors[el.anchor]) {
       const an = scene.anchors[el.anchor]!; const [rx0, ry0, rx1, ry1] = el.region;
       if (rx1 <= an[2] - an[0] + 1 && ry1 <= an[3] - an[1] + 1) { el.region = [rx0 + an[0], ry0 + an[1], rx1 + an[0], ry1 + an[1]]; }

@@ -110,3 +110,21 @@ describe('layout: stacked readouts that overlap', () => {
     expect(issues.some((x) => /moved down/.test(x.message))).toBe(true);
   });
 });
+
+describe('flows', () => {
+  it('moves an anchored flow path from figure units to page units', async () => {
+    const { normalizeScene } = await import('./normalize.js');
+    const raw = { v: 1, kind: 'simulation', page: { w: 1000, h: 1400 }, lang: 'en', anchors: { fig1: [200, 600, 800, 1000] },
+      vars: [{ id: 't', min: 0, max: 8, init: 0, role: 'time' }],
+      elements: [
+        { id: 'flow', type: 'particles', preset: 'electrons', anchor: 'fig1', rate: 60, path: [[10, 10], [300, 10], [300, 200], [10, 200], [10, 10]] },
+        { id: 'a', type: 'shape', shape: 'circle', x: 100, y: 100, w: 40, h: 40, anchor: 'fig1', fill: '#ff4d4d' },
+        { id: 'b', type: 'shape', shape: 'circle', x: 'lerp(10, 300, t/8)', y: 100, w: 40, h: 40, anchor: 'fig1', fill: '#2d5da1' },
+      ],
+      steps: [{ id: 's1', narration: 'Current flows.', play: true }] };
+    const n = normalizeScene(raw, {});
+    const flow = n.scene!.elements.find((e) => e.id === 'flow') as any;
+    expect(flow.path[0]).toEqual([210, 610]);
+    expect(flow.path[2]).toEqual([500, 800]);
+  });
+});

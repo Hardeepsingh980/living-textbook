@@ -83,7 +83,8 @@ async function makeChapter(job: ChapterJob, input: { pdf: Buffer; ownerId: strin
     const ci = await infoP; job.title = ci.title; job.subject = ci.subject; job.grade = ci.grade;
     const want = Math.max(2, Math.min(8, input.sections ?? 5));
     const chosen: (PageScore & { page: number })[] = [];
-    for (const s of scores.filter((x) => x.score >= 7).sort((a, b) => b.score - a.score || a.page - b.page)) {
+    const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+    for (const s of scores.filter((x) => x.score >= 7).map((x) => ({ ...x, concept: cap(x.concept) })).sort((a, b) => b.score - a.score || a.page - b.page)) {
       if (chosen.length >= want) break;
       if (chosen.some((c) => similar(c.concept, s.concept))) continue;
       chosen.push(s);

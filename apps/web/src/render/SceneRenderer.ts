@@ -431,13 +431,28 @@ export class SceneRenderer {
     // a particle element with a path is a flow along that printed line (current, heat, light, blood, water), whatever
     // its preset; weather presets keep falling through their region
     const flow = preset === 'electrons' || (!!el.path && el.path.length >= 2 && !['rain', 'snow', 'confetti', 'leaves'].includes(preset));
+    // electrons with no path of their own run round the border of their region (a circuit's loop, roughly)
+    let path = el.path ?? (preset === 'electrons' ? [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]] as [number, number][] : undefined);
+    // a path drawn in figure units (saved before the normaliser moved flows to page units): it fits the region's size
+    // but lies outside the region, so it is moved onto the figure
+    if (el.path && el.region) {
+      const rw = x1 - x0, rh = y1 - y0;
+      const inside = el.path.every(([x, y]) => x >= x0 - 4 && x <= x1 + 4 && y >= y0 - 4 && y <= y1 + 4);
+      const figureUnits = el.path.every(([x, y]) => x >= -4 && x <= rw + 4 && y >= -4 && y <= rh + 4);
+      if (!inside && figureUnits) path = el.path.map(([x, y]) => [x + x0, y + y0] as [number, number]);
+    }
+    // flows move at an even pace along the whole line (by length, not by segment), about 140 page units a second, with
+    // one bead every 90 units or so: separate beads read as movement, a solid chain reads as a thick line
+    let cum: number[] | null = null, total = 0;
+    if (flow && path && path.length >= 2) { cum = [0]; for (let k = 1; k < path.length; k++) { total += Math.hypot(path[k]![0] - path[k - 1]![0], path[k]![1] - path[k - 1]![1]); cum.push(total); } }
+    const beads = flow ? Math.max(6, Math.min(26, Math.round(total / 90) || 12)) : 0;
     st.acc += (r.rate ?? 40) * dt * (REDUCED_MOTION ? 0.3 : 1);
-    while (st.acc >= 1 && st.list.length < (flow ? 44 : 400)) {
+    while (st.acc >= 1 && st.list.length < (flow ? beads : 400)) {
       st.acc -= 1;
       const g = new Graphics();
       const size = (3 + Math.random() * 6) * 2.2;
       const p: Particle = { x: x0 + Math.random() * (x1 - x0), y: y0 + Math.random() * (y1 - y0), vx: 0, vy: 0, life: 0, max: 1.5 + Math.random() * 1.5, size, spin: (Math.random() - 0.5) * 4, g };
-      if (flow) { p.pathT = st.list.length ? (st.list[st.list.length - 1]!.pathT ?? 0) + 1 / 44 : Math.random(); p.max = 1e9; flowDot(g, preset, color); node.addChild(g); st.list.push(p); continue; }
+      if (flow) { p.pathT = st.list.length ? (st.list[st.list.length - 1]!.pathT ?? 0) + 1 / beads : Math.random(); p.max = 1e9; flowDot(g, preset, color); node.addChild(g); st.list.push(p); continue; }
       switch (preset) {
         case 'rain': p.y = y0 - 10; p.vy = 500 + Math.random() * 200; p.vx = -40; p.max = (y1 - y0) / p.vy + 0.2; g.rect(-2, -14, 4, 28).fill({ color: color ?? 0x5aa9ff, alpha: 0.85 }); break;
         case 'snow': p.y = y0 - 10; p.vy = 40 + Math.random() * 40; p.vx = 0; p.max = (y1 - y0) / p.vy; g.circle(0, 0, size * 0.6).fill({ color: color ?? 0xffffff, alpha: 0.9 }); break;
@@ -452,11 +467,6 @@ export class SceneRenderer {
       }
       node.addChild(g); st.list.push(p);
     }
-    // electrons with no path of their own run round the border of their region (a circuit's loop, roughly)
-    const path = el.path ?? (preset === 'electrons' ? [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]] as [number, number][] : undefined);
-    // flows move at an even pace along the whole line (by length, not by segment), about 140 page units a second
-    let cum: number[] | null = null, total = 0;
-    if (flow && path && path.length >= 2) { cum = [0]; for (let k = 1; k < path.length; k++) { total += Math.hypot(path[k]![0] - path[k - 1]![0], path[k]![1] - path[k - 1]![1]); cum.push(total); } }
     for (let i = st.list.length - 1; i >= 0; i--) {
       const p = st.list[i]!;
       p.life += dt;
@@ -520,10 +530,10 @@ export class SceneRenderer {
 /** One bead of a flow: bold enough to read across a room, with a soft halo; its look follows the preset. */
 function flowDot(g: Graphics, preset: string, color: number | undefined) {
   const c = color ?? ({ electrons: 0x00c2ff, fire: 0xff7b00, bubbles: 0x4aa8ff, smoke: 0x8a8a8a, stars: 0xffc23d, sparkle: 0xffc23d, dust: 0x8a6d3b } as Record<string, number>)[preset] ?? 0xff4d4d;
-  g.circle(0, 0, 22).fill({ color: c, alpha: 0.18 });
-  if (preset === 'stars' || preset === 'sparkle') g.star(0, 0, 5, 14, 6).fill({ color: c }).stroke({ color: 0xffffff, width: 2.5 });
-  else if (preset === 'bubbles') g.circle(0, 0, 11).fill({ color: c, alpha: 0.35 }).stroke({ color: c, width: 3.5 });
-  else g.circle(0, 0, 11).fill({ color: c }).stroke({ color: 0xffffff, width: 3 });
+  g.circle(0, 0, 17).fill({ color: c, alpha: 0.16 });
+  if (preset === 'stars' || preset === 'sparkle') g.star(0, 0, 5, 12, 5).fill({ color: c }).stroke({ color: 0xffffff, width: 2.5 });
+  else if (preset === 'bubbles') g.circle(0, 0, 9).fill({ color: c, alpha: 0.35 }).stroke({ color: c, width: 3 });
+  else g.circle(0, 0, 9).fill({ color: c }).stroke({ color: 0xffffff, width: 2.5 });
 }
 
 function hashId(id: string) { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 1000; return h / 1000 * Math.PI * 2; }
