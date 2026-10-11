@@ -2,6 +2,10 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-12 (morning): the room clips show the real app
+
+Hardeep: the Veo clips did not look real; the phone screens showed an invented interface. Replaced them with composites that show the actual app. `scripts/phone-backdrop.mts` asks the image model (with the page as reference) for a photograph of two hands holding a phone above the open book, the phone's screen a flat green rectangle. `scripts/compose-phone.mjs` finds the green pixels, keeps their shape as a mask (rounded corners stay rounded), takes their corners as a quad, crops a real presentation recording to the screen's shape around a focus point, warps it onto the quad, masks it, turns any leftover green into bezel, and adds a slow camera drift. Three clips: the pendulum page on a desk, the series-circuit page on a kitchen table, the distance-time graph in a classroom with the phone held sideways and the camera close to the graph. The room cards are paper prints now (the clip already contains the phone), and the fine print says what they are: the app, as recorded, on photographs made for these pages. The Veo script stays in the repo but its clips are gone from the page.
+
 ## 2026-10-12 (early morning): the homepage, second pass
 
 Hardeep's notes on the first homepage: use the resistors recording as the hero loop with more moving parts, more video and animation, more sections, a stronger "Same page" example, the page hangs, dynamic content, "Try now" with a QR code, an end-to-end journey, and, above all, it looked like a 2D thing rather than AR; generate videos with Gemini that show it working in the room, and make the AR part impossible to miss.

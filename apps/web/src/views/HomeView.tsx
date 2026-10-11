@@ -19,9 +19,9 @@ const FALLBACK: Showcase = {
 };
 const QUESTIONS = ['What is one oscillation?', 'How is the time period measured?', 'Where is the mean position?'];
 const ROOM = [
-  { src: '/home/ar-desk.mp4', poster: '/home/ar-desk.jpg', tag: 'Locked to the page', label: 'A phone held over a physics textbook; the pendulum on its screen swings on the printed page' },
-  { src: '/home/ar-kitchen.mp4', poster: '/home/ar-kitchen.jpg', tag: 'Live values', label: 'A phone over a circuit diagram; dots flow along the printed wires and a note shows the current' },
-  { src: '/home/ar-class.mp4', poster: '/home/ar-class.jpg', tag: 'Any table', label: 'Two students with a tablet over a graph; a marker travels along the printed line' },
+  { src: '/home/ar-desk.mp4', poster: '/home/ar-desk.jpg', tag: 'Locked to the page', label: 'Hands holding a phone over the pendulum page; on the screen the app swings the pendulum on the printed figure' },
+  { src: '/home/ar-kitchen.mp4', poster: '/home/ar-kitchen.jpg', tag: 'Live values', label: 'A phone over the series-circuit page; on the screen electrons flow along the printed wires and the readouts update' },
+  { src: '/home/ar-class.mp4', poster: '/home/ar-class.jpg', tag: 'Any table', label: 'A phone over the distance-time graph page; on the screen the app marks the bus along the printed graph' },
 ];
 const STEPS: { icon: string; word: string }[] = [
   { icon: 'camera', word: 'Point' }, { icon: 'library', word: 'It reads the page' }, { icon: 'layers', word: 'Draws on it' }, { icon: 'sound', word: 'Speaks' }, { icon: 'check', word: 'Checks itself' },
@@ -88,7 +88,7 @@ export function HomeView({ onScan, onPhoto, onLibrary, onReel, onOpen }: Props) 
             </article>
           ))}
         </div>
-        <p className="fineprint muted">Concept clips made with Veo. The phone above shows the real app.</p>
+        <p className="fineprint muted">The app, as recorded, on photographs made for these pages.</p>
       </section>
 
       {/* the same page: print on the right, the real engine on the left */}

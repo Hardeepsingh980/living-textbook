@@ -56,8 +56,9 @@
 .room { padding-top: var(--space-7); padding-bottom: var(--space-6); }
 .room-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); margin-top: var(--space-5); align-items: start; }
 @media (max-width: 640px) { .room-row { grid-template-columns: 1fr; justify-items: center; } }
-.room-card { position: relative; width: 100%; max-width: 320px; justify-self: center; background: #141210; border: 3px solid var(--pencil); border-radius: 22px 26px 24px 20px / 24px 22px 26px 22px; padding: 8px; box-shadow: var(--shadow-lg); transform: rotate(var(--rot, 0deg)); }
-.room-clip { display: block; width: 100%; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 14px; background: var(--paper-deep); }
+.room-card { position: relative; width: 100%; max-width: 320px; justify-self: center; background: var(--white); border: 3px solid var(--pencil); border-radius: var(--wobbly-md); padding: 10px 10px 12px; box-shadow: var(--shadow-lg); transform: rotate(var(--rot, 0deg)); }
+.room-card::before { content: ""; position: absolute; top: -14px; left: 50%; width: 104px; height: 26px; background: rgba(45, 45, 45, 0.14); transform: translateX(-50%) rotate(-3deg); border-left: 2px dashed rgba(255, 255, 255, 0.6); border-right: 2px dashed rgba(255, 255, 255, 0.6); z-index: 2; }
+.room-clip { display: block; width: 100%; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 6px; background: var(--paper-deep); }
 .room-tag { position: absolute; left: 12px; bottom: 18px; transform: rotate(-3deg); }
 
 /* the living page bits */
