@@ -14,6 +14,9 @@ import { WebSocketServer } from 'ws';
 import { handleLiveSocket } from './live.js';
 import { startReel, getReel, waitReel } from './reels.js';
 import { showcase, askShowcase } from './showcase.js';
+import { userFromRequest, ownerOf } from './auth.js';
+import { recordEvent, touchUser, me, insights } from './progress.js';
+import { quizFor } from './quiz.js';
 import type { PipelineEvent } from '@living-book/scene';
 
 const app = new Hono();
@@ -28,7 +31,7 @@ app.post('/api/experiences', async (c) => {
   const image = Buffer.from(await c.req.arrayBuffer());
   if (image.length < 1000) return c.json({ error: 'image too small' }, 400);
   if (image.length > 15 * 1024 * 1024) return c.json({ error: 'image too large (15 MB max)' }, 413);
-  const ownerId = c.req.header('x-owner-id') || 'anonymous';
+  const { owner: ownerId } = await ownerOf(c);
   const bookId = c.req.header('x-book-id') || undefined;
   const id = randomUUID();
   return streamSSE(c, async (stream) => {
@@ -50,6 +53,28 @@ app.get('/api/experiences/:id', async (c) => {
   if (!rec) return c.json({ error: 'not found' }, 404);
   const { events, ...rest } = rec;
   return c.json(c.req.query('events') ? rec : rest, 200, { 'Cache-Control': 'private, max-age=60' });
+});
+
+/** A signed-in reader: profile and progress, insights, and the events that feed them. Anonymous events are kept too. */
+app.get('/api/me', async (c) => {
+  const user = await userFromRequest(c); if (!user) return c.json({ error: 'sign in first' }, 401);
+  await touchUser(user);
+  return c.json({ ...(await me(user)), user: { ...(await me(user)).user, uid: user.uid, name: user.name, email: user.email, picture: user.picture } });
+});
+app.get('/api/me/insights', async (c) => {
+  const user = await userFromRequest(c); if (!user) return c.json({ error: 'sign in first' }, 401);
+  return c.json(await insights(user, c.req.query('fresh') === '1'));
+});
+app.post('/api/progress', async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body || typeof body.event !== 'string') return c.json({ error: 'event required' }, 400);
+  const { owner, user } = await ownerOf(c);
+  await recordEvent(user, owner, body, c.req.header('user-agent') || '').catch((e) => console.warn('[progress]', String(e?.message).slice(0, 120)));
+  return c.json({ ok: true, signedIn: !!user });
+});
+app.get('/api/experiences/:id/quiz', async (c) => {
+  const quiz = await quizFor(c.req.param('id')).catch((e) => { console.warn('[quiz]', String(e?.message).slice(0, 160)); return null; });
+  return quiz ? c.json(quiz) : c.json({ error: 'no quiz for this page yet' }, 404);
 });
 
 /** The homepage's living samples, and a text preview of the tutor about one of them. */
@@ -86,7 +111,7 @@ app.post('/api/experiences/:id/metrics', async (c) => {
 });
 
 app.get('/api/library', async (c) => {
-  const ownerId = c.req.header('x-owner-id') || 'anonymous';
+  const ownerId = (await ownerOf(c)).owner;
   const recs = await store.listRecords(ownerId);
   return c.json(recs.map((r) => ({ id: r.id, createdAt: r.createdAt, title: r.quick.title, kind: r.quick.kind, subject: r.quick.subject, language: r.quick.language, pageImageUrl: r.page.imageUrl, verification: r.verification?.status, bookId: r.bookId })));
 });

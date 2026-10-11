@@ -67,10 +67,14 @@ export type PipelineEvent =
   | { type: 'done'; t: number; timings: Record<string, number>; costUsd: number; experienceId: string }
   | { type: 'error'; message: string; recoverable: boolean; t: number };
 
+export type QuizQuestion = { q: string; options: string[]; answer: number; why: string };
+export type Quiz = { questions: QuizQuestion[]; language: string; createdAt: string; model?: string };
+
 export type ExperienceRecord = {
   id: string;
   createdAt: string;
   ownerId: string;
+  quiz?: Quiz;                    // made on first request from the page's own text (see server quiz.ts)
   bookId?: string;
   page: { w: number; h: number; imageUrl: string; ink?: InkMap };
   quick: QuickRead;

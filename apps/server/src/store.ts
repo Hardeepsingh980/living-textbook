@@ -7,13 +7,27 @@ import { config } from './config.js';
 import { gcloudAuthClient } from './gemini.js';
 import type { ExperienceRecord } from '@living-book/scene';
 
+export type UserDoc = { uid: string; name?: string; email?: string; picture?: string; createdAt: string; lastSeenAt: string };
+export type LessonDoc = {
+  experienceId: string; title: string; subject: string; kind: string; language: string; pageImageUrl: string;
+  openedAt: string; lastAt: string; opens: number; steps: number; totalSteps: number; completed: boolean; seconds: number; questions: number;
+  quiz?: { score: number; total: number; at: string; best: number; attempts: number };
+};
+
 export interface Store {
   putFile(experienceId: string, name: string, bytes: Buffer, mime: string): Promise<string>; // returns URL path
   getFile(experienceId: string, name: string): Promise<{ bytes: Buffer; mime: string } | null>;
   putRecord(rec: ExperienceRecord): Promise<void>;
+  patchRecord(id: string, patch: Partial<ExperienceRecord>): Promise<void>;
   getRecord(id: string): Promise<ExperienceRecord | null>;
   listRecords(ownerId: string, limit?: number): Promise<ExperienceRecord[]>;
   deleteOwner(ownerId: string): Promise<number>;
+  // a signed-in reader's progress
+  getUser(uid: string): Promise<UserDoc | null>;
+  putUser(uid: string, doc: Partial<UserDoc>): Promise<void>;
+  getLesson(uid: string, experienceId: string): Promise<LessonDoc | null>;
+  putLesson(uid: string, experienceId: string, doc: Partial<LessonDoc>): Promise<void>;
+  listLessons(uid: string, limit?: number): Promise<LessonDoc[]>;
 }
 
 const MIME_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/wav': 'wav', 'application/octet-stream': 'bin', 'application/json': 'json' };
@@ -45,7 +59,23 @@ export class LocalStore implements Store {
   async getRecord(id: string) {
     try { return JSON.parse(await fs.readFile(path.join(this.dir(id), 'record.json'), 'utf8')) as ExperienceRecord; } catch { return null; }
   }
-  async listRecords(ownerId: string, limit = 50) {
+
+  async patchRecord(id: string, patch: Partial<ExperienceRecord>) {
+    const rec = await this.getRecord(id); if (!rec) return;
+    await fs.writeFile(path.join(this.dir(id), 'record.json'), JSON.stringify({ ...rec, ...patch }));
+  }
+  private userDir(uid: string) { return path.join(this.root, 'users', safeId(uid)); }
+  async getUser(uid: string) { try { return JSON.parse(await fs.readFile(path.join(this.userDir(uid), 'user.json'), 'utf8')); } catch { return null; } }
+  async putUser(uid: string, doc: Partial<UserDoc>) { await fs.mkdir(this.userDir(uid), { recursive: true }); const cur = (await this.getUser(uid)) ?? {}; await fs.writeFile(path.join(this.userDir(uid), 'user.json'), JSON.stringify({ ...cur, ...doc, uid })); }
+  async getLesson(uid: string, experienceId: string) { try { return JSON.parse(await fs.readFile(path.join(this.userDir(uid), 'lessons', `${safeId(experienceId)}.json`), 'utf8')); } catch { return null; } }
+  async putLesson(uid: string, experienceId: string, doc: Partial<LessonDoc>) { await fs.mkdir(path.join(this.userDir(uid), 'lessons'), { recursive: true }); const cur = (await this.getLesson(uid, experienceId)) ?? {}; await fs.writeFile(path.join(this.userDir(uid), 'lessons', `${safeId(experienceId)}.json`), JSON.stringify({ ...cur, ...doc, experienceId })); }
+  async listLessons(uid: string, limit = 100) {
+    const dir = path.join(this.userDir(uid), 'lessons');
+    const files = await fs.readdir(dir).catch(() => [] as string[]);
+    const docs: LessonDoc[] = [];
+    for (const f of files) { try { docs.push(JSON.parse(await fs.readFile(path.join(dir, f), 'utf8'))); } catch { /* skip */ } }
+    return docs.sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || '')).slice(0, limit);
+  }  async listRecords(ownerId: string, limit = 50) {
     const base = path.join(this.root, 'experiences');
     let ids: string[] = [];
     try { ids = await fs.readdir(base); } catch { return []; }
@@ -115,6 +145,20 @@ export class CloudStore implements Store {
     const snap = await this.db.collection('experiences').doc(safeId(id)).get();
     if (!snap.exists) return null;
     return { events: [], ...(snap.data() as Omit<ExperienceRecord, 'events'>) } as ExperienceRecord;
+  }
+  async patchRecord(id: string, patch: Partial<ExperienceRecord>) {
+    await this.ready;
+    const { events, ...doc } = patch as any;
+    await this.db.collection('experiences').doc(safeId(id)).set(doc, { merge: true });
+  }
+  async getUser(uid: string) { await this.ready; const s = await this.db.collection('users').doc(safeId(uid)).get(); return s.exists ? (s.data() as UserDoc) : null; }
+  async putUser(uid: string, doc: Partial<UserDoc>) { await this.ready; await this.db.collection('users').doc(safeId(uid)).set({ ...doc, uid }, { merge: true }); }
+  async getLesson(uid: string, experienceId: string) { await this.ready; const s = await this.db.collection('users').doc(safeId(uid)).collection('lessons').doc(safeId(experienceId)).get(); return s.exists ? (s.data() as LessonDoc) : null; }
+  async putLesson(uid: string, experienceId: string, doc: Partial<LessonDoc>) { await this.ready; await this.db.collection('users').doc(safeId(uid)).collection('lessons').doc(safeId(experienceId)).set({ ...doc, experienceId }, { merge: true }); }
+  async listLessons(uid: string, limit = 100) {
+    await this.ready;
+    const q = await this.db.collection('users').doc(safeId(uid)).collection('lessons').limit(500).get();
+    return q.docs.map((d) => d.data() as LessonDoc).sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || '')).slice(0, limit);
   }
   async listRecords(ownerId: string, limit = 50) {
     await this.ready;

@@ -13,6 +13,7 @@
     "@living-book/scene": "workspace:*",
     "@msgpack/msgpack": "2.8.0",
     "@tensorflow/tfjs": "4.22.0",
+    "firebase": "^13.0.0",
     "mind-ar": "1.2.5",
     "pixi.js": "8.22.0",
     "qrcode": "1.5.4",
