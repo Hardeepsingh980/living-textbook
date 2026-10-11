@@ -16,7 +16,7 @@ const SECONDS = Number(args.seconds || 45);
 await fs.mkdir(OUT, { recursive: true });
 let ids = args.ids ? String(args.ids).split(',') : [];
 let names = new Map();
-if (args.from) { const res = JSON.parse(await fs.readFile(path.join(String(args.from), 'results.json'), 'utf8')); ids = res.map((r) => r.id).filter(Boolean); for (const r of res) if (r.id) names.set(r.id, r.file.replace(/\.(jpe?g|png)$/i, '')); }
+if (args.from) { const res = JSON.parse(await fs.readFile(path.join(String(args.from), 'results.json'), 'utf8')); ids = res.map((r) => r.id).filter(Boolean); for (const r of res) if (r.id) names.set(r.id, r.file.replace(/\.(jpe?g|png)$/i, '') + (args['tag-ids'] ? `~${r.id.slice(0, 8)}` : '')); }
 if (!ids.length) { console.error('no ids'); process.exit(1); }
 
 const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });

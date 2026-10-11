@@ -27,8 +27,9 @@ await Promise.all(Array.from({ length: 4 }, async () => {
   while (i < files.length) {
     const f = files[i++]!;
     const name = f.replace(/\.mp4$/, '');
-    const res = results.find((r) => r.file?.startsWith(name));
-    const pick = picks.find((p) => p.file?.startsWith(name));
+    const [base, idPrefix] = name.split('~'); // record.mjs --tag-ids names videos <page>~<experience id prefix>
+    const res = (idPrefix && results.find((r) => r.id?.startsWith(idPrefix))) || results.find((r) => r.file?.startsWith(base!));
+    const pick = picks.find((p) => p.file?.startsWith(base!));
     try {
       const bytes = await fs.readFile(path.join(dir!, f));
       const r = await generateJson<any>({
@@ -37,7 +38,7 @@ await Promise.all(Array.from({ length: 4 }, async () => {
       });
       const j = r.json;
       const score = 0.3 * j.wow + 0.2 * j.motion + 0.2 * j.placement + 0.15 * j.correctness + 0.1 * j.clarity + 0.05 * j.narration;
-      judged.push({ file: name, id: res?.id, verification: res?.verification, moving: res?.moving, concept: pick?.concept, subject: pick?.subject, ...j, score: Math.round(score * 10) / 10 });
+      judged.push({ file: base, video: name, id: res?.id, verification: res?.verification, moving: res?.moving, concept: pick?.concept, subject: pick?.subject, ...j, score: Math.round(score * 10) / 10 });
       console.log(`${name.padEnd(12)} ${score.toFixed(1)}  wow ${j.wow} motion ${j.motion} place ${j.placement} correct ${j.correctness}  ${j.verdict}  | ${String(j.what_moves).slice(0, 90)}`);
     } catch (e: any) { console.log(`${name}: judge failed ${String(e?.message).slice(0, 100)}`); }
   }
