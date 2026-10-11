@@ -14,7 +14,7 @@ ws.onmessage = (e) => {
   const m = JSON.parse(String(e.data));
   if (m.type === 'ready') { ready = true; log('ready'); ask(); }
   else if (m.type === 'audio') audioChunks++;
-  else if (m.type === 'transcript' && m.role === 'model') modelText = m.text;
+  else if (m.type === 'transcript' && m.role === 'model') modelText += m.text;
   else if (m.type === 'tool') { const result = executeTool(rt, m.name, m.args); log('TOOL', m.name, JSON.stringify(m.args), '->', JSON.stringify(result).slice(0, 160)); ws.send(JSON.stringify({ type: 'tool-result', id: m.id, result })); }
   else if (m.type === 'turnComplete') { turns++; log(`TUTOR: ${modelText.trim() || '(tool turn)'} [${audioChunks} audio chunks]`); const spoke = audioChunks > 0; modelText = ''; audioChunks = 0; if (spoke) setTimeout(ask, 600); }
   else if (m.type === 'interrupted') log('interrupted');
