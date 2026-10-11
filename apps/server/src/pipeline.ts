@@ -339,6 +339,15 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         }
         return out;
       };
+      // readouts of worked answers show the page's own precision: a two-decimal answer is not rounded to one
+      if (Array.isArray(r.json.mapping)) {
+        for (const m of r.json.mapping) {
+          const w = ex.worked[m.worked]; if (!w || typeof m.derived !== 'string') continue;
+          const decimals = (String(w.answer).split('.')[1] ?? '').length;
+          if (decimals < 2) continue;
+          for (const el of scene.elements) if ((el.type === 'label' || el.type === 'bubble') && el.text.includes(`{${m.derived}:0.1}`)) { el.text = el.text.replaceAll(`{${m.derived}:0.1}`, `{${m.derived}:0.${'0'.repeat(decimals - 1)}1}`); repaired = true; }
+        }
+      }
       let det = runMapping(scene);
       if (det.some((c) => !c.pass) && r.json.fixes?.derived?.length) {
         const fixed = structuredClone(scene);

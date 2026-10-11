@@ -108,7 +108,7 @@ button:focus-visible, label:focus-visible, input:focus-visible { outline: 3px da
 .page-layer::after { content: ''; position: absolute; inset: -8px; border-radius: 22px 10px 18px 12px / 12px 18px 10px 22px; border: 3px dashed rgba(255, 77, 77, 0); pointer-events: none; transition: border-color var(--standard) var(--ease-out); }
 .experience.on-camera.found .page-layer::after { border-color: rgba(255, 77, 77, 0.85); animation: found 1.8s var(--ease-inout) 3; }
 @keyframes found { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
-.page-canvas { position: absolute; left: 0; top: 0; opacity: 0; clip-path: inset(0 100% 0 0); transition: opacity var(--slow) var(--ease-inout), clip-path 900ms var(--ease-inout); }
+.page-canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; opacity: 0; clip-path: inset(0 100% 0 0); transition: opacity var(--slow) var(--ease-inout), clip-path 900ms var(--ease-inout); }
 .page-canvas.active { opacity: 1; clip-path: inset(0 0 0 0); }
 .error-card { position: absolute; left: var(--space-5); right: var(--space-5); top: 36%; background: var(--white); color: var(--pencil); padding: var(--space-5); border: 3px solid var(--pencil); border-radius: var(--wobbly-md); box-shadow: var(--shadow-lg); display: grid; gap: var(--space-3); text-align: center; transform: rotate(-1deg); }
 .error-card b { font-family: var(--font-head); font-size: 24px; }

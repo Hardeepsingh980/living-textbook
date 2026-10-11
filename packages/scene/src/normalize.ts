@@ -208,6 +208,10 @@ export function normalizeScene(input: unknown, ctx: NormalizeContext = {}): Norm
       const main = Object.values(scene.anchors)[0];
       if (main) { const bw = main[2] - main[0], bh = main[3] - main[1]; const [rx0, ry0, rx1, ry1] = el.region; const inFigure = rx0 >= main[0] - 2 && ry0 >= main[1] - 2 && rx1 <= main[2] + 2 && ry1 <= main[3] + 2; if (!inFigure && rx0 >= 0 && ry0 >= 0 && rx1 <= bw + 1 && ry1 <= bh + 1) { el.region = [rx0 + main[0], ry0 + main[1], rx1 + main[0], ry1 + main[1]]; issues.push({ level: 'warn', where, message: 'particle region looked figure-relative; moved onto the figure' }); } }
     }
+    if (el.type === 'particles' && ['sparkle', 'stars', 'confetti', 'dust'].includes(el.preset) && (typeof el.visible !== 'string' || /^\s*(true|1)\s*$/.test(el.visible))) {
+      issues.push({ level: 'warn', where, message: `${el.preset} particles dropped: decoration that is not tied to an event` });
+      return false;
+    }
     if (el.type === 'particles' && !el.region) {
       const box = el.anchor ? scene.anchors[el.anchor] : Object.values(scene.anchors)[0];
       if (box && !['rain', 'snow'].includes(el.preset)) { el.region = [...box] as typeof box; el.anchor = undefined; }
@@ -328,10 +332,6 @@ export function fallbackScene(opts: { page: { w: number; h: number }; title?: st
       ],
     } as Element);
   });
-  elements.push({
-    id: 'spark', type: 'particles', preset: 'sparkle', x: 0, y: 0, rot: 0, opacity: 1, scale: 1, z: 3, visible: 1, hidden: false, layer: 'over', rate: 25, speed: 1,
-    region: [0, 0, page.w, page.h], anim: [],
-  } as Element);
   if (opts.title) {
     elements.push({
       id: 'title', type: 'label', text: opts.title, x: page.w / 2, y: 70, rot: 0, opacity: 0, scale: 1, z: 4, visible: 1, hidden: false, layer: 'over',

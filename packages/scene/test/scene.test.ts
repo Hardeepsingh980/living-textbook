@@ -64,7 +64,7 @@ describe('normalizeScene', () => {
   });
   it('builds a fallback scene from figure boxes', () => {
     const s = fallbackScene({ page: { w: 1000, h: 1414 }, title: 'Motion under gravity', figures: [[100, 400, 500, 900], [600, 100, 900, 300]] });
-    expect(s.elements.map((e) => e.type)).toEqual(['shape', 'sprite', 'shape', 'sprite', 'particles', 'label']);
+    expect(s.elements.map((e) => e.type)).toEqual(['shape', 'sprite', 'shape', 'sprite', 'label']);
     expect(normalizeScene(s).issues).toEqual([]);
   });
 });
