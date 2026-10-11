@@ -99,6 +99,7 @@ export function ExperienceView({ onBack }: Props) {
   const session = CameraSession.current;
   const arAvailable = !!session && session.tracker.state !== 'idle';
   const revealed = revealedVersion > 0;
+  const report = (event: string, detail = '') => { const id = useStore.getState().id; if (!id || CONTAIN) return; try { void fetch(`/api/experiences/${id}/metrics`, { method: 'POST', body: JSON.stringify({ at: Date.now(), tutor: event, detail: detail.slice(0, 160), ua: navigator.userAgent.slice(0, 80) }), headers: { 'content-type': 'application/json' }, keepalive: true }); } catch { /* best effort */ } };
 
   // ---------- page image (crops + fallback background) ----------
   useEffect(() => {
@@ -166,8 +167,7 @@ export function ExperienceView({ onBack }: Props) {
       if (scene.audio.ambience) mixer.setAmbience(scene.audio.ambience);
       const tv = scene.vars.find((v) => v.role === 'time');
       if (tv && !scene.steps.some((s) => s.play !== undefined)) r.runtime.setPlaying(true);
-      if (revealedVersion === 0) startLesson(scene); // the first reveal starts the lesson
-      else if (!tutorLive.current && !pausedRef.current) startNarration(scene, Math.max(0, r.runtime.stepIndex));
+      if (revealedVersion > 0 && !tutorLive.current && !pausedRef.current) startNarration(scene, Math.max(0, r.runtime.stepIndex)); // a richer version in the recorded-clip path
     }
     if (old) window.setTimeout(() => { if (renderers.current[other] === old) { old.destroy(); renderers.current[other] = null; } }, 900);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -189,6 +189,16 @@ export function ExperienceView({ onBack }: Props) {
   useEffect(() => { if (LIVE_LESSON && experienceId && !REVIEW) { const t = ensureTutor(); t?.connect().catch(() => { /* the reveal retries and falls back */ }); } // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [experienceId]);
 
+  // the first reveal starts the lesson, as soon as the experience has an id (its record exists for the tutor)
+  const lessonStarted = useRef(false);
+  useEffect(() => {
+    if (!revealed || !scene || lessonStarted.current) return;
+    if (LIVE_LESSON && !experienceId) return; // the id arrives a moment after the verification; wait for it
+    lessonStarted.current = true;
+    startLesson(scene);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealed, experienceId]);
+
   // the lesson keeps moving: when the tutor has finished a step and gone quiet, it is asked to carry on (unless the
   // lesson is over, paused, or the reader is in the middle of something)
   useEffect(() => {
@@ -207,11 +217,13 @@ export function ExperienceView({ onBack }: Props) {
     (async () => {
       try {
         await t.connect();
-        if (!CONTAIN) { try { await t.listen(); setMicOn(true); } catch (e: any) { setTutorNote(/NotAllowed|denied/i.test(String(e?.message || e?.name)) ? 'microphone not allowed' : ''); } }
         setPhase('live');
         t.beginLesson();
+        report('lesson-begun');
+        if (!CONTAIN) t.listen().then(() => setMicOn(true)).catch((e: any) => { setTutorNote(/NotAllowed|denied/i.test(String(e?.message || e?.name)) ? 'microphone not allowed' : ''); report('mic-failed', String(e?.message || e?.name)); });
       } catch (e) {
         console.warn('[tutor] live lesson unavailable, using recorded narration', e);
+        report('live-failed', String((e as any)?.message || e));
         tutorLive.current = false; setTutor('unavailable'); setTutorNote('voice unavailable');
         startNarration(sc, Math.max(0, active()?.runtime.stepIndex ?? 0));
       }
@@ -303,6 +315,7 @@ export function ExperienceView({ onBack }: Props) {
     const t = new LiveTutor(experienceId, () => ({ ...(active()?.runtime.values() ?? {}) }), {
       onState: (st, detail) => {
         setTutor(st); setTutorNote(detail ?? ''); setMicOn(t.listening);
+        if (st === 'unavailable' || st === 'reconnecting' || st === 'listening' || st === 'speaking') report(`tutor-${st}`, detail ?? '');
         if (st === 'unavailable' && tutorLive.current) { tutorLive.current = false; setPhase('ready'); const sc = useStore.getState().scene; if (!pausedRef.current && sc) startNarration(sc, active()?.runtime.stepIndex ?? 0); }
       },
       onTranscript: (role, text) => say(text, role === 'user' ? 'you' : 'tutor'),

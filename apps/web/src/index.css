@@ -76,6 +76,15 @@ button:focus-visible, label:focus-visible, input:focus-visible { outline: 3px da
 .sketch .float { animation: bob 3s var(--ease-inout) infinite; transform-origin: center; }
 @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 .landing .actions { display: grid; gap: var(--space-4); justify-items: center; }
+.actions-row-landing { display: flex; gap: var(--space-3); flex-wrap: wrap; justify-content: center; }
+.how { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; gap: var(--space-2); width: 100%; }
+.how-step { display: grid; justify-items: center; gap: 4px; width: 30%; max-width: 150px; }
+.how-art { width: 100%; height: auto; }
+.how-art .float { animation: bob 2.6s var(--ease-inout) infinite; transform-origin: center; }
+.how-word { font-family: var(--font-head); font-weight: 700; font-size: 18px; background: var(--white); border: 2px solid var(--pencil); border-radius: var(--wobbly-sm); padding: 2px 12px; box-shadow: var(--shadow-sm); }
+.how-arrow { width: 44px; flex: none; }
+.how-arrow svg { width: 100%; height: auto; }
+@media (max-width: 380px) { .how-arrow { display: none; } .how-step { width: 32%; } }
 .landing .arrow { width: 60px; height: 40px; color: var(--pencil); transform: rotate(8deg); }
 
 /* scan */

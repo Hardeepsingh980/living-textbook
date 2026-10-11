@@ -22,6 +22,7 @@ const PATHS: Record<string, string> = {
   trash: 'M5 7h14M9 7V4h6v3M8 7l1 13h6l1-13',
   knob: 'M4 12h16M8 12a2 2 0 1 0 4 0 2 2 0 0 0-4 0',
   bolt: 'M13 3L5 14h6l-1 7 8-11h-6z',
+  film: 'M4 5h16v14H4zM4 9h16M4 15h16M8 5v14M16 5v14',
 };
 
 export function Icon({ name, size = 22, ...rest }: { name: keyof typeof PATHS | string; size?: number } & SVGProps<SVGSVGElement>) {

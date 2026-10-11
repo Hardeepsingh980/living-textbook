@@ -18,12 +18,21 @@ export function inkMapFromGrey(grey: Uint8Array, w: number, h: number, cols = 10
   let total = 0; for (let v = 0; v < 256; v++) total += hist[v]!;
   let acc = 0, paper = 255;
   for (let v = 0; v < 256; v++) { acc += hist[v]!; if (acc >= total * 0.85) { paper = v; break; } }
-  const thr = paper * 0.86;
+  // ink is what stands out from the paper around it (a local 41-pixel window), so shadows, gradients and faint
+  // watermarks on a photographed page do not count, while thin print does; very dark pixels always count
+  const W = 20, sat = new Float64Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) { let acc = 0; for (let x = 0; x < w; x++) { acc += grey[y * w + x]!; sat[(y + 1) * (w + 1) + (x + 1)] = acc + sat[y * (w + 1) + (x + 1)]!; } }
+  const localMean = (x: number, y: number) => {
+    const x0 = Math.max(0, x - W), y0 = Math.max(0, y - W), x1 = Math.min(w - 1, x + W), y1 = Math.min(h - 1, y + W);
+    const s = sat[(y1 + 1) * (w + 1) + (x1 + 1)]! - sat[y0 * (w + 1) + (x1 + 1)]! - sat[(y1 + 1) * (w + 1) + x0]! + sat[y0 * (w + 1) + x0]!;
+    return s / ((x1 - x0 + 1) * (y1 - y0 + 1));
+  };
   const dark = new Float64Array(cols * rows), count = new Float64Array(cols * rows);
   for (let y = 0; y < h; y++) {
     const r = Math.min(rows - 1, Math.floor(y / cell)), row = y * w;
-    for (let x = 0; x < w; x++) { const k = r * cols + Math.min(cols - 1, Math.floor(x / cell)); count[k]!++; if (grey[row + x]! < thr) dark[k]!++; }
+    for (let x = 0; x < w; x++) { const k = r * cols + Math.min(cols - 1, Math.floor(x / cell)); count[k]!++; const v = grey[row + x]!; if (v < 110 || localMean(x, y) - v > 60) dark[k]!++; }
   }
+  void paper;
   const ink = new Array<number>(cols * rows);
   for (let k = 0; k < ink.length; k++) ink[k] = count[k] ? Math.round((dark[k]! / count[k]!) * 1000) / 1000 : 0;
   return { cols, rows, w, h, ink };
@@ -135,7 +144,7 @@ export function layoutScene(scene: Scene, ink: InkMap, issues: LayoutIssue[] = [
 
   // what is already there: sprites (pictures the reader should see) count as occupied, and so do the strips the
   // app's own chrome covers (the title note at the top, the caption at the bottom)
-  const occupied: BoxT[] = [[0, 0, scene.page.w, scene.page.h * 0.07], [0, scene.page.h * 0.9, scene.page.w, scene.page.h]];
+  const occupied: BoxT[] = [[scene.page.w * 0.22, 0, scene.page.w * 0.78, scene.page.h * 0.07], [0, scene.page.h * 0.9, scene.page.w, scene.page.h]];
   for (const el of scene.elements) {
     if (el.type !== 'sprite' && !(el.type === 'shape' && !el.anchor && el.fill && (el.shape === 'rect' || el.shape === 'ellipse'))) continue;
     const x = resolve(el.x), y = resolve(el.y), w = resolve(el.w), h = resolve(el.h);
@@ -188,7 +197,27 @@ export function layoutScene(scene: Scene, ink: InkMap, issues: LayoutIssue[] = [
     if (!best && it.kind !== 'bubble') { // anywhere on the page, then
       for (let cy = bh / 2 + margin; cy <= H - bh / 2 - margin; cy += step) for (let cx = bw / 2 + margin; cx <= W - bw / 2 - margin; cx += step) consider(at(cx, cy));
     }
-    const chosen = best as { b: BoxT; c: number; i: number; mx: number; o: number } | null;
+    let chosen = best as { b: BoxT; c: number; i: number; mx: number; o: number } | null;
+    if (!chosen && it.kind === 'label' && bw > 260 && it.els.length === 1 && it.els[0]!.type === 'label' && /[\s|,;]/.test(it.els[0]!.text)) {
+      // wrap it: a readout three lines tall often fits a margin that a one-line one cannot
+      const el = it.els[0]! as Extract<Element, { type: 'label' }>;
+      const narrow = { ...el, maxW: 260 } as typeof el;
+      const nb = labelBox(narrow, (b0[0] + b0[2]) / 2, (b0[1] + b0[3]) / 2, W);
+      const nw = nb[2] - nb[0], nh = nb[3] - nb[1];
+      const atN = (cx: number, cy: number): BoxT => [cx - nw / 2, cy - nh / 2, cx + nw / 2, cy + nh / 2];
+      let bestN: { b: BoxT; c: number; i: number; mx: number; o: number } | null = null;
+      const considerN = (b: BoxT) => { if (!inside(b)) return; const r = cost(b); if (r.i >= 0.02 || r.mx >= denseCell || r.o >= 0.05) return; if (!bestN || r.c < bestN.c) bestN = { b, ...r }; };
+      for (let cy = nh / 2 + margin; cy <= H - nh / 2 - margin; cy += step) for (let cx = nw / 2 + margin; cx <= W - nw / 2 - margin; cx += step) considerN(atN(cx, cy));
+      if (bestN) {
+        const bn = bestN as { b: BoxT; c: number; i: number; mx: number; o: number };
+        (el as any).maxW = 260;
+        (el as any).x = (resolve(el.x) ?? 0) + Math.round((bn.b[0] + bn.b[2]) / 2 - cx0);
+        (el as any).y = (resolve(el.y) ?? 0) + Math.round((bn.b[1] + bn.b[3]) / 2 - cy0);
+        occupied.push(bn.b); inks.push(bn.i); report.moved.push(el.id);
+        issues.push({ level: 'warn', where: `elements.${el.id}`, message: `wrapped and moved off printed ink` });
+        continue;
+      }
+    }
     if (!chosen) {
       if (it.kind === 'plot' && here.i >= 0.12) { scene.elements = scene.elements.filter((e) => e.id !== it.ids[0]); report.dropped.push(it.ids[0]!); issues.push({ level: 'warn', where: `elements.${it.ids[0]}`, message: 'plot dropped: no clean space for it on this page' }); continue; }
       occupied.push(b0); inks.push(here.i);
