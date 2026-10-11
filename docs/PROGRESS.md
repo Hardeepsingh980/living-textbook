@@ -2,6 +2,14 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-11 (morning): design language adopted
+
+Hardeep's design specification ("paper → light → world") is now the app's system, adapted onto the existing components rather than replacing them: paper neutrals and ink text, one blue accent for interaction and AI focus, semantic colours only for state, an 8-point spacing scale, the radius and duration scales, a single sans family with Devanagari coverage (Nunito dropped). The scan screen shows almost nothing ("Point at a page", the spark, "I'll bring it to life", one primary action); framing uses corner marks and a quiet hint instead of a heavy frame. The experience keeps the page as the interface: a title pill, mute, the Gemini spark (idle, thinking while the pipeline runs, speaking with the narration, listening during a question; it opens "how it was made"), and the validation seal at the top; replay, play/pause, "Ask" and "What if?" pills at the bottom, with the what-if knobs disclosed only when asked for. Loading, error and empty-state copy follow the specification's microcopy; reduced motion disables pulses and the found-cue glow and thins particles in the renderer. Screens were checked at phone size with `eval/shoot-ui.mjs` (scan, camera framing, experience, what-if, how-it-was-made, validation sheet, library).
+
+Not built on purpose (outside the prototype): Teacher Studio, chapter upload / My Textbook, learning-gap views, a home/explore navigation. Product name: the code still says "Living Book"; the specification says "Living Textbook" (to confirm).
+
+Operational note: the gcloud user token expired overnight, so the local server now runs with `STORE=local` for UI work and the Cloud Run deploy of this UI waits for `gcloud auth login`.
+
 ## 2026-10-10 (night): round 5 result and the layout engine (round 6)
 
 **Round 5 (visual judge):** overall 3.1 → 2.8 (placement 2.5, liveliness 2.8, correctness 4.0, narration 3.8); Hindi free fall 4.0 "ship", everything else "improve". Looking at the screenshots rather than the scores: the quick read's text-block boxes under-estimate paragraphs by 20–40 units, so readouts the builder put "in the gap" below a paragraph sat on its last lines (Ohm's law, photosynthesis); a moving cut-out was drawn beside its printed original and squashed to the model's w×h (boat); a sprite that "flies away" left the illustration and landed on the story text (fox); Pythagoras drew thin strips instead of squares; twelve-element scenes had two moving elements.

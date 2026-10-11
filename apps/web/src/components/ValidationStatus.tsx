@@ -1,3 +1,4 @@
+// Trust, made visible: a quiet seal that says how the scene was checked against the page, with the checks behind it.
 import { useState } from 'react';
 import { useStore } from '../lib/store';
 import { Icon } from './Icon';
@@ -6,16 +7,18 @@ const LABEL: Record<string, { text: string; cls: string }> = {
   'verified-page': { text: 'Checked against the page', cls: 'ok' },
   'checked-independently': { text: 'Checked independently', cls: 'ok' },
   faithful: { text: 'Faithful to the page', cls: 'ok' },
-  unverified: { text: 'Not checked', cls: 'warn' },
+  unverified: { text: 'Not checked yet', cls: 'warn' },
   failed: { text: 'A check did not pass', cls: 'bad' },
 };
 
-export function VerificationBadge({ compact = false }: { compact?: boolean }) {
+export function ValidationStatus({ compact = false }: { compact?: boolean }) {
   const v = useStore((s) => s.verification);
   const status = useStore((s) => s.status);
+  const quick = useStore((s) => s.quickPartial);
   const [open, setOpen] = useState(false);
-  if (!v) return status === 'generating' ? <span className="seal pending" title="Checking…"><span className="seal-dot" /></span> : null;
+  if (!v) return status === 'generating' ? <span className="seal pending" title="Checking against the page"><span className="seal-dot" /></span> : null;
   const l = LABEL[v.status] ?? LABEL.unverified!;
+  const lowConfidence = typeof quick?.confidence === 'number' && quick.confidence < 0.6;
   const glyph = <Icon name={l.cls === 'ok' ? 'check' : l.cls === 'bad' ? 'cross' : 'question'} size={18} />;
   return (
     <>
@@ -24,7 +27,8 @@ export function VerificationBadge({ compact = false }: { compact?: boolean }) {
         <div className="sheet" onClick={() => setOpen(false)}>
           <div className="sheet-body" onClick={(e) => e.stopPropagation()}>
             <h3>{l.text}</h3>
-            <p>{v.summary}{v.repaired ? ' The scene was corrected after a failed check.' : ''}</p>
+            <p>{v.summary}{v.repaired ? ' Something that did not match the page was corrected before you saw it.' : ''}</p>
+            {lowConfidence && <p className="muted">I'm not fully confident I read this page correctly.</p>}
             <ul className="checks">
               {v.checks.map((c, i) => (
                 <li key={i} className={c.pass ? 'pass' : 'fail'}>

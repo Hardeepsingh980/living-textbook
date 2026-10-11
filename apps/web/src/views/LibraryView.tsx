@@ -8,9 +8,9 @@ export function LibraryView({ onOpen, onBack }: { onOpen: (id: string) => void; 
   return (
     <div className="library">
       <div className="hud-top static"><button className="round" onClick={onBack} aria-label="Back"><Icon name="back" /></button><div className="title">Saved pages</div>
-        <button className="link" onClick={async () => { if (confirm('Delete all saved pages? This cannot be undone.')) { await deleteLibrary(); setItems([]); } }}><Icon name="trash" size={18} /> Delete all</button></div>
-      {items === null && <div className="note">Loading…</div>}
-      {items && items.length === 0 && <div className="note">No pages yet. Capture one to see it here.</div>}
+        {items && items.length > 0 && <button className="link" onClick={async () => { if (confirm('Delete all saved pages? This cannot be undone.')) { await deleteLibrary(); setItems([]); } }}><Icon name="trash" size={18} /> Delete all</button>}</div>
+      {items === null && <div className="empty"><p className="muted">Opening your pages</p></div>}
+      {items && items.length === 0 && <div className="empty enter"><h2>Your book is waiting to come alive.</h2><p className="muted">Point the camera at a page and it will appear here.</p><button className="primary" onClick={onBack}><Icon name="camera" /> Open camera</button></div>}
       <div className="grid">
         {items?.map((it) => (
           <button key={it.id} className="card" onClick={() => onOpen(it.id)}>

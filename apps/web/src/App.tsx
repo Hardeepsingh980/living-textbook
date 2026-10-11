@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CaptureView, type CaptureResult } from './views/CaptureView';
+import { ScanExperience, type CaptureResult } from './views/ScanExperience';
 import { ExperienceView } from './views/ExperienceView';
 import { LibraryView } from './views/LibraryView';
 import { useStore } from './lib/store';
@@ -48,5 +48,5 @@ export function App() {
 
   if (route.name === 'experience') return <ExperienceView onBack={() => { reset(); go({ name: 'capture' }, '/'); }} />;
   if (route.name === 'library') return <LibraryView onOpen={(id) => go({ name: 'experience', id }, `/x/${id}`)} onBack={() => go({ name: 'capture' }, '/')} />;
-  return <CaptureView onCapture={onCapture} onLibrary={() => go({ name: 'library' }, '/library')} />;
+  return <ScanExperience onCapture={onCapture} onLibrary={() => go({ name: 'library' }, '/library')} />;
 }

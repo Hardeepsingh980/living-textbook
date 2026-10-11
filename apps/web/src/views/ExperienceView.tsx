@@ -8,7 +8,8 @@ import { mixer } from '../audio/mixer';
 import { SpeechQueue } from '../audio/speech';
 import { LiveVoice } from '../audio/live';
 import { Theatre } from '../components/Theatre';
-import { VerificationBadge } from '../components/VerificationBadge';
+import { ValidationStatus } from '../components/ValidationStatus';
+import { GeminiSpark, type SparkState } from '../components/GeminiSpark';
 import { Icon } from '../components/Icon';
 import { CameraSession } from '../ar/camera';
 import { cornersToMatrix3d, type Corners, type TrackerState } from '../ar/PageTracker';
@@ -20,8 +21,8 @@ const DEBUG = new URLSearchParams(location.search).has('debug');
 const REVIEW = new URLSearchParams(location.search).has('review'); // chrome-free rendering for screenshots and judging
 
 const STAGE_PHRASE: Record<string, string> = {
-  upload: 'Looking at your page…', read: 'Reading your page…', track: 'Learning your page…', build: 'Bringing it to life…',
-  understand: 'Understanding every detail…', voice: 'Giving it a voice…', illustrate: 'Drawing the characters…', verify: 'Double-checking the facts…', save: 'Almost there…',
+  upload: 'Looking at the page', read: 'Understanding the page', track: 'Learning what the page looks like', build: 'Bringing it to life',
+  understand: 'Reading every detail', voice: 'Giving it a voice', illustrate: 'Drawing the pictures', verify: 'Checking against the page', save: 'Almost there',
 };
 
 export function ExperienceView({ onBack }: Props) {
@@ -53,6 +54,8 @@ export function ExperienceView({ onBack }: Props) {
   const [paused, setPaused] = useState(false);
   const [vars, setVars] = useState<Record<string, number>>({});
   const [knob, setKnob] = useState<string | null>(null);
+  const [whatIf, setWhatIf] = useState(false);     // progressive disclosure: knobs appear only when asked for
+  const [speaking, setSpeaking] = useState(false);
   const [fit, setFit] = useState({ scale: 1, x: 0, y: 0 });
   const [arState, setArState] = useState<TrackerState>('idle');
   const [arLive, setArLive] = useState(false);
@@ -110,6 +113,7 @@ export function ExperienceView({ onBack }: Props) {
 
   useEffect(() => { const r = rendererRef.current; if (!r) return; Promise.all(Object.entries(assets).map(([id, url]) => r.addAsset(id, url))).then(() => { document.documentElement.dataset.assetsReady = '1'; }); }, [assets]);
   useEffect(() => { mixer.setMuted(muted || REVIEW); }, [muted]);
+  useEffect(() => { const id = window.setInterval(() => setSpeaking((s) => (s === speechRef.current.busy ? s : speechRef.current.busy)), 250); return () => clearInterval(id); }, []);
   useEffect(() => () => { speechRef.current.clear(); rendererRef.current?.destroy(); mixer.destroy(); CameraSession.current?.stop(); liveRef.current?.stop(); }, []);
 
   // ---------- narration: opener, then steps in order, looping ----------
@@ -239,7 +243,10 @@ export function ExperienceView({ onBack }: Props) {
   const running = stages.filter((s) => s.status === 'start').map((s) => s.stage);
   const phrase = status === 'generating' ? (STAGE_PHRASE[running[running.length - 1] ?? 'upload'] ?? 'Bringing it to life…') : '';
   const showKnob = knob ? scene?.vars.find((v) => v.id === knob) : undefined;
-  const touchKnob = (id: string) => { setKnob(id); if (knobTimer.current) clearTimeout(knobTimer.current); knobTimer.current = window.setTimeout(() => setKnob(null), 5000); };
+  const touchKnob = (id: string) => { setKnob(id); setWhatIf(true); if (knobTimer.current) clearTimeout(knobTimer.current); knobTimer.current = window.setTimeout(() => { setKnob(null); setWhatIf(false); }, 10000); };
+  const toggleWhatIf = () => { if (whatIf) { setWhatIf(false); setKnob(null); if (knobTimer.current) clearTimeout(knobTimer.current); } else if (sliders[0]?.type === 'slider') touchKnob(sliders[0].var); };
+  const spark: SparkState = status === 'error' || voice === 'error' ? 'error' : voice === 'listening' ? 'listening' : voice === 'speaking' || speaking ? 'speaking' : voice === 'thinking' || voice === 'connecting' || status === 'generating' ? 'thinking' : 'idle';
+  const title = quick?.title || quick?.subject || '';
 
   return (
     <div className={`experience ${onPhoto ? 'on-photo' : 'on-camera'} ${!scene || sceneVersion < 1 ? 'found' : ''}`}>
@@ -248,16 +255,16 @@ export function ExperienceView({ onBack }: Props) {
         <div ref={layerRef} className="page-layer" style={{ width: scene?.page.w, height: scene?.page.h, ...(onPhoto ? { transform: fitTransform } : {}) }}>
           <canvas key={`${sceneVersion}-${scene?.page.w ?? 0}x${scene?.page.h ?? 0}`} ref={canvasRef} className="page-canvas" />
         </div>
-        {status === 'error' && <div className="error-card"><b>Hmm, that did not work.</b><div className="muted">{error}</div><button className="primary" onClick={onBack}>Try again</button></div>}
+        {status === 'error' && <div className="error-card enter"><b>I couldn't bring this page to life yet.</b><div className="muted">{/^(camera|network|fetch)/i.test(error ?? '') ? error : 'Try moving closer, or point at the main illustration or diagram.'}</div><button className="primary" onClick={onBack}>Try again</button></div>}
         {arAvailable && !arLive && status !== 'error' && arState !== 'idle' && (lostSince.current ?? 0) > 0 && <div className="ar-hint">Point the camera at the page</div>}
       </div>
 
       {!REVIEW && <div className="top-bar">
         <button className="round" onClick={onBack} aria-label="Back"><Icon name="back" /></button>
-        {phrase ? <div className="progress-pill"><span className="bar" />{phrase}</div> : <div className="spacer" />}
+        {phrase || title ? <div className={`title-pill ${phrase ? 'working' : ''}`}>{phrase ? <GeminiSpark state="thinking" size={16} /> : null}<span>{phrase || title}</span></div> : <div className="spacer" />}
         <button className="round small" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute' : 'Mute'}><Icon name={muted ? 'soundOff' : 'sound'} size={18} /></button>
-        <button className={`round small ${theatreOpen ? 'on' : ''}`} onClick={() => setTheatre(!theatreOpen)} aria-label="How it was made"><Icon name="layers" size={18} /></button>
-        <VerificationBadge compact />
+        <button className={`round small spark-button ${theatreOpen ? 'on' : ''}`} onClick={() => setTheatre(!theatreOpen)} aria-label="How it was made" title="How it was made"><GeminiSpark state={spark} size={20} /></button>
+        <ValidationStatus compact />
       </div>}
       {theatreOpen && !REVIEW && <div className="theatre-dock"><Theatre compact={status === 'ready'} /></div>}
       {DEBUG && stats && <div className="debug">{stats}</div>}
@@ -270,20 +277,21 @@ export function ExperienceView({ onBack }: Props) {
               onChange={(e) => { const val = Number(e.target.value); r?.runtime.setVar(showKnob.id, val); setVars((s) => ({ ...s, [showKnob.id]: val })); touchKnob(showKnob.id); }} />
           </div>
         )}
-        {sliders.length > 0 && (
-          <div className="knobs">
+        {sliders.length > 0 && whatIf && (
+          <div className="knobs enter">
             {sliders.map((it) => { if (it.type !== 'slider') return null; const v = scene!.vars.find((x) => x.id === it.var)!; return (
               <button key={v.id} className={`chip ${knob === v.id ? 'on' : ''}`} onClick={() => touchKnob(v.id)}>{it.label ?? v.label ?? v.id} <b>{(vars[v.id] ?? v.init).toFixed(v.step && v.step < 1 ? 2 : 1)}{v.unit ? ` ${v.unit}` : ''}</b></button>
             ); })}
           </div>
         )}
-        {caption && <div className="caption" onClick={nextStep}>{caption}</div>}
+        {caption && <div className="caption" onClick={nextStep}>{/^([^:]{1,24}): (.+)$/s.test(caption) ? <><span className="who">{caption.split(': ')[0]}</span>{caption.slice(caption.indexOf(': ') + 2)}</> : caption}</div>}
         {scene && (
-          <div className="controls">
-            <button className="round" onClick={replay} aria-label="Replay"><Icon name="replay" /></button>
-            <button className="round big" onClick={togglePause} aria-label={paused ? 'Play' : 'Pause'}><Icon name={paused ? 'play' : 'pause'} size={26} /></button>
-            <button className={`round big mic ${voice}`} onClick={toggleVoice} aria-label={voice === 'off' ? 'Ask a question' : 'Stop listening'} disabled={status !== 'ready'}><Icon name={voice === 'off' ? 'mic' : voice === 'error' ? 'cross' : 'stop'} size={26} /></button>
-            {scene.steps.length > 1 && <button className="round" onClick={nextStep} aria-label="Next"><Icon name="next" /></button>}
+          <div className="actions-row">
+            <button className="round small" onClick={replay} aria-label="Replay" title="Replay"><Icon name="replay" size={20} /></button>
+            <button className="round big" onClick={togglePause} aria-label={paused ? 'Play' : 'Pause'}><Icon name={paused ? 'play' : 'pause'} size={24} /></button>
+            <button className={`pill ${voice === 'off' ? '' : voice}`} onClick={toggleVoice} aria-label={voice === 'off' ? 'Ask a question' : 'Stop listening'} disabled={status !== 'ready'}>{voice === 'off' ? <GeminiSpark size={16} /> : <Icon name={voice === 'error' ? 'cross' : 'stop'} size={16} />}{voice === 'off' ? 'Ask' : voice === 'listening' ? 'Listening' : voice === 'speaking' ? 'Answering' : voice === 'error' ? 'Try again' : 'One moment'}</button>
+            {sliders.length > 0 && <button className={`pill ${whatIf ? 'on' : ''}`} onClick={toggleWhatIf} aria-pressed={whatIf}><Icon name="knob" size={16} />What if?</button>}
+            {scene.steps.length > 1 && <button className="round small" onClick={nextStep} aria-label="Next" title="Next"><Icon name="next" size={20} /></button>}
           </div>
         )}
         {scene && scene.steps.length > 1 && <div className="dots">{scene.steps.map((s, i) => <span key={s.id} className={i === stepIndex ? 'on' : ''} />)}</div>}

@@ -17,6 +17,8 @@ const FONT: Record<string, string> = {
   mono: 'ui-monospace, Menlo, monospace',
 };
 
+const REDUCED_MOTION = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; spin: number; g: Graphics; pathT?: number };
 
 export class SceneRenderer {
@@ -209,7 +211,7 @@ export class SceneRenderer {
         if (el.tint) s.tint = el.tint;
         // liveliness: a sprite with no animation of its own still breathes a little
         let bobY = 0, bobR = 0;
-        if (!el.anim.length) { const ph = hashId(el.id); const t = performance.now() / 1000; bobY = Math.sin(t * 1.4 + ph) * Math.min(10, h * 0.05); bobR = Math.sin(t * 0.9 + ph) * 0.02; }
+        if (!el.anim.length && !REDUCED_MOTION) { const ph = hashId(el.id); const t = performance.now() / 1000; bobY = Math.sin(t * 1.4 + ph) * Math.min(10, h * 0.05); bobR = Math.sin(t * 0.9 + ph) * 0.02; }
         node.position.set(r.x + w / 2, r.y + h / 2 + bobY);
         node.rotation += bobR;
         // a cut-out that has moved away from where it was printed leaves a paper-coloured patch behind, so the
@@ -399,7 +401,7 @@ export class SceneRenderer {
     const speed = (r.speed ?? 1) * r.scale;
     const preset = el.preset;
     const color = el.color ? Number(`0x${el.color.replace('#', '')}`) || 0xffffff : undefined;
-    st.acc += (r.rate ?? 40) * dt;
+    st.acc += (r.rate ?? 40) * dt * (REDUCED_MOTION ? 0.3 : 1);
     while (st.acc >= 1 && st.list.length < (preset === 'electrons' ? 40 : 400)) {
       st.acc -= 1;
       const g = new Graphics();
