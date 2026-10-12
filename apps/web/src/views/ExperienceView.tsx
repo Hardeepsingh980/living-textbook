@@ -30,6 +30,12 @@ const REVEAL_TIMEOUT_MS = 75000;   // generation that produces nothing usable in
 const DEBUG = new URLSearchParams(location.search).has('debug');
 const REVIEW = new URLSearchParams(location.search).has('review'); // chrome-free rendering for screenshots and judging
 const PRESENT = new URLSearchParams(location.search).has('present'); // whole page, title and captions, no controls: for recordings
+/** Desktops and landscape tablets: the page sits whole on the left and the lesson panel is docked at the right (the
+ *  same query is in index.css, `.experience.wide`). */
+const WIDE_QUERY = '(min-width: 900px) and (min-aspect-ratio: 5/4)';
+/** The docked panel's width on a wide screen, and the room kept under the page for the caption and controls elsewhere. */
+const panelWidth = (cw: number) => Math.round(Math.min(420, Math.max(320, cw * 0.3)));
+const reserveBelow = (cw: number) => (cw <= 440 ? 262 : 214);
 const CONTAIN = REVIEW || PRESENT;
 const LIVE_LESSON = !REVIEW;       // the tutor narrates over Gemini Live; judging screenshots use the recorded clips
 // recordings: when each clip starts (page time), so narration can be mixed into the captured video afterwards
@@ -93,6 +99,8 @@ export function ExperienceView({ onBack }: Props) {
   const questionText = useRef('');     // progressive disclosure: knobs appear only when asked for
   const [speaking, setSpeaking] = useState(false);
   const [fit, setFit] = useState({ scale: 1, x: 0, y: 0 });
+  const [wide, setWide] = useState<{ on: boolean; panel: number; x0: number; x1: number }>({ on: false, panel: 380, x0: 24, x1: 0 });
+  const topBarRef = useRef<HTMLDivElement>(null);
   const [arState, setArState] = useState<TrackerState>('idle');
   const [arLive, setArLive] = useState(false);
   const [lostLong, setLostLong] = useState(false);
@@ -519,12 +527,39 @@ export function ExperienceView({ onBack }: Props) {
   const onPhoto = !arAvailable || lostLong || searchGaveUp;
   const layerPlaced = onPhoto || arLive; // in camera mode the layer has a transform only once the page has been found
   const computeFit = useCallback(() => {
-    const st = stageRef.current; if (!st || !page) return;
-    const cw = st.clientWidth, ch = st.clientHeight, { w, h } = page;
-    const scale = CONTAIN ? Math.min(cw / w, ch / h) : Math.max(cw / w, ch / h); // review and presentation modes: the whole page
-    setFit({ scale, x: (cw - w * scale) / 2, y: (ch - h * scale) / 2 });
+    const st = stageRef.current; if (!st) return;
+    const cw = st.clientWidth, ch = st.clientHeight;
+    const isWide = !CONTAIN && window.matchMedia(WIDE_QUERY).matches, panel = panelWidth(cw), GAP = 40;
+    const setLayout = (x0: number, x1: number) => setWide((o) => (o.on === isWide && o.panel === panel && o.x0 === x0 && o.x1 === x1 ? o : { on: isWide, panel, x0, x1 }));
+    const pg = page ?? { w: 1000, h: 1341 };
+    const { w, h } = pg;
+    if (CONTAIN) { setLayout(24, cw - 24); if (page) { const scale = Math.min(cw / w, ch / h); setFit({ scale, x: (cw - w * scale) / 2, y: (ch - h * scale) / 2 }); } return; } // review and presentation: the whole frame
+    // the photo: the whole page, never cropped, in the room the bars leave for it: on a wide screen the page and the
+    // docked panel are one group centred in the window (the top bar spans the group); elsewhere the page sits above
+    // the caption and controls
+    const bar = topBarRef.current?.getBoundingClientRect(), stTop = st.getBoundingClientRect().top;
+    const top = Math.max(52, (bar && bar.height ? bar.bottom - stTop : 52) + (isWide ? 16 : 10));
+    if (isWide) {
+      const aw = Math.max(40, cw - 48 - GAP - panel), ah = Math.max(40, ch - 24 - top);
+      const scale = Math.min(aw / w, ah / h), pw = w * scale;
+      const x0 = Math.round(Math.max(24, (cw - (pw + GAP + panel)) / 2));
+      setLayout(x0, Math.round(x0 + pw + GAP + panel));
+      if (page) setFit({ scale, x: x0, y: top + (ah - h * scale) / 2 });
+      return;
+    }
+    setLayout(8, cw - 8);
+    if (!page) return;
+    const aw = Math.max(40, cw - 16), ah = Math.max(40, ch - reserveBelow(cw) - top);
+    const scale = Math.min(aw / w, ah / h);
+    setFit({ scale, x: 8 + (aw - w * scale) / 2, y: top + (ah - h * scale) / 2 });
   }, [page]);
-  useEffect(() => { computeFit(); window.addEventListener('resize', computeFit); return () => window.removeEventListener('resize', computeFit); }, [computeFit]);
+  useEffect(() => {
+    computeFit();
+    window.addEventListener('resize', computeFit);
+    const ro = typeof ResizeObserver !== 'undefined' && stageRef.current ? new ResizeObserver(() => computeFit()) : null;
+    if (ro && stageRef.current) ro.observe(stageRef.current);
+    return () => { window.removeEventListener('resize', computeFit); ro?.disconnect(); };
+  }, [computeFit]);
 
   const r = active();
   const sliders = scene?.interactions.filter((i) => i.type === 'slider') ?? [];
@@ -542,7 +577,7 @@ export function ExperienceView({ onBack }: Props) {
   const captionParts = captionBy === 'line' && /^([^:]{1,24}): (.+)$/s.test(caption) ? { who: caption.split(': ')[0]!, text: caption.slice(caption.indexOf(': ') + 2) } : null;
 
   return (
-    <div className={`experience ${onPhoto ? 'on-photo' : 'on-camera'} ${arLive && revealedVersion > 0 ? 'found' : ''} ${revealed ? 'revealed' : 'working'} ${PRESENT ? 'present' : ''}`}>
+    <div className={`experience ${onPhoto ? 'on-photo' : 'on-camera'} ${arLive && revealedVersion > 0 ? 'found' : ''} ${revealed ? 'revealed' : 'working'} ${PRESENT ? 'present' : ''} ${wide.on ? 'wide' : ''}`} style={{ ['--panel-w' as any]: `${wide.panel}px`, ['--group-x0' as any]: `${wide.x0}px`, ['--group-x1' as any]: `${wide.x1}px` }}>
       <div ref={stageRef} className="stage" onClick={() => mixer.unlock()}>
         {pageImageUrl && page && <img className="page-photo" src={pageImageUrl} alt="" style={{ transform: fitTransform, width: page.w, height: page.h, opacity: onPhoto ? 1 : 0 }} />}
         <div ref={layerRef} className={`page-layer ${layerPlaced ? '' : 'hidden'}`} style={{ width: page?.w, height: page?.h, ...(onPhoto ? { transform: fitTransform } : {}) }}>
@@ -555,7 +590,7 @@ export function ExperienceView({ onBack }: Props) {
         {arAvailable && !arLive && revealed && status !== 'error' && arState !== 'idle' && everFound.current && <div className="ar-hint note-pill">Point the camera at the page</div>}
       </div>
 
-      {!REVIEW && <div className={`top-bar ${PRESENT ? 'present' : ''}`}>
+      {!REVIEW && <div ref={topBarRef} className={`top-bar ${PRESENT ? 'present' : ''}`}>
         {!PRESENT && <button className="round" onClick={onBack} aria-label="Back"><Icon name="back" /></button>}
         {phrase || title ? <div className={`title-pill ${phrase ? 'working' : ''}`}>{phrase ? <GeminiSpark state="thinking" size={18} /> : null}<span>{phrase || title}</span></div> : <div className="spacer" />}
         {!PRESENT && <button className="round small" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute' : 'Mute'}><Icon name={muted ? 'soundOff' : 'sound'} size={20} /></button>}
@@ -581,7 +616,7 @@ export function ExperienceView({ onBack }: Props) {
             ); })}
           </div>
         )}
-        {caption && <div key={captionBy + caption.slice(0, 12)} className={`caption ${captionBy === 'you' ? 'you' : ''}`} onClick={nextStep}>{captionParts ? <><span className="who">{captionParts.who}</span>{captionParts.text}</> : captionBy === 'you' ? <><span className="who">You</span>{caption}</> : caption}</div>}
+        {caption && <div key={captionBy + caption.slice(0, 12)} className={`caption ${captionBy === 'you' ? 'you' : ''}`} onClick={nextStep}><div className="caption-clip"><span>{captionParts ? <><span className="who">{captionParts.who}</span>{captionParts.text}</> : captionBy === 'you' ? <><span className="who">You</span>{caption}</> : caption}</span></div></div>}
         {scene && !PRESENT && (
           <div className="actions-row">
             <button className="round small" onClick={replay} aria-label="Replay" title="Replay"><Icon name="replay" size={20} /></button>

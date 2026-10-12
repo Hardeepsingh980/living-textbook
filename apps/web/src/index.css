@@ -178,6 +178,27 @@ button:focus-visible, label:focus-visible, input:focus-visible { outline: 3px da
 .knob-label { font-size: 19px; } .knob-label b { color: var(--pen); font-family: var(--font-head); }
 .knob-panel input { width: 100%; accent-color: var(--marker); height: 32px; }
 .enter { animation: rise var(--standard) var(--ease-out) 1; }
+
+/* the photo of the page lies whole on the desk, a sheet with a soft shadow */
+.experience.on-photo .page-photo { box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06); border-radius: 6px; }
+/* beyond a phone, the bars are as wide as their content, not the window */
+@media (min-width: 600px) {
+  .top-bar:not(.present) .title-pill { flex: 0 1 auto; max-width: min(640px, 55vw); margin-right: auto; }
+  .experience:not(.wide):not(.present) .bottom { left: 50%; right: auto; width: min(760px, calc(100% - 2 * var(--space-3))); transform: translateX(-50%); }
+}
+/* captions show their latest three lines (older words slide out at the top), so they never bury the page */
+.caption-clip { display: flex; flex-direction: column; justify-content: flex-end; max-height: calc(1.35em * 3); overflow: hidden; }
+.caption-clip > span { display: block; }
+/* desktops and landscape tablets (the same query as WIDE_QUERY in ExperienceView): the page and the lesson panel are
+   one group centred in the window; the panel's controls stay put while the caption above them grows */
+.experience.wide .top-bar { left: var(--group-x0); right: calc(100% - var(--group-x1)); }
+.experience.wide .bottom { left: calc(var(--group-x1) - var(--panel-w)); right: auto; top: calc(76px + var(--safe-top)); bottom: calc(24px + var(--safe-bottom)); width: var(--panel-w); align-content: end; justify-items: stretch; gap: var(--space-3); }
+.experience.wide .caption { font-size: 21px; text-align: left; padding: 14px 18px; }
+.experience.wide .caption-clip { max-height: calc(1.35em * 12); }
+.experience.wide .actions-row, .experience.wide .knobs { justify-content: flex-start; }
+.experience.wide .dots { justify-self: start; }
+.experience.wide .theatre-dock { left: calc(var(--group-x1) - var(--panel-w)); right: auto; width: var(--panel-w); top: calc(76px + var(--safe-top)); max-height: calc(100% - 110px); overflow: auto; z-index: 6; }
+.experience.wide .ar-hint { left: calc(var(--group-x0) + (var(--group-x1) - var(--group-x0) - var(--panel-w) - 40px) / 2); }
 @keyframes rise { from { opacity: 0; transform: translateY(10px) rotate(-1deg); } to { opacity: 1; transform: none; } }
 .enter-page { animation: page-in var(--slow) var(--ease-out) 1; }
 @keyframes page-in { from { opacity: 0; transform: translateX(24px) rotate(1deg); } to { opacity: 1; transform: none; } }
