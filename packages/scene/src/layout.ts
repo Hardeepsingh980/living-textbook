@@ -2,7 +2,7 @@
 // printed ink. The model proposes positions; this pass measures what is actually printed under them (an ink map of
 // the page photo) and nudges them to the nearest clean spot, moving stacked readouts together as one block.
 import { compile } from './expr.js';
-import { SceneRuntime } from './runtime.js';
+import { SceneRuntime, type ResolvedElement } from './runtime.js';
 import type { Scene, Element, BoxT } from './schema.js';
 
 /** Fraction of dark pixels per cell of a coarse grid over the page (row-major), in page units. */
@@ -87,7 +87,9 @@ export function freeRegionsFromInk(ink: InkMap, mainFigure?: BoxT): BoxT[] {
   return out.map((b) => b.map(Math.round) as BoxT);
 }
 
-type Item = { ids: string[]; els: Element[]; box: BoxT; kind: 'plot' | 'label' | 'bubble' };
+type Item = { ids: string[]; els: Element[]; box: BoxT; kind: 'plot' | 'label' | 'bubble'; avoid?: BoxT[] };
+/** Where the caption begins, as a fraction of the page height: two or three lines of captions cover the rest when the page fills the screen. */
+export const CAPTION_STRIP = 0.87;
 
 const CHAR_W = 0.6; // average glyph advance as a fraction of the font size (handwritten faces are wide)
 const drawnSize = (size: number) => Math.max(30, size * 1.12); // the renderer's own rule
@@ -103,18 +105,61 @@ function labelBox(el: Extract<Element, { type: 'label' }>, x: number, y: number,
   const left = el.align === 'left' ? x : el.align === 'right' ? x - width : x - width / 2;
   return [left - pad, y - height / 2 - pad * 0.6, left + width + pad, y + height / 2 + pad * 0.6];
 }
+/** The box a bubble is drawn in, by the renderer's own rules: text wrapped at min(W/2, 420) in a face of drawnSize, on
+ *  a paper card (speech) or inside a cloud of puffs (thought). Word wrapping wastes a little of each line. */
 function bubbleBox(el: Extract<Element, { type: 'bubble' }>, x: number, y: number, pageW: number): BoxT {
   const maxW = Math.min(pageW * 0.5, 420);
   const size = drawnSize(el.size);
   const wdt = Math.max(1, el.text.length) * size * CHAR_W;
-  const width = Math.min(wdt, maxW), lines = Math.ceil(wdt / maxW), pad = size * 0.6;
-  const w = width + pad * 2, h = lines * el.size * 1.25 + pad * 1.4;
-  return [x - w / 2, y - h / 2, x + w / 2, y + h / 2];
+  const textW = Math.min(wdt, maxW), lines = Math.max(1, Math.ceil(wdt / (maxW * 0.92))), textH = lines * size * 1.25;
+  let hw: number, hh: number;
+  if (el.style === 'thought') { const puff = Math.max(12, Math.min(22, textH * 0.2)); hw = (textW + 8) / 2 + puff * 0.75 + 2.5; hh = (textH + 4) / 2 + puff * 0.75 + 2.5; }
+  else { const pad = el.size * 0.6; hw = textW / 2 + pad; hh = textH / 2 + pad * 0.7; }
+  return [x - hw, y - hh, x + hw, y + hh];
 }
 
 const union = (a: BoxT, b: BoxT): BoxT => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
 const intersects = (a: BoxT, b: BoxT, pad = 0) => a[0] < b[2] + pad && b[0] < a[2] + pad && a[1] < b[3] + pad && b[1] < a[3] + pad;
 const area = (b: BoxT) => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+/** Where things move: the box each moving element sweeps (particles and their flow paths, draw-on paths, anything bound
+ *  to time or animated), sampled over the time variable and the animation clock with every element shown. Labels,
+ *  readouts and plots are kept out of these, so text never sits on the animation. */
+export function movingFootprints(scene: Scene): BoxT[] {
+  const moving = new Set(motionReport(scene).moving);
+  if (!moving.size) return [];
+  const copy = JSON.parse(JSON.stringify(scene)) as Scene;
+  const rt = new SceneRuntime(copy);
+  for (const el of copy.elements) rt.show(el.id);
+  const tv = copy.vars.find((v) => v.role === 'time');
+  const span = tv ? Math.max(0.5, tv.max - tv.min) : 4;
+  const swept = new Map<string, BoxT>();
+  const add = (id: string, b: BoxT) => { const c = swept.get(id); swept.set(id, c ? union(c, b) : b); };
+  rt.setPlaying(!!tv);
+  for (let k = 0; k <= 24; k++) {
+    for (const r of rt.frame()) {
+      if (!moving.has(r.el.id) || r.el.type === 'label' || r.el.type === 'bubble' || r.el.type === 'plot') continue;
+      const b = resolvedBox(r); if (b) add(r.el.id, b);
+    }
+    rt.tick(span / 24);
+    if (tv && !rt.playing) { rt.resetTime(); rt.setPlaying(true); }
+  }
+  return [...swept.values()];
+}
+function resolvedBox(r: ResolvedElement): BoxT | null {
+  const el = r.el;
+  const fromPoints = (pts: [number, number][], pad: number): BoxT => { const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]); return [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad]; };
+  if (el.type === 'particles') {
+    if (el.path && el.path.length >= 2) return fromPoints(el.path as [number, number][], 20);
+    return el.region ? ([...el.region] as BoxT) : null;
+  }
+  if (r.points && r.points.length) return fromPoints(r.points, 12);
+  if (r.w !== undefined && Number.isFinite(r.w)) {
+    const w = r.w * r.scale, h = (r.h ?? r.w) * r.scale;
+    return Number.isFinite(h) ? [r.x - 10, r.y - 10, r.x + w + 10, r.y + h + 10] : null;
+  }
+  return null;
+}
+
 function overlapFraction(box: BoxT, others: BoxT[]): number {
   const a = area(box); if (!a) return 0;
   let covered = 0;
@@ -144,7 +189,7 @@ export function layoutScene(scene: Scene, ink: InkMap, issues: LayoutIssue[] = [
 
   // what is already there: sprites (pictures the reader should see) count as occupied, and so do the strips the
   // app's own chrome covers (the title note at the top, the caption at the bottom)
-  const occupied: BoxT[] = [[scene.page.w * 0.15, 0, scene.page.w * 0.85, scene.page.h * 0.07], [0, scene.page.h * 0.9, scene.page.w, scene.page.h]];
+  const occupied: BoxT[] = [[scene.page.w * 0.15, 0, scene.page.w * 0.85, scene.page.h * 0.07], [0, scene.page.h * CAPTION_STRIP, scene.page.w, scene.page.h]];
   for (const el of scene.elements) {
     if (el.type !== 'sprite' && !(el.type === 'shape' && !el.anchor && el.fill && (el.shape === 'rect' || el.shape === 'ellipse'))) continue;
     const x = resolve(el.x), y = resolve(el.y), w = resolve(el.w), h = resolve(el.h);
@@ -152,6 +197,8 @@ export function layoutScene(scene: Scene, ink: InkMap, issues: LayoutIssue[] = [
     const [ox, oy] = origin(el);
     occupied.push([ox + x, oy + y, ox + x + w, oy + y + h]);
   }
+  // and wherever something moves
+  try { for (const b of movingFootprints(scene)) occupied.push(b); } catch (e) { issues.push({ level: 'warn', where: 'layout', message: `motion footprint skipped: ${(e as Error).message}` }); }
 
   // candidates: plots, labels (grouped when stacked), bubbles
   const items: Item[] = [];
@@ -162,7 +209,18 @@ export function layoutScene(scene: Scene, ink: InkMap, issues: LayoutIssue[] = [
     if (x === null || y === null) continue;
     const [ox, oy] = origin(el);
     if (el.type === 'plot') { const w = resolve(el.w) ?? 300, h = resolve(el.h) ?? 220; items.push({ ids: [el.id], els: [el], box: [ox + x - 6, oy + y - 30, ox + x + w + 6, oy + y + h + 30], kind: 'plot' }); }
-    else if (el.type === 'bubble') items.push({ ids: [el.id], els: [el], box: bubbleBox(el, ox + x, oy + y, scene.page.w), kind: 'bubble' });
+    else if (el.type === 'bubble') {
+      // the speaker stays in view: the point the tail aims at (their face), and a printed speaker's whole drawing
+      const avoid: BoxT[] = [];
+      const tx = el.tail ? resolve(el.tail[0]) : null, ty = el.tail ? resolve(el.tail[1]) : null;
+      if (tx !== null && ty !== null) {
+        const px = ox + tx, py = oy + ty;
+        avoid.push([px - 40, py - 40, px + 40, py + 40]);
+        const a = el.anchor ? (scene.anchors[el.anchor] as BoxT | undefined) : undefined;
+        if (a && area(a) < scene.page.w * scene.page.h * 0.06 && px >= a[0] && px <= a[2] && py >= a[1] && py <= a[3]) avoid.push(a);
+      }
+      items.push({ ids: [el.id], els: [el], box: bubbleBox(el, ox + x, oy + y, scene.page.w), kind: 'bubble', avoid });
+    }
     else labels.push({ el, box: labelBox(el, ox + x, oy + y, scene.page.w) });
   }
   // stacked readouts move as one block: union-find on labels whose boxes touch
@@ -199,7 +257,8 @@ export function layoutScene(scene: Scene, ink: InkMap, issues: LayoutIssue[] = [
   for (const it of items) {
     const b0 = it.box, bw = b0[2] - b0[0], bh = b0[3] - b0[1];
     const cx0 = (b0[0] + b0[2]) / 2, cy0 = (b0[1] + b0[3]) / 2;
-    const cost = (b: BoxT): Hit => { const i = field.mean(b), mx = field.max(b), o = overlapFraction(b, occupied), f = it.kind === 'plot' ? overlapFraction(b, figures) : 0; return { b, i, mx, o, c: i * 3 + mx * 0.8 + o * 2.5 + f * 1.5 + (Math.hypot((b[0] + b[2]) / 2 - cx0, (b[1] + b[3]) / 2 - cy0) / W) * 1.2 }; };
+    const blocked = it.avoid?.length ? [...occupied, ...it.avoid] : occupied;
+    const cost = (b: BoxT): Hit => { const i = field.mean(b), mx = field.max(b), o = overlapFraction(b, blocked), f = it.kind === 'plot' ? overlapFraction(b, figures) : 0; return { b, i, mx, o, c: i * 3 + mx * 0.8 + o * 2.5 + f * 1.5 + (Math.hypot((b[0] + b[2]) / 2 - cx0, (b[1] + b[3]) / 2 - cy0) / W) * 1.2 }; };
     const here = cost(b0);
     before += here.i; report.worstBefore = Math.max(report.worstBefore, here.i);
     const tooDirty = it.kind === 'bubble' ? 0.03 : 0.012;
@@ -231,11 +290,17 @@ export function layoutScene(scene: Scene, ink: InkMap, issues: LayoutIssue[] = [
     }
     if (!chosen && it.kind !== 'bubble') {
       // last resort: blank space that touches a thin stroke of the figure beats printed text, when it is clearly cleaner
-      const relaxed = { i: 0.05, mx: 0.5, o: 0.2 };
+      const relaxed = { i: 0.05, mx: 0.5, o: 0.03 };
       const narrowest = wrapWidths[wrapWidths.length - 1];
       const [rw, rh] = narrowest !== undefined ? wrappedSize(narrowest) : [bw, bh];
       const r = search(rw, rh, relaxed, true);
       if (r && r.i <= Math.max(0.01, here.i * 0.5)) { chosen = r; wrapped = narrowest; }
+    }
+    if (!chosen && it.kind !== 'plot' && (here.o >= 0.03 || !inside(b0))) {
+      // nowhere clean, and where it stands it covers what must stay in view (the animation, a speaker, a picture, the
+      // app's own bars): the least-inked spot that covers none of those, even over printed text (the note is opaque)
+      const r = search(bw, bh, { i: 1.01, mx: 1.01, o: 0.03 }, true);
+      if (r) chosen = r;
     }
     if (!chosen) {
       if (it.kind === 'plot' && here.i >= 0.12) { scene.elements = scene.elements.filter((e) => e.id !== it.ids[0]); report.dropped.push(it.ids[0]!); issues.push({ level: 'warn', where: `elements.${it.ids[0]}`, message: 'plot dropped: no clean space for it on this page' }); continue; }

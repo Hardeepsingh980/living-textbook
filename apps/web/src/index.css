@@ -138,13 +138,23 @@ button:focus-visible, label:focus-visible, input:focus-visible { outline: 3px da
 @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.25); opacity: 0.7; } }
 
 /* contextual actions: a few paper pills, nothing more */
-.bottom { position: absolute; left: var(--space-3); right: var(--space-3); bottom: calc(var(--space-3) + var(--safe-bottom)); display: grid; gap: var(--space-3); z-index: 5; justify-items: center; }
+.bottom { position: absolute; left: var(--space-3); right: var(--space-3); bottom: calc(var(--space-3) + var(--safe-bottom)); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); z-index: 5; justify-items: center; }
+@media (max-width: 440px) { .caption { font-size: 17px; padding: 10px 14px; } .actions-row .pill { font-size: 16px; min-height: 42px; padding: 4px 10px; } .actions-row .round.big { width: 54px; height: 54px; } }
+/* on a phone the top bar keeps room for the title: Save moves down beside Quiz */
+.narrow-only { display: none !important; }
+@media (max-width: 440px) {
+  .wide-only { display: none !important; }
+  .narrow-only { display: inline-flex !important; }
+  .top-bar { gap: 6px; }
+  .top-bar .round { width: 40px; height: 40px; }
+  .title-pill { padding: 6px 12px; font-size: 16px; }
+}
 .caption { position: relative; width: 100%; text-align: center; background: var(--white); color: var(--pencil); border: 2.5px solid var(--pencil); border-radius: var(--wobbly-md); padding: 12px 18px; font-size: 20px; line-height: 1.35; text-wrap: balance; box-shadow: var(--shadow); animation: rise var(--standard) var(--ease-out) 1; }
 .caption::after { content: ''; position: absolute; left: 28px; bottom: -14px; width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-top: 14px solid var(--pencil); }
 .caption::before { content: ''; position: absolute; left: 31px; bottom: -9px; width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-top: 10px solid var(--white); z-index: 1; }
 .caption .who { font-family: var(--font-head); font-weight: 700; color: var(--pen); margin-right: 6px; }
 .caption.you { background: var(--postit); transform: rotate(0.5deg); }
-.actions-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: nowrap; justify-content: center; max-width: 100%; }
+.actions-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; row-gap: var(--space-2); justify-content: center; max-width: 100%; }
 .pill { min-height: 46px; padding: 6px 14px; background: var(--white); color: var(--pencil); border: 2.5px solid var(--pencil); border-radius: var(--wobbly-sm); box-shadow: var(--shadow-sm); font-size: 18px; white-space: nowrap; }
 .pill:hover { transform: translate(1px, 1px) rotate(-1deg); box-shadow: 2px 2px 0 0 var(--pencil); }
 .pill:active { transform: translate(3px, 3px); box-shadow: none; }

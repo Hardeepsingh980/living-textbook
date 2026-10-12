@@ -324,7 +324,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         parts: [{ text: `EXTRACTION:\n${extractionDigest(ex)}\n\nSCENE:\n${JSON.stringify({ vars: scene.vars, derived: scene.derived, elements: scene.elements.map((e) => ({ id: e.id, type: e.type, text: (e as any).text })), steps: scene.steps.map((s) => ({ id: s.id, title: s.title, narration: s.narration, say: s.say })), lines: scene.audio.lines })}` }],
       }), 40000, 'verify');
       usages.push(r.usage);
-      const checks: VerificationCheck[] = Array.isArray(r.json.checks) ? r.json.checks.filter((c: any) => c && c.name).map((c: any) => ({ name: String(c.name), method: ['page-answer', 'independent', 'faithfulness'].includes(c.method) ? c.method : 'faithfulness', expected: c.expected, got: c.got, pass: !!c.pass, detail: String(c.detail ?? '') })) : [];
+      const checks: VerificationCheck[] = Array.isArray(r.json.checks) ? r.json.checks.filter((c: any) => c && c.name).map((c: any) => ({ name: String(c.name), method: ['page-answer', 'independent', 'faithfulness'].includes(c.method) ? c.method : 'faithfulness', expected: c.expected, got: c.got, pass: !!c.pass, detail: String(c.detail ?? ''), ...(c.beyond === true && !c.pass ? { beyond: true } : {}) })) : [];
       // deterministic page-answer checks from the model's variable mapping
       let repaired = false;
       const runMapping = (sc: Scene) => {
@@ -357,11 +357,24 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         }
       }
       let det = runMapping(scene);
-      if (det.some((c) => !c.pass) && r.json.fixes?.derived?.length) {
+      if (r.json.fixes?.derived?.length) {
+        // the verifier's corrected formulas: taken when they fix a page answer, or (with no page answer at stake) when
+        // they replace a formula the page does not support; never when they break an answer that was right
         const fixed = structuredClone(scene);
-        for (const f of r.json.fixes.derived) { const d = fixed.derived.find((x) => x.id === f.id); if (d && typeof f.expr === 'string') d.expr = f.expr; }
-        const n = normalize(fixed);
-        if (n.scene) { const det2 = runMapping(n.scene); if (det2.filter((c) => c.pass).length > det.filter((c) => c.pass).length) { scene = n.scene; det = det2; repaired = true; } }
+        const changedIds: string[] = [];
+        for (const f of r.json.fixes.derived) { const d = fixed.derived.find((x) => x.id === f.id); if (d && typeof f.expr === 'string' && f.expr.trim() && f.expr !== d.expr) { d.expr = f.expr; changedIds.push(d.id); } }
+        const n = changedIds.length ? normalize(fixed) : null;
+        if (n?.scene) {
+          const det2 = runMapping(n.scene);
+          const better = det2.filter((c) => c.pass).length > det.filter((c) => c.pass).length;
+          const noWorse = det2.filter((c) => c.pass).length >= det.filter((c) => c.pass).length;
+          if (better || (det.every((c) => c.pass) && noWorse)) {
+            scene = n.scene; det = det2; repaired = true;
+            const mentions = (c: VerificationCheck) => changedIds.some((id) => new RegExp(`(^|[^\\p{L}\\p{N}_])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\p{L}\\p{N}_]|$)`, 'u').test(`${c.name} ${c.detail} ${typeof c.got === 'string' ? c.got : ''}`));
+            for (const c of checks) if (!c.pass && c.method === 'faithfulness' && mentions(c)) { c.pass = true; c.detail = `${c.detail} (formula corrected)`; }
+            checks.push({ name: 'formulas corrected to match the page', method: 'faithfulness', pass: true, detail: changedIds.map((id) => `${id} = ${scene.derived.find((d) => d.id === id)?.expr}`).join('; ').slice(0, 200) });
+          }
+        }
       }
       if (Array.isArray(r.json.fixes?.narration) && r.json.fixes.narration.length) {
         const changed: string[] = [];
@@ -378,17 +391,29 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
           const unsup: string[] = Array.isArray(r.json.unsupported) ? r.json.unsupported.filter((s: any) => typeof s === 'string') : [];
           r.json.unsupported = unsup.filter((u: string) => !gone(u));
           // the verifier wrote the fix for its own narration complaints: applying it settles them
-          for (const c of checks) if (!c.pass && c.method === 'faithfulness' && (/narration|step|script|says/i.test(`${c.name} ${c.detail}`) || changed.some((sid) => new RegExp(`(^|[^\\p{L}\\p{N}])${sid}([^\\p{L}\\p{N}]|$)`, 'u').test(`${c.name} ${c.detail}`)) || unsup.some((u) => gone(u) && normT(c.detail).includes(normT(u).slice(0, 30))))) { c.pass = true; c.detail = `${c.detail} (narration rewritten)`; }
+          for (const c of checks) if (!c.pass && c.method === 'faithfulness' && (/narration|step|script|says/i.test(`${c.name} ${c.detail}`) || changed.some((sid) => new RegExp(`(^|[^\\p{L}\\p{N}])${sid}([^\\p{L}\\p{N}]|$)`, 'u').test(`${c.name} ${c.detail}`)) || unsup.some((u) => gone(u) && normT(c.detail).includes(normT(u).slice(0, 30))) || (typeof c.got === 'string' && gone(c.got)))) { c.pass = true; c.detail = `${c.detail} (narration rewritten)`; }
           checks.push({ name: 'narration rewritten to match the page', method: 'faithfulness', pass: true, detail: changed.map((sid) => `${sid}: "${scene.steps.find((s) => s.id === sid)?.narration?.slice(0, 80)}"`).join(' | ').slice(0, 220) });
           await revoiceSteps(scene, version, changed);
         }
       }
       if (Array.isArray(r.json.fixes?.labels) && r.json.fixes.labels.length) {
         const fixed = structuredClone(scene);
-        for (const f of r.json.fixes.labels) { const el = fixed.elements.find((x) => x.id === f.id); if (el && 'text' in el && typeof f.text === 'string') (el as any).text = f.text; }
-        const n = normalize(fixed); if (n.scene) { scene = n.scene; repaired = true; }
+        const relabelled: { id: string; old: string }[] = [];
+        for (const f of r.json.fixes.labels) { const el = fixed.elements.find((x) => x.id === f.id); if (el && 'text' in el && typeof f.text === 'string' && f.text !== (el as any).text) { relabelled.push({ id: el.id, old: String((el as any).text) }); (el as any).text = f.text; } }
+        const n = relabelled.length ? normalize(fixed) : null;
+        if (n?.scene) {
+          scene = n.scene; repaired = true;
+          // the verifier rewrote the labels it complained about: those complaints are settled
+          const normL = (x: string) => x.toLowerCase().replace(/\{[^}]*\}/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+          const names = (c: VerificationCheck) => relabelled.some((l) => new RegExp(`(^|[^\\p{L}\\p{N}_])${l.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\p{L}\\p{N}_]|$)`, 'u').test(`${c.name} ${c.detail}`) || (typeof c.got === 'string' && normL(c.got).length > 3 && normL(l.old).includes(normL(c.got).slice(0, 40))));
+          for (const c of checks) if (!c.pass && c.method === 'faithfulness' && names(c)) { c.pass = true; c.detail = `${c.detail} (label rewritten)`; }
+          checks.push({ name: 'labels rewritten to match the page', method: 'faithfulness', pass: true, detail: relabelled.map((l) => `${l.id}: "${(scene.elements.find((e) => e.id === l.id) as any)?.text ?? ''}"`).join(' | ').slice(0, 200) });
+        }
       }
-      let unsupported: string[] = Array.isArray(r.json.unsupported) ? r.json.unsupported.filter((s: any) => typeof s === 'string') : [];
+      // a claim that is correct and agrees with the page, but is not printed on it, stays visible as a note for the reader
+      const beyondText = checks.filter((c) => c.beyond && !c.pass).map((c) => `${typeof c.got === 'string' ? c.got : ''} ${c.detail}`.toLowerCase());
+      for (const c of checks) if (c.beyond && !c.pass && c.method === 'faithfulness') { c.pass = true; c.name = `Beyond this page: ${c.name}`; c.detail = `Correct, but this page does not state it. ${c.detail}`; }
+      let unsupported: string[] = (Array.isArray(r.json.unsupported) ? r.json.unsupported.filter((s: any) => typeof s === 'string') : []).filter((u: string) => !beyondText.some((b) => b.includes(u.toLowerCase().slice(0, 40))));
       // a failing check that names a character line ("l2", "line l2") counts as a complaint about that line's text
       for (const c of checks) {
         if (c.pass || c.method !== 'faithfulness') continue;

@@ -37,7 +37,19 @@ for (const id of ids) {
   await page.goto(`${SERVER}/x/${id}?present=1`, { waitUntil: 'load' });
   const t0 = await page.evaluate(() => performance.now()); // page clock at (about) the start of the recording
   await page.waitForFunction(() => document.documentElement.dataset.assetsReady === '1', null, { timeout: 15000 }).catch(() => errors.push('assets not ready in 15 s'));
-  await page.waitForTimeout(SECONDS * 1000);
+  // --trace: what the reader saw and heard over time (step, tutor state, lesson phase, caption), one entry per change
+  const trace = [];
+  if (args.trace) {
+    const until = Date.now() + SECONDS * 1000;
+    let last = '';
+    while (Date.now() < until) {
+      const s = await page.evaluate(() => ({ st: window.__lbState?.() ?? null, caption: document.querySelector('.caption')?.textContent ?? '' })).catch(() => null);
+      const key = JSON.stringify([s?.st?.step, s?.st?.tutor, s?.st?.lesson, s?.st?.lessonStep, s?.caption]);
+      if (s && key !== last) { trace.push({ at: Math.round((await page.evaluate(() => performance.now())) - t0), ...s.st, caption: s.caption }); last = key; }
+      await page.waitForTimeout(400);
+    }
+    await fs.writeFile(path.join(OUT, `${name}.trace.json`), JSON.stringify(trace, null, 1));
+  } else await page.waitForTimeout(SECONDS * 1000);
   const clips = await page.evaluate(() => (window.__clipLog ?? []).slice());
   const live = await page.evaluate(() => (window.__liveAudio ?? []).slice());
   const rec = await fetch(`${SERVER}/api/experiences/${id}`).then((r) => r.json());

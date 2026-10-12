@@ -59,7 +59,8 @@ export class PageTracker {
   trackedPts = 0;
   fps = 0; private frames = 0; private fpsT = 0;
   lostAt = 0;
-  onCorners: ((c: Corners | null, state: TrackerState) => void) | null = null;
+  /** corners of the page in video pixels, and how a point raised above the page shifts against it (see liftOf) */
+  onCorners: ((c: Corners | null, state: TrackerState, lift?: [number, number] | null) => void) | null = null;
   onLog: ((msg: string) => void) | null = null;
   kf = 256;
 
@@ -185,6 +186,27 @@ export class PageTracker {
     return out as Corners;
   }
 
+  /** Parallax for things that float above the paper: where a point raised h above the page centre appears, read back
+   *  as a point on the page, divided by h. Page-unit shift per unit of height, the same in any units; (0, 0) seen from
+   *  straight above, growing as the phone tilts. */
+  private liftOf(mv: MV): [number, number] | null {
+    try {
+      const m = buildModelViewProjectionTransform(this.K, mv) as number[][];
+      const cx = this.targetW / 2, cy = this.targetH / 2, h = this.targetW * 0.08;
+      // raised means nearer the camera: the sign of z that makes the point's depth smaller
+      const depth = (z: number) => m[2]![0]! * cx + m[2]![1]! * cy + m[2]![2]! * z + m[2]![3]!;
+      const z = depth(h) < depth(-h) ? h : -h;
+      const p = computeScreenCoordiate(m, cx, cy, z);
+      // invert the page plane's homography (z = 0) at that screen point
+      const a = m[0]![0]!, b = m[0]![1]!, c = m[0]![3]!, d = m[1]![0]!, e = m[1]![1]!, f = m[1]![3]!, g = m[2]![0]!, hh = m[2]![1]!, i = m[2]![3]!;
+      const sx = p.x, sy = p.y;
+      const A = a - g * sx, B = b - hh * sx, C = i * sx - c, D = d - g * sy, E = e - hh * sy, F = i * sy - f;
+      const det = A * E - B * D; if (Math.abs(det) < 1e-9) return null;
+      const u = (C * E - B * F) / det, v = (A * F - C * D) / det;
+      return [(u - cx) / h, (v - cy) / h];
+    } catch { return null; }
+  }
+
   private drawInput() { this.inputCtx.drawImage(this.video, 0, 0, this.input.width, this.input.height); }
 
   /** Try the local tracker from a grid of poses around `center` (translations and scales); return the pose with most matches. */
@@ -282,7 +304,7 @@ export class PageTracker {
         } else if (!this.hasMatching) this.state = 'lost';
       }
     } finally { inputT.dispose(); }
-    if (this.state === 'tracking' && this.mv) this.onCorners?.(this.filter.filter(performance.now(), this.project(this.mv)) as Corners, this.state);
+    if (this.state === 'tracking' && this.mv) this.onCorners?.(this.filter.filter(performance.now(), this.project(this.mv)) as Corners, this.state, this.liftOf(this.mv));
     else this.onCorners?.(null, this.state);
   }
 

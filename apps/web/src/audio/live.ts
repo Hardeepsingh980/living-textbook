@@ -9,6 +9,9 @@ export type TutorEvents = {
   onState?: (s: TutorState, detail?: string) => void;
   onTranscript?: (role: 'user' | 'model', text: string, final: boolean) => void;
   onTool?: (name: string, args: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown>>;
+  /** the model finished a turn and its last audio has played; `spoke` is false for a turn that only called a tool
+   *  (the model then speaks in the turn that follows the tool's result) */
+  onTurnDone?: (spoke: boolean) => void;
 };
 
 const RECONNECT_DELAYS = [800, 1600, 3200];
@@ -30,12 +33,17 @@ export class LiveTutor {
   private lastUserSpeechAt = 0;
   private outputMuted = false;
   private lastError = '';
+  private spokeThisTurn = false;
+  /** when the model's voice last arrived (performance.now), muted or not */
+  lastAudioAt = 0;
 
   constructor(private experienceId: string, private getState: () => Record<string, number>, private ev: TutorEvents = {}) {}
 
   get current() { return this.state; }
   get listening() { return this.micOn; }
   get active() { return this.state !== 'off' && this.state !== 'unavailable'; }
+  /** the reader made a sound in the last `ms` (the microphone's own level, before any transcript arrives) */
+  heardRecently(ms: number) { return performance.now() - this.lastUserSpeechAt < ms; }
 
   private setState(s: TutorState, detail?: string) { if (this.state === s) return; this.state = s; this.ev.onState?.(s, detail); }
 
@@ -123,6 +131,7 @@ export class LiveTutor {
       case 'ready': this.sessionReady = true; this.setState(this.micOn ? 'listening' : 'ready'); break;
       case 'reconnecting': this.sessionReady = false; this.cutPlayback(); this.setState('reconnecting'); break;
       case 'audio': {
+        this.spokeThisTurn = true; this.lastAudioAt = performance.now();
         if (this.outputMuted) break;
         const bytes = Uint8Array.from(atob(m.data), (c) => c.charCodeAt(0));
         const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
@@ -154,11 +163,16 @@ export class LiveTutor {
         if (this.state === 'acting') this.setState('thinking');
         break;
       }
-      case 'turnComplete':
-        this.ev.onTranscript?.('model', this.modelText, true); this.modelText = '';
+      case 'turnComplete': {
+        const spoke = this.spokeThisTurn || !!this.modelText.trim();
+        this.spokeThisTurn = false;
+        if (this.modelText) this.ev.onTranscript?.('model', this.modelText, true);
+        this.modelText = '';
         // the audio tail is still scheduled: switch back once it has played
-        { const waitMs = Math.max(0, (this.playhead - ctx.currentTime) * 1000); setTimeout(() => { if (this.state === 'speaking' || this.state === 'thinking') this.setState(this.micOn ? 'listening' : 'ready'); }, waitMs + 80); }
+        const waitMs = Math.max(0, (this.playhead - ctx.currentTime) * 1000);
+        setTimeout(() => { if (this.state === 'speaking' || this.state === 'thinking') this.setState(this.micOn ? 'listening' : 'ready'); this.ev.onTurnDone?.(spoke); }, waitMs);
         break;
+      }
       case 'interrupted': this.cutPlayback(); this.modelText = ''; this.setState('interrupted'); setTimeout(() => { if (this.state === 'interrupted') this.setState(this.micOn ? 'listening' : 'ready'); }, 600); break;
       case 'error': console.warn('[tutor]', m.message); if (!this.sessionReady) { const notFound = /not found/i.test(String(m.message)); this.lastError = String(m.message); if (!notFound) this.setState('unavailable', m.message); else this.ws?.close(); } break;
       case 'closed': this.sessionReady = false; if (!this.stopped) this.setState('unavailable', m.reason); break;

@@ -41,6 +41,8 @@ export type VerificationCheck = {
   got?: number | string;
   pass: boolean;
   detail: string;
+  /** a claim that is correct and agrees with the page, but that the page itself does not state: a note, not a failure */
+  beyond?: boolean;
 };
 export type Verification = {
   status: 'verified-page' | 'checked-independently' | 'faithful' | 'unverified' | 'failed';

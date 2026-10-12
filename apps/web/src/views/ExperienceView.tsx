@@ -114,7 +114,7 @@ export function ExperienceView({ onBack }: Props) {
   // recordings and debugging can read the simulation's state
   useEffect(() => {
     if (!PRESENT && !DEBUG) return;
-    (window as any).__lbState = () => { const r = active(); if (!r) return null; const rt: any = r.runtime; const tv = rt.scene.vars.find((v: any) => v.role === 'time'); return { t: tv ? rt.getVar(tv.id) : null, max: tv?.max, playing: rt.playing, step: rt.stepIndex, paused: pausedRef.current, tutor: tutorRef.current ? (tutorRef.current as any).state : null }; };
+    (window as any).__lbState = () => { const r = active(); if (!r) return null; const rt: any = r.runtime; const tv = rt.scene.vars.find((v: any) => v.role === 'time'); return { t: tv ? rt.getVar(tv.id) : null, max: tv?.max, playing: rt.playing, step: rt.stepIndex, paused: pausedRef.current, tutor: tutorRef.current ? (tutorRef.current as any).state : null, lesson: conductor.current.phase, lessonStep: conductor.current.step }; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -207,7 +207,10 @@ export function ExperienceView({ onBack }: Props) {
   useEffect(() => { for (const r of renderers.current) if (r) void Promise.all(Object.entries(assets).map(([id, url]) => r.addAsset(id, url))); }, [assets]);
   useEffect(() => { mixer.setMuted(muted || CONTAIN); tutorRef.current?.setOutputMuted(muted || pausedRef.current); }, [muted]);
   useEffect(() => { const id = window.setInterval(() => setSpeaking((s) => (s === speechRef.current.busy ? s : speechRef.current.busy)), 250); return () => clearInterval(id); }, []);
-  useEffect(() => () => { speechRef.current.clear(); for (const r of renderers.current) r?.destroy(); mixer.destroy(); CameraSession.current?.stop(); tutorRef.current?.stop(); }, []);
+  useEffect(() => () => {
+    const c = conductor.current; c.phase = 'off'; if (c.timer) window.clearTimeout(c.timer); if (c.watchdog) window.clearTimeout(c.watchdog);
+    speechRef.current.clear(); for (const r of renderers.current) r?.destroy(); mixer.destroy(); CameraSession.current?.stop(); tutorRef.current?.stop();
+  }, []);
 
   // ---------- the reveal: only a version that is verified, voiced and drawn becomes visible ----------
   const ver = scene ? verifications[sceneVersion] : undefined;
@@ -262,14 +265,70 @@ export function ExperienceView({ onBack }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealed, experienceId]);
 
-  // the lesson keeps moving: when the tutor has finished a step and gone quiet, it is asked to carry on (unless the
-  // lesson is over, paused, or the reader is in the middle of something)
-  useEffect(() => {
-    if (!tutorLive.current || !revealed || !scene || paused) return;
-    if (!(tutor === 'ready' || tutor === 'listening') || stepIndex >= scene.steps.length - 1) return;
-    const id = window.setTimeout(() => { const t = tutorRef.current; if (t && (t.current === 'ready' || t.current === 'listening') && !pausedRef.current) t.sendText('continue'); }, 3000);
-    return () => clearTimeout(id);
-  }, [tutor, stepIndex, revealed, scene, paused]);
+  // ---------- the lesson, conducted: the app moves the page from step to step and hands the tutor one step at a time;
+  // the next step starts when the tutor has finished speaking. Only after the last step does the tutor show a what-if
+  // and invite questions. The reader may interrupt at any moment; after the answer, the interrupted step is finished.
+  const conductor = useRef<{ phase: 'off' | 'steps' | 'end' | 'open'; step: number; interrupted: boolean; timer: number | null; watchdog: number | null; sentAt: number; retries: number }>({ phase: 'off', step: 0, interrupted: false, timer: null, watchdog: null, sentAt: 0, retries: 0 });
+  const stepMessage = (sc: Scene, i: number, resume: boolean) => {
+    const st = sc.steps[i]!, n = sc.steps.length;
+    return resume
+      ? `LESSON STEP ${i + 1} OF ${n}, CONTINUED. The reader spoke while you were explaining this step. Finish it in one or two short sentences without repeating yourself. Script: "${st.narration ?? ''}"`
+      : `LESSON STEP ${i + 1} OF ${n}${st.title ? ` ("${st.title}")` : ''}. The page now shows this step. Script: "${st.narration ?? ''}" Explain this step now in three or four short sentences of your own, keeping every number and name exactly, and point at what is moving on the page. Do not ask the reader anything and do not mention later steps.`;
+  };
+  /** Hand the tutor one step: 'new' moves the page there first, 'resume' asks it to finish a step the reader
+   *  interrupted, 'retry' sends a step again that it never began. */
+  function conductStep(i: number, mode: 'new' | 'resume' | 'retry' = 'new') {
+    const sc = useStore.getState().scene, r = active(), t = tutorRef.current;
+    if (!sc || !r || !t || !sc.steps[i]) return;
+    const c = conductor.current;
+    c.phase = 'steps'; c.step = i; c.interrupted = false; c.sentAt = performance.now(); if (mode !== 'retry') c.retries = 0;
+    if (mode === 'new' && r.runtime.stepIndex !== i) r.runtime.goToStep(i);
+    if (sc.vars.some((v) => v.role === 'time') && sc.steps[i]!.play !== false && !pausedRef.current) r.runtime.setPlaying(true);
+    t.sendText(stepMessage(sc, i, mode === 'resume'));
+    armWatchdog();
+  }
+  /** A step the tutor never starts to speak (a lost message, a tool call with no turn after it) is sent once more,
+   *  then the lesson moves on, so it can never stall in silence. */
+  function armWatchdog() {
+    const c = conductor.current;
+    if (c.watchdog) window.clearTimeout(c.watchdog);
+    c.watchdog = window.setTimeout(() => {
+      c.watchdog = null;
+      const t = tutorRef.current, sc = useStore.getState().scene;
+      if (!t || !sc || c.phase !== 'steps' || pausedRef.current) return;
+      if (t.lastAudioAt > c.sentAt || t.current === 'speaking' || t.current === 'acting' || t.heardRecently(1500)) return; // it is talking, or the reader is
+      if (c.retries < 1) { c.retries++; conductStep(c.step, 'retry'); }
+      else if (c.step + 1 < sc.steps.length) conductStep(c.step + 1);
+      else conductEnd();
+    }, 9000);
+  }
+  function conductEnd() {
+    const sc = useStore.getState().scene, t = tutorRef.current; if (!sc || !t) return;
+    const c = conductor.current; c.phase = 'end'; if (c.watchdog) { window.clearTimeout(c.watchdog); c.watchdog = null; }
+    const p = sc.vars.find((v) => v.role === 'param');
+    t.sendText(p
+      ? `LESSON END. You have explained every step. Now show the reader one "what if": call set_parameter to move ${p.label ?? p.id} (${p.id}) to a clearly different value between ${p.min} and ${p.max}, call run_simulation, and say in two sentences what changed on the page and why, using only the page's own relation. Then call set_parameter to put it back to ${p.init}. Only now, invite the reader to ask a question or try a what-if of their own.`
+      : 'LESSON END. You have explained every step. Sum up the page in two sentences, then invite the reader to ask a question.');
+  }
+  /** After each tutor turn: the next step, the interrupted step's end, the closing what-if, or nothing (free conversation).
+   *  Only a turn the tutor spoke in counts: a turn that only called a tool is followed by the spoken one. */
+  function onTutorTurnDone(spoke: boolean) {
+    const c = conductor.current;
+    if (!spoke) return;
+    if (c.timer) window.clearTimeout(c.timer);
+    c.timer = window.setTimeout(function advance() {
+      c.timer = null;
+      const t = tutorRef.current, sc = useStore.getState().scene;
+      if (!t || !sc || pausedRef.current) return;
+      if (t.current === 'speaking' || t.current === 'thinking' || t.current === 'acting') return; // a new turn has begun; its end comes back here
+      if (t.heardRecently(1500)) { c.timer = window.setTimeout(advance, 1200); return; } // the reader is still talking
+      if (c.phase === 'steps') {
+        if (c.interrupted) conductStep(c.step, 'resume');
+        else if (c.step + 1 < sc.steps.length) conductStep(c.step + 1);
+        else conductEnd();
+      } else if (c.phase === 'end') c.phase = 'open';
+    }, 650);
+  }
 
   // ---------- the lesson: the tutor narrates over Gemini Live and drives the steps; recorded clips are the fallback ----------
   function startLesson(sc: Scene) {
@@ -281,7 +340,7 @@ export function ExperienceView({ onBack }: Props) {
       try {
         await t.connect();
         setPhase('live');
-        t.beginLesson();
+        conductStep(0);
         report('lesson-begun');
         if (!CONTAIN) t.listen().then(() => setMicOn(true)).catch((e: any) => { const denied = /NotAllowed|denied|dismissed/i.test(String(e?.message || e?.name)); setTutorNote(denied ? 'microphone not allowed' : ''); if (denied) say('Allow the microphone to talk to the tutor. The lesson carries on without it.', 'line'); report('mic-failed', String(e?.message || e?.name)); });
       } catch (e) {
@@ -347,14 +406,14 @@ export function ExperienceView({ onBack }: Props) {
     const r = active(); if (!r) return;
     const next = !paused; setPaused(next); pausedRef.current = next;
     if (next) { speechRef.current.clear(); if (stepTimer.current) clearTimeout(stepTimer.current); r.runtime.setPlaying(false); tutorRef.current?.setOutputMuted(true); }
-    else { tutorRef.current?.setOutputMuted(muted); if (tutorLive.current) tutorRef.current?.sendText('continue'); else if (scene) startNarration(scene, r.runtime.stepIndex); if (scene?.vars.some((v) => v.role === 'time')) r.runtime.setPlaying(true); }
+    else { tutorRef.current?.setOutputMuted(muted); if (tutorLive.current) { if (conductor.current.phase === 'steps') conductStep(conductor.current.step, 'resume'); } else if (scene) startNarration(scene, r.runtime.stepIndex); if (scene?.vars.some((v) => v.role === 'time')) r.runtime.setPlaying(true); }
   }
   function replay() {
     const r = active(); if (!r || !scene) return;
     setPaused(false); pausedRef.current = false; tutorRef.current?.setOutputMuted(muted);
     r.runtime.resetTime(); speechRef.current.clear(); r.runtime.goToStep(0); setStepIndex(0);
     if (scene.vars.some((v) => v.role === 'time')) r.runtime.setPlaying(true);
-    if (tutorLive.current) tutorRef.current?.sendText('replay');
+    if (tutorLive.current) conductStep(0);
   }
   function nextStep() {
     const r = active(); if (!r || !scene) return;
@@ -379,9 +438,17 @@ export function ExperienceView({ onBack }: Props) {
       onState: (st, detail) => {
         setTutor(st); setTutorNote(detail ?? ''); setMicOn(t.listening);
         if (st === 'unavailable' || st === 'reconnecting' || st === 'listening' || st === 'speaking') report(`tutor-${st}`, detail ?? '');
-        if (st === 'unavailable' && tutorLive.current) { tutorLive.current = false; setPhase('ready'); const sc = useStore.getState().scene; if (!pausedRef.current && sc) startNarration(sc, active()?.runtime.stepIndex ?? 0); }
+        if (st === 'unavailable' && tutorLive.current) {
+          // the voice is gone: a lesson still running carries on with the recorded narration; a finished one stays finished
+          tutorLive.current = false; setPhase('ready');
+          const c = conductor.current, midLesson = c.phase === 'steps' || c.phase === 'off';
+          c.phase = 'off'; if (c.timer) window.clearTimeout(c.timer); if (c.watchdog) window.clearTimeout(c.watchdog);
+          const sc = useStore.getState().scene;
+          if (midLesson && !pausedRef.current && sc) startNarration(sc, active()?.runtime.stepIndex ?? 0);
+        }
       },
-      onTranscript: (role, text) => { say(text, role === 'user' ? 'you' : 'tutor'); if (role === 'user') noteQuestion(text); },
+      onTranscript: (role, text) => { say(text, role === 'user' ? 'you' : 'tutor'); if (role === 'user') { noteQuestion(text); if (conductor.current.phase === 'steps') conductor.current.interrupted = true; } },
+      onTurnDone: (spoke) => onTutorTurnDone(spoke),
       onTool: (name, args) => runToolRef.current(name, args),
     });
     tutorRef.current = t;
@@ -401,7 +468,8 @@ export function ExperienceView({ onBack }: Props) {
     if (!session || !arAvailable) return;
     const st = stageRef.current!;
     session.attach(st);
-    session.tracker.onCorners = (c: Corners | null, state: TrackerState) => {
+    session.tracker.onCorners = (c: Corners | null, state: TrackerState, lift?: [number, number] | null) => {
+      active()?.setLift(c ? lift ?? null : null);
       setArState((prev) => (prev === state ? prev : state));
       const layer = layerRef.current; if (!layer || !page) return;
       if (c) {
@@ -491,7 +559,7 @@ export function ExperienceView({ onBack }: Props) {
         {!PRESENT && <button className="round" onClick={onBack} aria-label="Back"><Icon name="back" /></button>}
         {phrase || title ? <div className={`title-pill ${phrase ? 'working' : ''}`}>{phrase ? <GeminiSpark state="thinking" size={18} /> : null}<span>{phrase || title}</span></div> : <div className="spacer" />}
         {!PRESENT && <button className="round small" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute' : 'Mute'}><Icon name={muted ? 'soundOff' : 'sound'} size={20} /></button>}
-        {!PRESENT && !reader && revealed && signInAvailable && <button className="pill save-pill" onClick={() => { void signIn().catch(() => {}); }} title="Sign in with Google to keep this page and your progress"><Icon name="check" size={16} />Save</button>}
+        {!PRESENT && !reader && revealed && signInAvailable && <button className="pill save-pill wide-only" onClick={() => { void signIn().catch(() => {}); }} title="Sign in with Google to keep this page and your progress"><Icon name="check" size={16} />Save</button>}
         {!PRESENT && <button className={`round small spark-button ${theatreOpen ? 'on' : ''}`} onClick={() => setTheatre(!theatreOpen)} aria-label="How it was made" title="How it was made"><GeminiSpark state={spark} size={22} /></button>}
         <ValidationStatus compact />
       </div>}
@@ -521,6 +589,7 @@ export function ExperienceView({ onBack }: Props) {
             <button className={`pill tutor ${tutor === 'off' || tutor === 'ready' ? '' : tutor}`} onClick={toggleMic} aria-label={micOn ? 'Stop listening' : 'Ask a question'} disabled={status !== 'ready'} title={tutorNote || undefined}>{micOn ? <Icon name="mic" size={18} /> : <GeminiSpark size={18} state={tutor === 'unavailable' ? 'error' : 'idle'} />}{micLabel}</button>
             {sliders.length > 0 && <button className={`pill ${whatIf ? 'on' : ''}`} onClick={toggleWhatIf} aria-pressed={whatIf}><Icon name="knob" size={18} />What if?</button>}
             {experienceId && <button className={`pill quiz-pill ${lessonDone ? 'ready' : ''}`} onClick={openQuiz}><Icon name="check" size={18} />Quiz</button>}
+            {!reader && signInAvailable && <button className="pill save-pill narrow-only" onClick={() => { void signIn().catch(() => {}); }} title="Sign in with Google to keep this page and your progress"><Icon name="check" size={16} />Save</button>}
             {scene.steps.length > 1 && !tutorLive.current && <button className="round small" onClick={nextStep} aria-label="Next" title="Next"><Icon name="next" size={20} /></button>}
           </div>
         )}

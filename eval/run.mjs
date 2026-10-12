@@ -30,7 +30,7 @@ async function runPage(file) {
 const norm = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ');
 function score(file, truth, events) {
   const quick = events.find((e) => e.type === 'quick')?.data;
-  const scenes = events.filter((e) => e.type === 'scene');
+  const scenes = events.filter((e) => e.type === 'scene').map((e, i) => ({ e, i })).sort((a, b) => (a.e.version ?? 0) - (b.e.version ?? 0) || a.i - b.i).map((x) => x.e); // by version: a repaired draft can arrive after the richer scene
   const scene = scenes[scenes.length - 1]?.data;
   const extraction = events.find((e) => e.type === 'extraction')?.data;
   const verifications = events.filter((e) => e.type === 'verification'); const verification = verifications[verifications.length - 1]?.data; // the latest scene version's verdict

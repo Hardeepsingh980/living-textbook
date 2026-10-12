@@ -41,6 +41,14 @@ export class SceneRenderer {
   runtime: SceneRuntime;
   root = new Container();
   private layers = { under: new Container(), over: new Container(), fx: new Container() };
+  // depth: objects float a little above the paper and cast soft shadows onto it; in AR the float follows the camera's
+  // angle (parallax), so the drawing reads as standing on the page rather than printed on it
+  private shadowLayer = new Container();
+  private shadows = new Map<string, Sprite | Graphics>();
+  private lift = { x: -0.05, y: -0.08 };          // page units of shift per unit of height (resting tilt when there is no pose)
+  private liftTarget = { x: -0.05, y: -0.08 };
+  private appearAt = new Map<string, number>();
+  private wasVisible = new Set<string>();
   private cropInfo = new Map<string, { box: [number, number, number, number]; color: number }>(); // crop assets: where they came from, and the paper colour there
   private covers = new Map<string, Sprite>();          // paper-coloured patches that hide a cut-out's printed original once it has moved away
   private startedInside = new Map<string, boolean>();  // figure-anchored sprites that began inside their figure fade out when they leave it
@@ -70,9 +78,15 @@ export class SceneRenderer {
     // backing store at 0.75× page units keeps fill-rate reasonable on mid-range phones; CSS scales the canvas
     await this.app.init({ canvas, width: w, height: h, backgroundAlpha: 0, antialias: true, resolution: this.opts.resolution ?? 0.75, autoDensity: false, preference: 'webgl' });
     this.app.stage.addChild(this.root);
-    this.root.addChild(this.layers.under, this.layers.over, this.layers.fx);
+    this.root.addChild(this.shadowLayer, this.layers.under, this.layers.over, this.layers.fx);
+    if (!REDUCED_MOTION) this.shadowLayer.filters = [new BlurFilter({ strength: 7, quality: 2, resolution: 0.5 })];
     if (this.opts.pageImage) this.pageTexture = Texture.from(this.opts.pageImage as any);
+    // notes are measured in the hand-drawn face: wait (briefly) for it, and measure again whenever a face arrives late,
+    // so a note whose text never changes is not left cut to the width of a fallback font
+    const fonts = Promise.all(['Kalam', 'Patrick Hand'].map((f) => document.fonts?.load(`32px "${f}"`).catch(() => null)));
     await this.loadAssets();
+    await Promise.race([fonts, new Promise((r) => setTimeout(r, 1500))]);
+    document.fonts?.addEventListener?.('loadingdone', this.remeasure);
     if (this.opts.maxFps) this.app.ticker.maxFPS = this.opts.maxFps;
     this.app.ticker.add(() => this.frame());
     this.app.stage.eventMode = 'static';
@@ -166,12 +180,18 @@ export class SceneRenderer {
       if (!node) { node = this.build(r.el); this.nodes.set(r.el.id, node); (r.el.layer === 'under' ? this.layers.under : this.layers.over).addChild(node); }
       node.zIndex = i;
       this.update(node, r, dt);
+      this.applyDepth(node, r, now);
       if (r.el.tap || this.scene.audio.lines.some((l) => l.el === r.el.id) || this.scene.interactions.some((it) => it.type === 'tap' && it.el === r.el.id)) {
         const b = node.getBounds();
         this.hitAreas.set(r.el.id, new Rectangle(b.x - 10, b.y - 10, b.width + 20, b.height + 20));
       }
     }
-    for (const [id, node] of this.nodes) if (!seen.has(id)) node.visible = false; else node.visible = true;
+    for (const [id, node] of this.nodes) {
+      node.visible = seen.has(id);
+      const sh = this.shadows.get(id); if (sh) sh.visible = node.visible && sh.visible;
+      if (!node.visible) { this.wasVisible.delete(id); this.appearAt.delete(id); }
+    }
+    this.lift.x += (this.liftTarget.x - this.lift.x) * 0.2; this.lift.y += (this.liftTarget.y - this.lift.y) * 0.2;
     this.layers.under.sortableChildren = this.layers.over.sortableChildren = true;
     this.updateHighlights(now);
     if (this.lineBubble && performance.now() > this.lineBubble.until) { this.lineBubble.node.destroy({ children: true }); this.lineBubble = null; }
@@ -276,23 +296,36 @@ export class SceneRenderer {
         const g = node.getChildAt(0) as Graphics;
         const pad = el.size * 0.6, w = t.width + pad * 2, h = t.height + pad * 1.4;
         g.clear();
-        if (el.style === 'thought') { g.ellipse(4, 4, w / 2 + 6, h / 2 + 6).fill({ color: PENCIL }); g.ellipse(0, 0, w / 2 + 6, h / 2 + 6).fill({ color: PAPER }).stroke({ color: PENCIL, width: 2.5 }); }
-        else if (el.style === 'caption') { paperCard(g, -w / 2, -h / 2, w, h, 0xfff9c4, hashId(el.id) * 10); }
-        else { paperCard(g, -w / 2, -h / 2, w, h, PAPER, hashId(el.id) * 10, el.style === 'shout' ? 3.5 : 2.5); }
+        // a thought bubble is a cloud of puffs around the text (the layout reserves the same size for it)
+        const puff = cloudPuff(t.height), cw = t.width + 8, ch = t.height + 4;
+        const halfW = el.style === 'thought' ? cw / 2 + puff * 0.75 + 2.5 : w / 2, halfH = el.style === 'thought' ? ch / 2 + puff * 0.75 + 2.5 : h / 2;
+        (node as any).__body = [halfW, halfH]; // its soft shadow follows the body, not the tail
+        // the tail first, so the bubble's body covers its root: it leaves from the edge that faces the speaker and
+        // points out at them, never across the text
         if (r.points === undefined && el.tail) {
           const scope = this.runtime.values();
           const an = el.anchor ? this.scene.anchors[el.anchor] : undefined; // the tail target is in the bubble's own frame
           let tx = (typeof el.tail[0] === 'number' ? el.tail[0] : compile(String(el.tail[0]))(scope)) + (an ? an[0] : 0) - r.x;
           let ty = (typeof el.tail[1] === 'number' ? el.tail[1] : compile(String(el.tail[1]))(scope)) + (an ? an[1] : 0) - r.y;
-          if (Number.isFinite(tx) && Number.isFinite(ty)) {
-            // keep the tail short: point towards the target but never further than 1.2× the bubble height
-            const len = Math.hypot(tx, ty), max = h * 1.2;
-            if (len > max) { tx *= max / len; ty *= max / len; }
-            g.poly([-14, h / 2 - 2, 14, h / 2 - 2, tx, ty]).fill({ color: PAPER }).stroke({ color: PENCIL, width: 2.5 });
+          const inside = Math.abs(tx) < halfW && Math.abs(ty) < halfH;
+          if (Number.isFinite(tx) && Number.isFinite(ty) && !inside) {
+            const len = Math.hypot(tx, ty), ux = tx / len, uy = ty / len;
+            // where the line to the speaker leaves the bubble (box or ellipse), and a tail of modest length beyond it
+            const tEdge = Math.min(Math.abs(ux) > 1e-6 ? halfW / Math.abs(ux) : Infinity, Math.abs(uy) > 1e-6 ? halfH / Math.abs(uy) : Infinity);
+            const reach = Math.min(len - tEdge, Math.max(28, h * 0.9));
+            if (reach > 8) {
+              const bx = ux * (tEdge - 10), by = uy * (tEdge - 10), px = -uy * 13, py = ux * 13;
+              const ax = ux * (tEdge + reach), ay = uy * (tEdge + reach);
+              if (el.style === 'thought') { for (const [k, rad] of [[0.3, 10], [0.62, 7], [0.92, 4.5]] as const) g.circle(ux * (tEdge + reach * k), uy * (tEdge + reach * k), rad).fill({ color: PAPER }).stroke({ color: PENCIL, width: 2.5 }); }
+              else g.poly([bx + px, by + py, bx - px, by - py, ax, ay]).fill({ color: PAPER }).stroke({ color: PENCIL, width: 2.5 });
+            }
           }
         }
+        if (el.style === 'thought') cloud(g, cw, ch, puff, hashId(el.id));
+        else if (el.style === 'caption') { paperCard(g, -w / 2, -h / 2, w, h, 0xfff9c4, hashId(el.id) * 10); }
+        else { paperCard(g, -w / 2, -h / 2, w, h, PAPER, hashId(el.id) * 10, el.style === 'shout' ? 3.5 : 2.5); }
         t.anchor.set(0.5); t.style.fill = '#2d2d2d';
-        node.position.set(Math.min(Math.max(r.x, (w * r.scale) / 2 + 8), this.scene.page.w - (w * r.scale) / 2 - 8), Math.min(Math.max(r.y, (h * r.scale) / 2 + 8), this.scene.page.h - (h * r.scale) / 2 - 8)); node.scale.set(r.scale);
+        node.position.set(Math.min(Math.max(r.x, halfW * r.scale + 8), this.scene.page.w - halfW * r.scale - 8), Math.min(Math.max(r.y, halfH * r.scale + 8), this.scene.page.h - halfH * r.scale - 8)); node.scale.set(r.scale);
         break;
       }
       case 'shape': this.drawShape(node.getChildAt(0) as Graphics, el, r); node.position.set(0, 0); break;
@@ -343,6 +376,11 @@ export class SceneRenderer {
       }
     }
     if (pass === 0 && fill && el.shape !== 'line' && el.shape !== 'arrow') g.fill(fill);
+    if (pass === 0 && fill && fillAlpha(el.fill) >= 0.6 && !REDUCED_MOTION) {
+      // light from the top left: a soft highlight makes a solid object read as round, a lit edge makes a block read as solid
+      if (el.shape === 'circle' || el.shape === 'ellipse') { const cx = rx + w / 2, cy = ry + (el.shape === 'circle' ? w : h) / 2, rw = w / 2, rh = (el.shape === 'circle' ? w : h) / 2; g.ellipse(cx - rw * 0.32, cy - rh * 0.36, rw * 0.36, rh * 0.24).fill({ color: 0xffffff, alpha: 0.42 }); g.ellipse(cx + rw * 0.12, cy + rh * 0.18, rw * 0.78, rh * 0.7).fill({ color: 0x000000, alpha: 0.08 }); }
+      else if ((el.shape === 'rect' || el.shape === 'square') && h > 18) { g.rect(rx + 4, ry + 3, Math.max(0, w - 8), Math.min(10, h * 0.18)).fill({ color: 0xffffff, alpha: 0.28 }); g.rect(rx + 4, ry + h - Math.min(10, h * 0.16) - 3, Math.max(0, w - 8), Math.min(10, h * 0.16)).fill({ color: 0x000000, alpha: 0.1 }); }
+    }
     const sw = stroke ?? ((el.shape === 'line' || el.shape === 'arrow') ? { color: el.fill ?? '#e63946', width: Math.max(3.5, el.strokeW) } : undefined);
     if (sw) g.stroke({ ...sw, width: pass ? sw.width * 0.7 : sw.width, alpha: pass ? 0.4 : 1, cap: 'round', join: 'round' });
     }
@@ -521,8 +559,78 @@ export class SceneRenderer {
   resume() { if (!this.destroyed && this.app && !this.app.ticker.started) this.app.ticker.start(); }
   get paused() { return !!this.app && !this.app.ticker.started; }
 
+  /** The camera's view of the page (AR): page-unit shift per unit of height; null returns to the resting tilt. */
+  setLift(v: [number, number] | null) {
+    const lim = (x: number) => Math.max(-0.9, Math.min(0.9, x));
+    if (v && Number.isFinite(v[0]) && Number.isFinite(v[1])) this.liftTarget = { x: lim(v[0]), y: lim(v[1]) };
+    else this.liftTarget = { x: -0.05, y: -0.08 };
+  }
+
+  /** How high above the paper an element floats: notes and pictures most, solid objects a little; anything traced on the
+   *  printed figure (lines, paths, flows, outlines, translucent overlays) stays on the paper so it keeps its registration. */
+  private heightOf(el: Element): number {
+    if (el.type === 'label' || el.type === 'bubble') return 44;
+    if (el.type === 'sprite') return 30;
+    if (el.type === 'shape' && el.fill && fillAlpha(el.fill) >= 0.6 && typeof el.opacity !== 'string' && (el.opacity ?? 1) >= 0.8) {
+      // a solid object rests just above the paper: enough for a shadow, little enough to stay on its printed figure
+      if (el.shape === 'circle' || el.shape === 'ellipse' || el.shape === 'star') return 10;
+      if (el.shape === 'rect' || el.shape === 'square') { const w = typeof el.w === 'number' ? el.w : 0, h = typeof el.h === 'number' ? el.h : w; return w * h < this.scene.page.w * this.scene.page.h * 0.05 ? 8 : 0; }
+    }
+    return 0;
+  }
+
+  private applyDepth(node: Container, r: ResolvedElement, now: number) {
+    const hgt = this.heightOf(r.el);
+    if (hgt <= 0 || REDUCED_MOTION) return;
+    if (!this.wasVisible.has(r.el.id)) { this.wasVisible.add(r.el.id); this.appearAt.set(r.el.id, now); }
+    const a = Math.min(1, (now - (this.appearAt.get(r.el.id) ?? now)) / 0.6);
+    const e = 1 - Math.pow(1 - a, 3); // rises off the page as it appears
+    if (r.el.type === 'sprite' || r.el.type === 'label' || r.el.type === 'bubble') {
+      const base = r.el.type === 'bubble' ? r.scale : 1;
+      if (a < 1) {
+        // a pop-up book: the note or character stands up from the paper on its bottom edge, a touch past upright, then settles
+        const c1 = 1.70158, sy = Math.max(0.06, 1 + (c1 + 1) * Math.pow(a - 1, 3) + c1 * Math.pow(a - 1, 2)), sx = 0.9 + 0.1 * e;
+        node.scale.set(base * sx, base * sy);
+        const b = node.getLocalBounds();
+        node.position.y += (b.y + b.height) * base * (1 - sy);
+      } else node.scale.set(base);
+    }
+    this.updateShadow(node, r, hgt * e); // on the paper, under where it stands
+    node.position.x += this.lift.x * hgt * e; node.position.y += this.lift.y * hgt * e;
+  }
+
+  /** A soft shadow on the paper under a floating element: offset away from a light at the top left, softer when higher. */
+  private updateShadow(node: Container, r: ResolvedElement, hgt: number) {
+    const id = r.el.id;
+    let sh = this.shadows.get(id);
+    const ox = 3 + hgt * 0.12, oy = 4 + hgt * 0.2, alpha = Math.max(0.12, 0.34 - hgt * 0.003) * node.alpha;
+    if (r.el.type === 'sprite') {
+      const src = node.getChildByLabel('sprite') as Sprite | null;
+      if (!src) return;
+      if (!sh) { sh = new Sprite(src.texture); this.shadowLayer.addChild(sh); this.shadows.set(id, sh); }
+      const s = sh as Sprite;
+      if (s.texture !== src.texture) s.texture = src.texture;
+      s.anchor.copyFrom(src.anchor); s.width = src.width * node.scale.x; s.height = src.height * node.scale.y; s.tint = 0x000000;
+      s.position.set(node.position.x + ox, node.position.y + oy); s.rotation = node.rotation + src.rotation; s.alpha = alpha * (src.visible ? src.alpha : 0); s.visible = src.visible;
+      return;
+    }
+    if (!sh) { sh = new Graphics(); this.shadowLayer.addChild(sh); this.shadows.set(id, sh); }
+    const g = sh as Graphics;
+    const body = (node as any).__body as [number, number] | undefined;
+    const b = body ? { x: -body[0], y: -body[1], width: body[0] * 2, height: body[1] * 2 } : node.getLocalBounds();
+    if (b.width <= 0 || b.height <= 0) { g.visible = false; return; }
+    g.clear();
+    const round = r.el.type === 'shape' && (r.el.shape === 'circle' || r.el.shape === 'ellipse' || r.el.shape === 'star');
+    if (round) g.ellipse(b.x + b.width / 2, b.y + b.height / 2, b.width / 2, b.height / 2); else g.roundRect(b.x + 2, b.y + 2, b.width - 4, b.height - 4, 14);
+    g.fill({ color: 0x000000 });
+    g.position.set(node.position.x + ox, node.position.y + oy); g.scale.copyFrom(node.scale); g.rotation = node.rotation; g.alpha = alpha; g.visible = true;
+  }
+
+  private remeasure = () => { for (const node of this.nodes.values()) (node.getChildByLabel('text') as Text | null)?.style.update(); };
+
   destroy() {
     this.destroyed = true;
+    document.fonts?.removeEventListener?.('loadingdone', this.remeasure);
     try { this.app?.destroy(false, { children: true }); } catch { /* already gone */ }
   }
 }
@@ -533,7 +641,38 @@ function flowDot(g: Graphics, preset: string, color: number | undefined) {
   g.circle(0, 0, 17).fill({ color: c, alpha: 0.16 });
   if (preset === 'stars' || preset === 'sparkle') g.star(0, 0, 5, 12, 5).fill({ color: c }).stroke({ color: 0xffffff, width: 2.5 });
   else if (preset === 'bubbles') g.circle(0, 0, 9).fill({ color: c, alpha: 0.35 }).stroke({ color: c, width: 3 });
-  else g.circle(0, 0, 9).fill({ color: c }).stroke({ color: 0xffffff, width: 2.5 });
+  else { g.circle(0, 0, 9).fill({ color: c }).stroke({ color: 0xffffff, width: 2.5 }); g.circle(-3, -3, 3).fill({ color: 0xffffff, alpha: 0.75 }); }
+}
+
+/** How opaque a fill colour is: "#rrggbbaa", "#rgba", rgba()/hsla() and "transparent" carry their own alpha. */
+function fillAlpha(fill: string | undefined): number {
+  if (!fill) return 0;
+  const f = fill.trim().toLowerCase();
+  if (f === 'transparent' || f === 'none') return 0;
+  let m = /^#([0-9a-f]{8})$/.exec(f); if (m) return parseInt(m[1]!.slice(6), 16) / 255;
+  m = /^#([0-9a-f]{4})$/.exec(f); if (m) return parseInt(m[1]![3]! + m[1]![3]!, 16) / 255;
+  m = /^(?:rgba|hsla)\(([^)]*)\)$/.exec(f); if (m) { const parts = m[1]!.split(/[\s,/]+/).filter(Boolean); const a = parts[3]; if (a !== undefined) return a.endsWith('%') ? Number(a.slice(0, -1)) / 100 : Number(a); }
+  return 1;
+}
+
+/** The size of a thought cloud's puffs for a text block of this height (the layout uses the same rule). */
+function cloudPuff(textH: number) { return Math.max(12, Math.min(22, textH * 0.2)); }
+
+/** A thought bubble drawn as a cloud: puffs round a text box of w × h, one outline on the outside (a dark underlay a
+ *  little larger than the paper puffs) and the hand-drawn offset shadow under it. */
+function cloud(g: Graphics, w: number, h: number, puff: number, seed: number) {
+  const iw = Math.max(10, w - puff * 0.8), ih = Math.max(10, h - puff * 0.8);
+  const per = 2 * (iw + ih), n = Math.max(8, Math.round(per / (puff * 1.35)));
+  const puffs: [number, number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    let d = (i / n) * per, x: number, y: number;
+    if (d < iw) { x = -iw / 2 + d; y = -ih / 2; } else if ((d -= iw) < ih) { x = iw / 2; y = -ih / 2 + d; } else if ((d -= ih) < iw) { x = iw / 2 - d; y = ih / 2; } else { d -= iw; x = -iw / 2; y = ih / 2 - d; }
+    puffs.push([x, y, puff * (0.88 + 0.27 * ((Math.sin(seed * 7.3 + i * 2.17) + 1) / 2))]);
+  }
+  const layer = (dx: number, dy: number, grow: number, color: number) => { for (const [x, y, r] of puffs) g.circle(x + dx, y + dy, r + grow); g.rect(-iw / 2 + dx - grow, -ih / 2 + dy - grow, iw + grow * 2, ih + grow * 2); g.fill({ color }); };
+  layer(4, 4, 1.5, PENCIL); // shadow
+  layer(0, 0, 2.5, PENCIL); // outline
+  layer(0, 0, 0, PAPER);    // paper
 }
 
 function hashId(id: string) { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 1000; return h / 1000 * Math.PI * 2; }

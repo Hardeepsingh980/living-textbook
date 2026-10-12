@@ -29,14 +29,14 @@ describe('layout', () => {
   it('moves a readout off body text and keeps one on clean paper', () => {
     const sc = scene([
       { id: 'onText', type: 'label', text: 'V = {v:0.1} V', x: 500, y: 300, size: 28, bg: '#ffd166' },
-      { id: 'clean', type: 'label', text: 'answer', x: 500, y: 1200, size: 28, bg: '#ffd166' },
+      { id: 'clean', type: 'label', text: 'answer', x: 500, y: 1150, size: 28, bg: '#ffd166' },
     ]);
     const issues: any[] = [];
     const r = layoutScene(sc, ink, issues);
     expect(r.moved).toEqual(['onText']);
     const moved = sc.elements.find((e) => e.id === 'onText')!;
     expect(Number(moved.y) < 100 || Number(moved.y) > 500).toBe(true);
-    expect(sc.elements.find((e) => e.id === 'clean')!.y).toBe(1200);
+    expect(sc.elements.find((e) => e.id === 'clean')!.y).toBe(1150);
     expect(r.worstAfter).toBeLessThan(0.06);
   });
   it('moves stacked readouts together and keeps anchors', () => {
@@ -58,6 +58,23 @@ describe('layout', () => {
     const r = layoutScene(sc, inkMapFromGrey(g2, w, h), []);
     expect(r.dropped).toEqual(['pl']);
     expect(sc.elements.map((e) => e.id)).toEqual(['keep']);
+  });
+  it('moves a bubble off its speaker even when every spot has printed text', () => {
+    const { grey: g2 } = syntheticPage();
+    for (let i = 0; i < g2.length; i++) if (i % 9 === 0) g2[i] = 10; // light ink everywhere: no clean spot
+    const sc = scene([
+      { id: 'kid', type: 'sprite', asset: 'kid', x: 100, y: 700, w: 130, h: 160 },
+      { id: 'say', type: 'bubble', text: 'Which side has oxygen-rich blood and which has carbon dioxide-rich blood?', style: 'thought', x: 300, y: 760, tail: [230, 760], size: 24 },
+    ]);
+    layoutScene(sc, inkMapFromGrey(g2, w, h), []);
+    const b = sc.elements.find((e) => e.id === 'say')! as any;
+    // the cloud is about 480 wide: its left edge must clear the sprite's right edge (x 230)
+    expect(Number(b.x) - 240).toBeGreaterThan(225);
+  });
+  it('moves a readout out of the strip the captions cover', () => {
+    const sc = scene([{ id: 'ro', type: 'label', text: 'Time = {t:0.1} s', x: 500, y: 1340, size: 30, bg: '#023047' }]);
+    layoutScene(sc, ink, []);
+    expect(Number(sc.elements[0]!.y)).toBeLessThan(1400 * 0.87 - 20);
   });
   it('leaves moving labels alone', () => {
     const sc = scene([{ id: 'follow', type: 'label', text: 'h', x: 500, y: '300 + t * 10', size: 28 }]);
@@ -126,5 +143,24 @@ describe('flows', () => {
     const flow = n.scene!.elements.find((e) => e.id === 'flow') as any;
     expect(flow.path[0]).toEqual([210, 610]);
     expect(flow.path[2]).toEqual([500, 800]);
+  });
+});
+
+describe('layout: text stays off the animation', () => {
+  const { grey, w, h } = syntheticPage();
+  const ink = inkMapFromGrey(grey, w, h);
+  it('moves a label that sits where a ball travels', () => {
+    const sc = SceneSchema.parse({ v: 1, kind: 'simulation', page: { w: 1000, h: 1400 }, lang: 'en', anchors: { fig1: [200, 600, 800, 1000] },
+      vars: [{ id: 't', min: 0, max: 4, init: 0, role: 'time' }],
+      elements: [
+        { id: 'ball', type: 'shape', shape: 'circle', x: 'lerp(220, 700, t/4)', y: 1150, w: 60, h: 60, fill: '#ff4d4d' },
+        { id: 'note', type: 'label', text: 'speed {t:0.1}', x: 500, y: 1180, size: 28, bg: '#fff9c4' },
+      ],
+      steps: [{ id: 's1', narration: 'The ball rolls.', play: true }] });
+    const issues: any[] = [];
+    layoutScene(sc, ink, issues);
+    const note = sc.elements.find((e) => e.id === 'note')!;
+    const ny = Number(note.y);
+    expect(ny < 1130 || ny > 1230 || Number(note.x) > 830).toBe(true);
   });
 });
