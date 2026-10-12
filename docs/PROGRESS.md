@@ -2,6 +2,22 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-12 (afternoon): the lesson, conducted; text off the motion; depth
+
+Hardeep's asks, from two phone screenshots (heat along a rod, the heart): notes sat on the animation; a speech bubble's arrow was drawn on the bubble itself; the tutor asked "any questions?" before it had finished, so the lesson should be narrated in full (with the reader free to interrupt) and questions invited only at the end; and the lessons looked flat, so better quality and some 3D.
+
+**The lesson is conducted by the app.** The app moves the page to a step and sends the tutor that one step ("LESSON STEP n OF N" with its script); the tutor explains it in three or four sentences and stops; the next step goes out only when a turn in which the tutor actually spoke has finished and its audio has played. Only after the last step does the app send "LESSON END": the tutor shows one what-if with the tools, puts the value back, and only then invites questions. If the reader speaks during a step, the tutor answers and the app then asks it to finish that step. The first version raced: Gemini Live often calls a tool (highlight, scene state) before speaking, and that tool-only turn ends with its own turn-complete, which the app took as the end of the step, so each step was cut off by the next. Turns now report whether they spoke, and a watchdog re-sends a step that never starts (then moves on). Traced on six pages (step, tutor state, caption every 0.4 s): every step narrated in full and in order, steps 0.4–1 s apart, no questions before the end, lessons 50–85 s.
+
+**Text off the motion.** The layout now sweeps every moving element over time (25 samples with all elements shown) and keeps labels, readouts and bubbles out of those footprints, out of a bubble's speaker (the point its tail aims at, and the whole drawing when the speaker is printed) and out of the caption strip (now the bottom 13 %). When no blank spot exists, a note no longer stays where it was; it takes the least-inked spot that covers none of those. Bubble sizes match what the renderer draws (the old thought ellipse was 40 % wider than the space reserved for it and covered Paheli).
+
+**Bubbles.** Thought bubbles are clouds of puffs hugging the text, with three trailing circles towards the speaker; speech tails leave from the edge that faces the speaker, drawn under the body, so no arrow ever sits on the bubble.
+
+**Depth.** Notes, bubbles and characters stand up from the page like a pop-up book (on their bottom edge, a touch past upright, then settling) and cast soft blurred shadows on the paper; solid shapes get a highlight and shade; flow beads have a glint. In AR the tracker's pose gives the parallax of a point raised above the page (projected through the camera and mapped back onto the page plane), so floating notes shift against the paper as the phone moves. Transparent and outline shapes stay flat (the first version put a white glare and a dark shadow on the heart's transparent pulse ring).
+
+**Quality.** A readout whose value never changes was measured before the hand-drawn font loaded and stayed clipped; notes are now measured after the font loads and again whenever a font arrives. The scene prompt adds: short readouts; bubbles beside their speaker; nothing in the bottom eighth; and a body diagram's left and right follow its printed callouts (the heart's labels had been swapped). Verification: narration and labels the verifier rewrote settle the checks they fixed (the heart showed a red cross although its narration had been corrected); corrected formulas apply without a worked example; any figure printed on the page is on topic (the resistor page prints a parallel circuit above the series section); and a correct fact the page does not state is shown as a note ("Beyond this page") instead of a failure. Six regenerated pages: all verified.
+
+**Phones.** The caption and controls fit a 360 px screen; Save moves beside Quiz so the title fits the top bar.
+
 ## 2026-10-12 (small hours): a proper journey
 
 Hardeep's asks: short videos and chapter films only after sign-in, with everything generated kept in the reader's dashboard; trying the app stays open but rate-limited until sign-in; one clear journey instead of features scattered around; generations that keep running when the reader leaves and show their progress on return; "Make a reel" becomes "Short video"; no public saved pages; a proper SaaS app.
