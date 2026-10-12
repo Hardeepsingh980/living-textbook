@@ -18,6 +18,8 @@ Hardeep's asks, from two phone screenshots (heat along a rod, the heart): notes 
 
 **Phones.** The caption and controls fit a 360 px screen; Save moves beside Quiz so the title fits the top bar.
 
+**Every window (Hardeep's desktop screenshot: the photo filled the window and was cropped).** The page photo was scaled to cover the screen, which cropped it top and bottom on a desktop and cut its margins off on a phone, hiding notes placed there. It is now fitted whole into the room the bars leave for it. On desktops and landscape tablets the page and a docked lesson panel (caption, what-if slider, controls, steps, how it was made) are one group centred in the window, with the top bar spanning the group; on phones and portrait tablets the page sits above the caption and controls, and captions keep their latest three lines. Checked at 1462×928, 1280×720, 1180×820, 820×1180 and 390×844: the whole page inside the window and nothing over it. Recording mode is unchanged.
+
 ## 2026-10-12 (small hours): a proper journey
 
 Hardeep's asks: short videos and chapter films only after sign-in, with everything generated kept in the reader's dashboard; trying the app stays open but rate-limited until sign-in; one clear journey instead of features scattered around; generations that keep running when the reader leaves and show their progress on return; "Make a reel" becomes "Short video"; no public saved pages; a proper SaaS app.
