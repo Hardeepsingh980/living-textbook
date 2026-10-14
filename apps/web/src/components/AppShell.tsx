@@ -7,7 +7,7 @@ import { Icon } from './Icon';
 import { NewSheet } from './NewSheet';
 import '../app.css';
 
-export type Place = 'home' | 'library' | 'progress' | 'new' | 'job';
+export type Place = 'home' | 'library' | 'progress' | 'new' | 'job' | 'developers';
 
 export function Avatar({ small = false }: { small?: boolean }) {
   const r = useReader();
@@ -36,6 +36,7 @@ export function AppShell({ place, children, onPhoto }: { place: Place; children:
           <Link to="/app" className={place === 'home' ? 'on' : ''}>Home</Link>
           <Link to="/app/library" className={place === 'library' ? 'on' : ''}>Library</Link>
           <Link to="/app/progress" className={place === 'progress' ? 'on' : ''}>Progress</Link>
+          <Link to="/app/developers" className={place === 'developers' ? 'on' : ''}>Developers</Link>
         </nav>
         <div className="app-top-right">
           <button className="primary new-btn" onClick={() => setNewOpen(true)}><Icon name="plus" size={20} />New</button>
@@ -45,6 +46,8 @@ export function AppShell({ place, children, onPhoto }: { place: Place; children:
               {menu && (
                 <div className="menu enter" role="menu">
                   <div className="menu-who"><b>{reader.name || 'Reader'}</b><span>{reader.email}</span></div>
+                  <Link to="/app/developers" role="menuitem" onClick={() => setMenu(false)}>Developers</Link>
+                  <Link to="/developers" role="menuitem" onClick={() => setMenu(false)}>Developer docs</Link>
                   <Link to="/" role="menuitem" onClick={() => setMenu(false)}>Homepage</Link>
                   <button role="menuitem" onClick={async () => { setMenu(false); await signOut(); navigate('/'); }}>Sign out</button>
                 </div>

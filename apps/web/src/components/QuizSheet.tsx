@@ -11,7 +11,7 @@ import { Icon } from './Icon';
 import { GeminiSpark } from './GeminiSpark';
 import '../learn.css';
 
-type Props = { experienceId: string; meta: Partial<LessonMeta>; onClose: () => void; onExplain?: (prompt: string) => void };
+type Props = { experienceId: string; meta: Partial<LessonMeta>; onClose: () => void; onExplain?: (prompt: string) => void; onScore?: (score: number, total: number) => void };
 
 /** Options in a fresh order each attempt, so the right answer is not always where the model put it. */
 function shuffled(quiz: Quiz, seed: number) {
@@ -23,7 +23,7 @@ function shuffled(quiz: Quiz, seed: number) {
   });
 }
 
-export function QuizSheet({ experienceId, meta, onClose, onExplain }: Props) {
+export function QuizSheet({ experienceId, meta, onClose, onExplain, onScore }: Props) {
   const reader = useReader();
   const canSignIn = useSignInAvailable();
   const [quiz, setQuiz] = useState<Quiz | null>(null);
@@ -50,6 +50,7 @@ export function QuizSheet({ experienceId, meta, onClose, onExplain }: Props) {
     if (i + 1 < total) { setI(i + 1); setPicked(null); return; }
     setDone(true);
     track({ ...meta, experienceId, event: 'quiz', value: score, totalSteps: total, detail: `${score} of ${total}` });
+    onScore?.(score, total);
   }
   function again() { setAttempt((a) => a + 1); setI(0); setPicked(null); setScore(0); setDone(false); }
   const verdict = total ? score / total : 0;

@@ -17,9 +17,11 @@ import { userFromRequest, ownerOf } from './auth.js';
 import { recordEvent, touchUser, me, insights } from './progress.js';
 import { quizFor } from './quiz.js';
 import { createJob, runJob, heal, retryJob } from './jobs.js';
+import { mountDeveloperPlatform } from './devapi.js';
+import { resolveKey, originAllowed, publicOrigin, rateLimit, touchKey, apiOwner, utcDay, frameAncestors, DEV_DAILY, EMBED_PER_VISITOR } from './devkeys.js';
 import { createHash } from 'node:crypto';
 import type { Context } from 'hono';
-import type { PipelineEvent } from '@living-book/scene';
+import type { PipelineEvent, ApiInfo } from '@living-book/scene';
 
 const app = new Hono();
 app.use('/api/*', cors());
@@ -43,8 +45,27 @@ app.post('/api/experiences', async (c) => {
   const image = Buffer.from(await c.req.arrayBuffer());
   if (image.length < 1000) return c.json({ error: 'image too small' }, 400);
   if (image.length > 15 * 1024 * 1024) return c.json({ error: 'image too large (15 MB max)' }, 413);
-  const { owner: ownerId, user } = await ownerOf(c);
-  if (!exempt(c)) {
+  let { owner: ownerId, user } = await ownerOf(c);
+  let api: ApiInfo | undefined;
+  const embedKey = c.req.header('x-embed-key');
+  if (embedKey) {
+    // the scanner embed on a partner's site: the lesson counts against the partner's allowance, not the reader's
+    const key = await resolveKey(embedKey);
+    if (!key || key.kind !== 'publishable') return c.json({ error: "This scanner's key is not valid. Please let the site's team know.", code: 'embed-key-invalid' }, 401);
+    const parent = c.req.header('x-embed-parent') || '';
+    if (!originAllowed(parent, key.origins) && parent !== publicOrigin(c)) return c.json({ error: 'This site is not allowed to use this scanner. Please let its team know.', code: 'embed-origin' }, 403);
+    if (!exempt(c)) {
+      const v = await store.bumpQuota(`embed-${key.id}-${ipKey(clientIp(c))}-${utcDay()}`, EMBED_PER_VISITOR).catch(() => ({ allowed: true, used: 0 }));
+      if (!v.allowed) return c.json({ error: 'That is a lot of pages for one day. Try again tomorrow.', code: 'daily-limit' }, 429);
+    }
+    const rl = rateLimit(key.id);
+    if (!rl.ok) return c.json({ error: `Many people are scanning right now. Try again in ${rl.resetSeconds} seconds.`, code: 'rate-limited' }, 429);
+    const q = await store.bumpDevUsage(key.owner, utcDay(), key.id, DEV_DAILY).catch(() => ({ allowed: true, used: 0 }));
+    if (!q.allowed) return c.json({ error: "This site has used today's lessons. Try again tomorrow.", code: 'daily-limit' }, 429);
+    touchKey(key, true);
+    ownerId = apiOwner(key.owner); user = null;
+    api = { keyId: key.id, source: 'embed', origin: parent };
+  } else if (!exempt(c)) {
     const limit = user ? MEMBER_LESSONS : FREE_LESSONS;
     const q = await store.bumpQuota(lessonKey(user?.uid ?? null, clientIp(c)), limit).catch(() => ({ allowed: true, used: 0 }));
     if (!q.allowed) return c.json(user
@@ -59,7 +80,7 @@ app.post('/api/experiences', async (c) => {
     const write = (e: PipelineEvent) => { chain = chain.then(() => stream.writeSSE({ event: e.type, data: JSON.stringify(e) })).catch(() => {}); return chain; };
     const keepAlive = setInterval(() => { chain = chain.then(() => stream.writeSSE({ event: 'ping', data: String(Date.now()) })).catch(() => {}); }, 15000);
     try {
-      await runPipeline({ id, image, mime, ownerId, bookId }, (e) => { void write(e); });
+      await runPipeline({ id, image, mime, ownerId, bookId, api }, (e) => { void write(e); });
     } catch (e: any) {
       console.error('[pipeline] fatal', e);
       void write({ type: 'error', message: String(e?.message || e), recoverable: false, t: 0 });
@@ -71,7 +92,7 @@ app.get('/api/experiences/:id', async (c) => {
   const rec = await store.getRecord(c.req.param('id'));
   if (!rec) return c.json({ error: 'not found' }, 404);
   // the owner is never sent: with it, anyone holding a shared link could list or claim that reader's pages
-  const { events, ownerId, ...rest } = rec;
+  const { events, ownerId, api, ...rest } = rec; // nor a partner's references (their user ids and metadata)
   return c.json(c.req.query('events') ? { ...rest, events } : rest, 200, { 'Cache-Control': 'private, max-age=60' });
 });
 
@@ -235,13 +256,43 @@ app.get('/api/files/:id/:name', async (c) => {
   return c.body(new Uint8Array(f.bytes), 200, { ...headers, 'Content-Length': String(size) });
 });
 
+// The developer platform: key management for the dashboard (/api/dev) and the public REST API (/v1)
+mountDeveloperPlatform(app);
+
+// The embed SDK (a script tag for partner sites) and the Node SDK package, built from packages/sdk
+const sdkDist = process.env.SDK_DIST || path.resolve(process.cwd(), '../../packages/sdk/dist');
+const SDK_FILES: Record<string, string> = { 'v1.js': 'text/javascript; charset=utf-8', 'living-textbook-sdk.tgz': 'application/gzip' };
+app.get('/sdk/:file', (c) => {
+  const name = path.basename(c.req.param('file'));
+  const type = SDK_FILES[name];
+  const file = path.join(sdkDist, name);
+  if (!type || !fs.existsSync(file)) return c.text('not found', 404);
+  return c.body(new Uint8Array(fs.readFileSync(file)), 200, { 'Content-Type': type, 'Access-Control-Allow-Origin': '*', 'Cache-Control': name.endsWith('.js') ? 'public, max-age=300' : 'no-cache', ...(name.endsWith('.tgz') ? { 'Content-Disposition': `attachment; filename="${name}"` } : {}) });
+});
+
+// Who may frame what: a lesson embed anywhere; the scanner embed only on the sites its publishable key lists (and on
+// this site, for the dashboard's preview); every other page only here.
+app.use('*', async (c, next) => {
+  await next();
+  if (!c.req.path.startsWith('/embed/') && (c.res.headers.get('content-type') ?? '').includes('text/html')) c.res.headers.set('Content-Security-Policy', "frame-ancestors 'self'");
+});
+
 // Production: serve the built web app (apps/web/dist) and fall back to index.html for client routes.
 const webDist = process.env.WEB_DIST || path.resolve(process.cwd(), '../web/dist');
 if (fs.existsSync(webDist)) {
   const rel = path.relative(process.cwd(), webDist) || '.';
+  const indexHtml = () => fs.readFileSync(path.join(webDist, 'index.html'), 'utf8');
   app.use('/assets/*', serveStatic({ root: rel }));
   app.use('/*', serveStatic({ root: rel }));
-  app.get('*', (c) => c.html(fs.readFileSync(path.join(webDist, 'index.html'), 'utf8')));
+  app.get('/embed/*', async (c) => {
+    let ancestors = '*';
+    if (c.req.path.startsWith('/embed/scan')) {
+      const key = await resolveKey(c.req.query('key'));
+      ancestors = key && key.kind === 'publishable' ? `'self' ${frameAncestors(key.origins)}` : "'self'";
+    }
+    return c.html(indexHtml(), 200, { 'Content-Security-Policy': `frame-ancestors ${ancestors}`, 'Cache-Control': 'no-cache' });
+  });
+  app.get('*', (c) => c.html(indexHtml()));
   console.log(`[web] serving ${webDist}`);
 }
 

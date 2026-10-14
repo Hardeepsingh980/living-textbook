@@ -27,6 +27,20 @@ export type JobDoc = {
   experienceId?: string; url?: string; poster?: string; seconds?: number; error?: string;
 };
 
+/** A developer's API key. Only the SHA-256 hash of the key is kept (it is also the document id); the key itself is
+ *  shown once, when it is made. Secret keys call the REST API from a server; publishable keys open the scanner
+ *  embed on the sites listed in `origins`. */
+export type DevKeyKind = 'secret' | 'publishable';
+export type DevKeyDoc = {
+  hash: string; id: string; owner: string; name: string; kind: DevKeyKind;
+  prefix: string; last4: string; origins: string[];
+  createdAt: string; lastUsedAt?: string; revokedAt?: string; uses: number;
+  /** a publishable key in full: it is public by design (it sits in partners' web pages), so the dashboard may show it */
+  plain?: string;
+};
+/** Lessons made with a developer's keys on one day (IST), in total and per key. */
+export type DevUsageDoc = { owner: string; day: string; total: number; byKey: Record<string, number> };
+
 export interface Store {
   putFile(experienceId: string, name: string, bytes: Buffer, mime: string): Promise<string>; // returns URL path
   getFile(experienceId: string, name: string): Promise<{ bytes: Buffer; mime: string } | null>;
@@ -53,6 +67,14 @@ export interface Store {
   /** count one use against `key` (which carries the day); false once `limit` is reached */
   bumpQuota(key: string, limit: number): Promise<{ allowed: boolean; used: number }>;
   peekQuota(key: string): Promise<number>;
+  // developer platform: API keys and their daily usage
+  putDevKey(doc: DevKeyDoc): Promise<void>;
+  getDevKey(hash: string): Promise<DevKeyDoc | null>;
+  patchDevKey(hash: string, patch: Partial<DevKeyDoc>): Promise<void>;
+  listDevKeys(owner: string): Promise<DevKeyDoc[]>;
+  /** count one lesson for `owner` on `day` (and for the key); false once `limit` is reached */
+  bumpDevUsage(owner: string, day: string, keyId: string, limit: number): Promise<{ allowed: boolean; used: number }>;
+  getDevUsage(owner: string, days: string[]): Promise<DevUsageDoc[]>;
 }
 
 const MIME_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/wav': 'wav', 'application/octet-stream': 'bin', 'application/json': 'json' };
@@ -139,6 +161,36 @@ export class LocalStore implements Store {
     const recs = await this.listRecords(ownerId, 10000);
     for (const r of recs) await fs.rm(this.dir(r.id), { recursive: true, force: true });
     return recs.length;
+  }
+  private devKeyFile(hash: string) { return path.join(this.root, 'devkeys', `${safeId(hash)}.json`); }
+  async putDevKey(doc: DevKeyDoc) { await fs.mkdir(path.join(this.root, 'devkeys'), { recursive: true }); await fs.writeFile(this.devKeyFile(doc.hash), JSON.stringify(doc)); }
+  async getDevKey(hash: string) { try { return JSON.parse(await fs.readFile(this.devKeyFile(hash), 'utf8')) as DevKeyDoc; } catch { return null; } }
+  async patchDevKey(hash: string, patch: Partial<DevKeyDoc>) { const cur = await this.getDevKey(hash); if (cur) await this.putDevKey({ ...cur, ...patch }); }
+  async listDevKeys(owner: string) {
+    const dir = path.join(this.root, 'devkeys');
+    const files = await fs.readdir(dir).catch(() => [] as string[]);
+    const docs: DevKeyDoc[] = [];
+    for (const f of files) { try { const d = JSON.parse(await fs.readFile(path.join(dir, f), 'utf8')) as DevKeyDoc; if (d.owner === owner) docs.push(d); } catch { /* skip */ } }
+    return docs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  private usageFile(owner: string, day: string) { return path.join(this.root, 'devusage', `${safeId(owner)}_${day}.json`); }
+  private usageChain = Promise.resolve<unknown>(null);
+  async bumpDevUsage(owner: string, day: string, keyId: string, limit: number) {
+    const next = this.usageChain.then(async () => {
+      const cur = (await this.getDevUsage(owner, [day]))[0] ?? { owner, day, total: 0, byKey: {} };
+      if (cur.total >= limit) return { allowed: false, used: cur.total };
+      const doc: DevUsageDoc = { ...cur, total: cur.total + 1, byKey: { ...cur.byKey, [keyId]: (cur.byKey[keyId] ?? 0) + 1 } };
+      await fs.mkdir(path.join(this.root, 'devusage'), { recursive: true });
+      await fs.writeFile(this.usageFile(owner, day), JSON.stringify(doc));
+      return { allowed: true, used: doc.total };
+    });
+    this.usageChain = next.catch(() => null);
+    return next;
+  }
+  async getDevUsage(owner: string, days: string[]) {
+    const out: DevUsageDoc[] = [];
+    for (const day of days) { try { out.push(JSON.parse(await fs.readFile(this.usageFile(owner, day), 'utf8'))); } catch { /* no lessons that day */ } }
+    return out;
   }
 }
 
@@ -269,6 +321,31 @@ export class CloudStore implements Store {
       await this.bucket.deleteFiles({ prefix: `experiences/${safeId(r.id)}/` }).catch(() => {});
     }
     return recs.length;
+  }
+  async putDevKey(doc: DevKeyDoc) { await this.ready; await this.db.collection('devkeys').doc(safeId(doc.hash)).set(doc); }
+  async getDevKey(hash: string) { await this.ready; const s = await this.db.collection('devkeys').doc(safeId(hash)).get(); return s.exists ? (s.data() as DevKeyDoc) : null; }
+  async patchDevKey(hash: string, patch: Partial<DevKeyDoc>) { await this.ready; await this.db.collection('devkeys').doc(safeId(hash)).set(patch, { merge: true }); }
+  async listDevKeys(owner: string) {
+    await this.ready;
+    const q = await this.db.collection('devkeys').where('owner', '==', owner).limit(100).get();
+    return q.docs.map((d) => d.data() as DevKeyDoc).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  async bumpDevUsage(owner: string, day: string, keyId: string, limit: number) {
+    await this.ready;
+    const ref = this.db.collection('devusage').doc(`${safeId(owner)}_${day}`);
+    return this.db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const cur = snap.exists ? (snap.data() as DevUsageDoc) : { owner, day, total: 0, byKey: {} };
+      if (cur.total >= limit) return { allowed: false, used: cur.total };
+      tx.set(ref, { owner, day, total: cur.total + 1, byKey: { ...cur.byKey, [keyId]: (cur.byKey?.[keyId] ?? 0) + 1 } });
+      return { allowed: true, used: cur.total + 1 };
+    });
+  }
+  async getDevUsage(owner: string, days: string[]) {
+    await this.ready;
+    if (!days.length) return [];
+    const snaps = await this.db.getAll(...days.map((d) => this.db.collection('devusage').doc(`${safeId(owner)}_${d}`)));
+    return snaps.filter((s) => s.exists).map((s) => s.data() as DevUsageDoc);
   }
 }
 

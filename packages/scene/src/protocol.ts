@@ -72,10 +72,15 @@ export type PipelineEvent =
 export type QuizQuestion = { q: string; options: string[]; answer: number; why: string };
 export type Quiz = { questions: QuizQuestion[]; language: string; createdAt: string; model?: string };
 
+/** A lesson made through the developer platform: which key made it, from where (the REST API or the scanner embed),
+ *  and the partner's own references, returned to them as they were sent. Never shown on public records. */
+export type ApiInfo = { keyId: string; source: 'api' | 'embed'; externalUserId?: string; metadata?: Record<string, string>; origin?: string };
+
 export type ExperienceRecord = {
   id: string;
   createdAt: string;
   ownerId: string;
+  api?: ApiInfo;
   quiz?: Quiz;                    // made on first request from the page's own text (see server quiz.ts)
   bookId?: string;
   page: { w: number; h: number; imageUrl: string; ink?: InkMap };

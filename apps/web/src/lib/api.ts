@@ -27,12 +27,12 @@ export async function authHeaders(extra: Record<string, string> = {}): Promise<R
 }
 
 /** POST the page photo and stream pipeline events. Resolves when the stream ends. */
-export async function createExperience(blob: Blob, onEvent: (e: PipelineEvent) => void, opts: { bookId?: string; signal?: AbortSignal } = {}): Promise<void> {
+export async function createExperience(blob: Blob, onEvent: (e: PipelineEvent) => void, opts: { bookId?: string; signal?: AbortSignal; embed?: { key: string; parent: string } } = {}): Promise<void> {
   const res = await fetch('/api/experiences', {
     method: 'POST', body: blob, signal: opts.signal,
-    headers: await authHeaders({ 'content-type': blob.type || 'image/jpeg', ...(opts.bookId ? { 'x-book-id': opts.bookId } : {}) }),
+    headers: await authHeaders({ 'content-type': blob.type || 'image/jpeg', ...(opts.bookId ? { 'x-book-id': opts.bookId } : {}), ...(opts.embed ? { 'x-embed-key': opts.embed.key, 'x-embed-parent': opts.embed.parent } : {}) }),
   });
-  if (res.status === 429 || res.status === 401) { const j = await res.json().catch(() => ({})); throw new ApiError(j.error || 'Please sign in to continue.', j.code || 'signin-required'); }
+  if (res.status === 429 || res.status === 401 || res.status === 403) { const j = await res.json().catch(() => ({})); throw new ApiError(j.error || 'Please sign in to continue.', j.code || 'signin-required'); }
   if (!res.ok || !res.body) throw new Error(`server error ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

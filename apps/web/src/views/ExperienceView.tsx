@@ -19,11 +19,13 @@ import { CameraSession } from '../ar/camera';
 import { cornersToMatrix3d, type Corners, type TrackerState } from '../ar/PageTracker';
 import { executeTool, type Scene } from '@living-book/scene';
 import { QuizSheet } from '../components/QuizSheet';
+import { postToHost, onHostCommand, type HostCommand } from '../lib/embed';
 import { useReader, useSignInAvailable, signIn } from '../lib/firebase';
 import { track } from '../lib/progress';
 import type { LessonMeta } from '../lib/types';
 
-type Props = { onBack: () => void };
+/** `embed`: inside a partner's app (the embed SDK); `fromScanner`: the lesson was just made in the scanner embed. */
+type Props = { onBack: () => void; embed?: boolean; fromScanner?: boolean };
 const LOST_TO_PHOTO_MS = 1800;     // a found page that stays lost this long falls back to the frozen capture
 const SEARCH_GIVE_UP_MS = 4000;    // a revealed scene whose page was never found shows on the capture after this
 const REVEAL_TIMEOUT_MS = 75000;   // generation that produces nothing usable in this time is reported, not waited for
@@ -49,7 +51,7 @@ function narrationReady(scene: Scene, version: number, audio: AudioClip[]) {
   return audio.some((a) => a.kind === 'narration' && a.stepId === first.id && (a.version ?? 1) === Math.max(1, version));
 }
 
-export function ExperienceView({ onBack }: Props) {
+export function ExperienceView({ onBack, embed = false, fromScanner = false }: Props) {
   const scene = useStore((s) => s.scene);
   const sceneVersion = useStore((s) => s.sceneVersion);
   const revealedVersion = useStore((s) => s.revealedVersion);
@@ -276,6 +278,8 @@ export function ExperienceView({ onBack }: Props) {
   // ---------- the lesson, conducted: the app moves the page from step to step and hands the tutor one step at a time;
   // the next step starts when the tutor has finished speaking. Only after the last step does the tutor show a what-if
   // and invite questions. The reader may interrupt at any moment; after the answer, the interrupted step is finished.
+  const begun = useRef(false);   // the lesson (tutor or recorded narration) has started
+  const startAt = useRef(0);     // the step it starts from
   const conductor = useRef<{ phase: 'off' | 'steps' | 'end' | 'open'; step: number; interrupted: boolean; timer: number | null; watchdog: number | null; sentAt: number; retries: number }>({ phase: 'off', step: 0, interrupted: false, timer: null, watchdog: null, sentAt: 0, retries: 0 });
   const stepMessage = (sc: Scene, i: number, resume: boolean) => {
     const st = sc.steps[i]!, n = sc.steps.length;
@@ -340,15 +344,17 @@ export function ExperienceView({ onBack }: Props) {
 
   // ---------- the lesson: the tutor narrates over Gemini Live and drives the steps; recorded clips are the fallback ----------
   function startLesson(sc: Scene) {
-    if (!LIVE_LESSON || !experienceId) { startNarration(sc, 0); return; }
-    const t = ensureTutor(); if (!t) { startNarration(sc, 0); return; }
+    begun.current = true;
+    const from = Math.min(startAt.current, Math.max(0, sc.steps.length - 1)); // a host may ask for a step before the lesson begins
+    if (!LIVE_LESSON || !experienceId) { startNarration(sc, from); return; }
+    const t = ensureTutor(); if (!t) { startNarration(sc, from); return; }
     tutorLive.current = true;
-    say(sc.steps[0]?.narration ?? '', 'tutor');
+    say(sc.steps[from]?.narration ?? '', 'tutor');
     (async () => {
       try {
         await t.connect();
         setPhase('live');
-        conductStep(0);
+        conductStep(conductor.current.phase === 'steps' ? conductor.current.step : from);
         report('lesson-begun');
         if (!CONTAIN) t.listen().then(() => setMicOn(true)).catch((e: any) => { const denied = /NotAllowed|denied|dismissed/i.test(String(e?.message || e?.name)); setTutorNote(denied ? 'microphone not allowed' : ''); if (denied) say('Allow the microphone to talk to the tutor. The lesson carries on without it.', 'line'); report('mic-failed', String(e?.message || e?.name)); });
       } catch (e) {
@@ -425,9 +431,38 @@ export function ExperienceView({ onBack }: Props) {
   }
   function nextStep() {
     const r = active(); if (!r || !scene) return;
-    if (r.runtime.stepIndex + 1 < scene.steps.length) { r.runtime.nextStep(); if (tutorLive.current) tutorRef.current?.sendText(`continue from step ${r.runtime.stepIndex + 1}`); }
+    if (r.runtime.stepIndex + 1 < scene.steps.length) goToStep(r.runtime.stepIndex + 1);
     else replay();
   }
+  /** Show step `i`: the tutor explains it (a conducted lesson), or its recorded narration plays. Before the lesson has
+   *  begun, the page moves there and the lesson will begin from it. */
+  function goToStep(i: number) {
+    const r = active(); if (!r || !scene || !scene.steps.length) return;
+    const target = Math.max(0, Math.min(scene.steps.length - 1, Math.round(i)));
+    if (pausedRef.current) { setPaused(false); pausedRef.current = false; tutorRef.current?.setOutputMuted(muted); }
+    if (!begun.current) { startAt.current = target; r.runtime.goToStep(target); return; }
+    if (tutorLive.current) conductStep(target);
+    else { r.runtime.goToStep(target); narrateStep(scene, target); }
+  }
+
+  // ---------- inside a partner's app: tell the host page what happens, and take its commands ----------
+  const embedReady = useRef<string | null>(null);
+  useEffect(() => {
+    if (!embed || !revealed || !experienceId || !scene || embedReady.current === experienceId) return;
+    embedReady.current = experienceId;
+    postToHost('ready', { lessonId: experienceId, title: useStore.getState().quickPartial?.title ?? '', step: stepIndex, steps: scene.steps.length });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embed, revealed, experienceId, scene]);
+  useEffect(() => { if (embed && revealed && experienceId && scene) postToHost('step', { lessonId: experienceId, step: stepIndex, steps: scene.steps.length }); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [stepIndex]);
+  useEffect(() => { if (embed && lessonDone && experienceId) postToHost('complete', { lessonId: experienceId }); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [lessonDone]);
+  const hostCommand = useRef<(cmd: HostCommand) => void>(() => {});
+  hostCommand.current = (cmd) => {
+    if (cmd.type === 'play') { if (pausedRef.current) togglePause(); }
+    else if (cmd.type === 'pause') { if (!pausedRef.current) togglePause(); }
+    else if (cmd.type === 'goTo') goToStep(cmd.step);
+    else if (cmd.type === 'mute') setMuted(cmd.muted);
+  };
+  useEffect(() => (embed ? onHostCommand((cmd) => hostCommand.current(cmd)) : undefined), [embed]);
 
   // ---------- the tutor: one live session per lesson; the microphone pill turns listening on and off ----------
   const runTool = useCallback((name: string, args: Record<string, unknown>) => {
@@ -573,7 +608,7 @@ export function ExperienceView({ onBack }: Props) {
   const micLabel = tutor === 'unavailable' ? (tutorNote === 'microphone not allowed' ? 'Mic off' : 'Voice off') : tutor === 'reconnecting' ? 'Reconnecting' : tutor === 'connecting' ? 'One moment' : tutor === 'acting' ? 'Changing it' : tutor === 'thinking' ? 'Thinking' : micOn ? (tutor === 'speaking' ? 'Interrupt' : 'Listening') : 'Ask';
   const title = quick?.title || quick?.subject || '';
   const mainFigure = quick?.figures?.[0]?.box as [number, number, number, number] | undefined;
-  const errorText = /^(camera|network|fetch|server)/i.test(error ?? '') ? 'The connection dropped while the page was being prepared.' : error === 'timeout' || error === 'no scene' || error === 'renderer' ? "I couldn't build this lesson safely yet. You can retry, or point at the main illustration or diagram." : "I couldn't confidently read this page. Try moving closer, with the whole page in the frame.";
+  const errorText = error?.startsWith('msg:') ? error.slice(4) : /^(camera|network|fetch|server)/i.test(error ?? '') ? 'The connection dropped while the page was being prepared.' : error === 'timeout' || error === 'no scene' || error === 'renderer' ? "I couldn't build this lesson safely yet. You can retry, or point at the main illustration or diagram." : "I couldn't confidently read this page. Try moving closer, with the whole page in the frame.";
   const captionParts = captionBy === 'line' && /^([^:]{1,24}): (.+)$/s.test(caption) ? { who: caption.split(': ')[0]!, text: caption.slice(caption.indexOf(': ') + 2) } : null;
 
   return (
@@ -591,7 +626,7 @@ export function ExperienceView({ onBack }: Props) {
       </div>
 
       {!REVIEW && <div ref={topBarRef} className={`top-bar ${PRESENT ? 'present' : ''}`}>
-        {!PRESENT && <button className="round" onClick={onBack} aria-label="Back"><Icon name="back" /></button>}
+        {!PRESENT && (!embed || fromScanner) && <button className="round" onClick={onBack} aria-label={fromScanner ? 'Scan another page' : 'Back'} title={fromScanner ? 'Scan another page' : undefined}><Icon name="back" /></button>}
         {phrase || title ? <div className={`title-pill ${phrase ? 'working' : ''}`}>{phrase ? <GeminiSpark state="thinking" size={18} /> : null}<span>{phrase || title}</span></div> : <div className="spacer" />}
         {!PRESENT && <button className="round small" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute' : 'Mute'}><Icon name={muted ? 'soundOff' : 'sound'} size={20} /></button>}
         {!PRESENT && !reader && revealed && signInAvailable && <button className="pill save-pill wide-only" onClick={() => { void signIn().catch(() => {}); }} title="Sign in with Google to keep this page and your progress"><Icon name="check" size={16} />Save</button>}
@@ -630,7 +665,7 @@ export function ExperienceView({ onBack }: Props) {
         )}
         {scene && scene.steps.length > 1 && !PRESENT && <div className="dots">{scene.steps.map((s, i) => <span key={s.id} className={i === stepIndex ? 'on' : ''} />)}</div>}
       </div>}
-      {quizOpen && experienceId && <QuizSheet experienceId={experienceId} meta={meta()} onClose={closeQuiz} onExplain={tutorLive.current ? explainInLesson : undefined} />}
+      {quizOpen && experienceId && <QuizSheet experienceId={experienceId} meta={meta()} onClose={closeQuiz} onExplain={tutorLive.current ? explainInLesson : undefined} onScore={embed ? (score, total) => postToHost('quiz.completed', { lessonId: experienceId, score, total }) : undefined} />}
     </div>
   );
 }

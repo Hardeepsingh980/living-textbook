@@ -4,7 +4,7 @@ import sharp from 'sharp';
 import { randomUUID } from 'node:crypto';
 import {
   normalizeScene, fallbackScene, SceneRuntime, SceneSchema, inkMapFromGrey, formatDecimals, freeRegionsFromInk, layoutScene, motionReport,
-  type Scene, type QuickRead, type Extraction, type PipelineEvent, type ExperienceRecord, type Verification, type VerificationCheck, type BoxT, type Issue, type StageName,
+  type Scene, type QuickRead, type Extraction, type PipelineEvent, type ExperienceRecord, type Verification, type VerificationCheck, type BoxT, type Issue, type StageName, type ApiInfo,
 } from '@living-book/scene';
 import { generateJson, generateImage, synthesize, imagePart, type Usage } from './gemini.js';
 import type { Part } from '@google/genai';
@@ -13,7 +13,7 @@ import { compileTracking } from './tracking.js';
 import { store } from './store.js';
 import { config } from './config.js';
 
-export type PipelineInput = { id?: string; image: Buffer; mime: string; ownerId: string; bookId?: string
+export type PipelineInput = { id?: string; image: Buffer; mime: string; ownerId: string; bookId?: string; api?: ApiInfo
   emphasis?: string;              // extra direction for the scene model (showcase assets), appended to its instructions
 };
 type Emit = (e: PipelineEvent) => void;
@@ -500,7 +500,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
     scene = r1.scene;
     timings.ready = T();
     // the tutor may connect from this moment: a provisional record (verified scene v1, clips and pictures so far) is saved now
-    try { await store.putRecord({ id, createdAt: new Date(t0).toISOString(), ownerId: input.ownerId, bookId: input.bookId, page: { ...page, imageUrl: pageUrl, ink }, quick, extraction: ex, scene, sceneVersion: 1, audio: [...audioClips], assets: [...assets], tracking: undefined, verification: r1.v, timings: { ...timings }, costUsd: usages.reduce((a, u) => a + u.costUsd, 0), events: [] }); } catch (e: any) { console.warn('[pipeline] provisional save failed', String(e?.message || e).slice(0, 120)); }
+    try { await store.putRecord({ id, createdAt: new Date(t0).toISOString(), ownerId: input.ownerId, bookId: input.bookId, api: input.api, page: { ...page, imageUrl: pageUrl, ink }, quick, extraction: ex, scene, sceneVersion: 1, audio: [...audioClips], assets: [...assets], tracking: undefined, verification: r1.v, timings: { ...timings }, costUsd: usages.reduce((a, u) => a + u.costUsd, 0), events: [] }); } catch (e: any) { console.warn('[pipeline] provisional save failed', String(e?.message || e).slice(0, 120)); }
     send({ type: 'ready', t: T(), experienceId: id });
     const rich = await richP;
     if (!rich) return r1.v;
@@ -515,7 +515,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
   timings.total = T();
   stage('save', 'start');
   const record: ExperienceRecord = {
-    id, createdAt: new Date(t0).toISOString(), ownerId: input.ownerId, bookId: input.bookId,
+    id, createdAt: new Date(t0).toISOString(), ownerId: input.ownerId, bookId: input.bookId, api: input.api,
     page: { ...page, imageUrl: pageUrl, ink }, quick, extraction: await extractionP, scene, sceneVersion: richScene ? 2 : 1, audio: audioClips, assets, tracking, verification,
     timings, costUsd, events: [],
   };

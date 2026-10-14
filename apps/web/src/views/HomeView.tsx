@@ -64,6 +64,7 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
       <header className="home-top">
         <div className="wordmark"><span className="mark" />Living Textbook</div>
         <nav className="home-nav">
+          <button className="link dev-link" onClick={() => navigate('/developers')}>Developers</button>
           {reader
             ? <button className="secondary small dash-btn" onClick={() => navigate('/app')}><Avatar small /> <span>Dashboard</span></button>
             : <GoogleButton className="secondary small nav-signin" label="Sign in" />}
@@ -204,6 +205,7 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
         </div>
         <footer className="home-foot">
           <span className="muted">Built with Gemini on Google Cloud</span>
+          <button className="link" onClick={() => navigate('/developers')}>Developers: put it in your app</button>
           {reader ? <button className="link" onClick={() => navigate('/app')}>Dashboard</button> : <button className="link" onClick={() => void signIn().catch(() => {})}>Sign in</button>}
         </footer>
       </section>

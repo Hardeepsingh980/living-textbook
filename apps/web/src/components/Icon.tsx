@@ -31,6 +31,9 @@ const PATHS: Record<string, string> = {
   clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
   download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
   open: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
+  key: 'M8 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8zM12 12h9M17.5 12v3M21 12v2.5',
+  code: 'M9 7l-5 5 5 5M15 7l5 5-5 5',
+  copy: 'M9 9h11v11H9zM5 15V4h11',
 };
 
 export function Icon({ name, size = 22, ...rest }: { name: keyof typeof PATHS | string; size?: number } & SVGProps<SVGSVGElement>) {

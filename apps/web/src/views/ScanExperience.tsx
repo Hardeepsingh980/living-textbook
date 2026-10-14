@@ -8,7 +8,8 @@ import { Icon } from '../components/Icon';
 import { GeminiSpark } from '../components/GeminiSpark';
 
 export type CaptureResult = { blob: Blob; previewUrl: string; size: { w: number; h: number }; session: CameraSession | null };
-type Props = { onCapture: (r: CaptureResult) => void; onBack: () => void; autoStart?: boolean };
+/** `embed`: the scanner inside a partner's app; leaving it closes the scanner there. */
+type Props = { onCapture: (r: CaptureResult) => void; onBack: () => void; autoStart?: boolean; embed?: boolean };
 
 /** A chosen picture becomes a capture (resized like a camera frame); null when the file is not an image. */
 export async function fileToCapture(f: File): Promise<CaptureResult | null> {
@@ -26,7 +27,7 @@ export async function fileToCapture(f: File): Promise<CaptureResult | null> {
 // a hand-drawn rectangle: four slightly bowed sides with overshooting corners, like a quick pencil frame
 const FRAME_PATH = 'M 6 10 C 40 4, 70 7, 100 6 C 96 40, 98 70, 97 94 C 70 97, 36 96, 4 95 C 7 66, 5 38, 6 10 Z';
 
-export function ScanExperience({ onCapture, onBack, autoStart = false }: Props) {
+export function ScanExperience({ onCapture, onBack, autoStart = false, embed = false }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -96,7 +97,7 @@ export function ScanExperience({ onCapture, onBack, autoStart = false }: Props) 
           <div className="actions">
             {cameraError && <button className="primary" onClick={startCamera} disabled={busy}><Icon name="camera" /> Try the camera again</button>}
             <label className="secondary"><Icon name="upload" size={18} /> Use a photo<input type="file" accept="image/*" onChange={onFile} hidden /></label>
-            <button className="link" onClick={onBack}>Back</button>
+            <button className="link" onClick={onBack}>{embed ? 'Close' : 'Back'}</button>
           </div>
         </div>
       )}

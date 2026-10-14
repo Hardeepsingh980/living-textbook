@@ -22,6 +22,8 @@ setTimeout(() => resolveAuth(), 2500); // a request never waits long for the aut
 
 const CLAIMED = 'lb.claimed.';
 const boot = (async () => {
+  // inside another app (the embed), nobody signs in: lessons there belong to the partner's account
+  if (location.pathname.startsWith('/embed/')) { resolveAuth(); return; }
   try {
     const cfg = await fetch('/api/config').then((r) => (r.ok ? r.json() : null));
     if (cfg?.devUsers) {

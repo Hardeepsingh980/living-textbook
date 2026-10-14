@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"], "types": [], "target": "ES2020",
+    "noEmit": false, "declaration": true, "outDir": "dist", "rootDir": "src", "sourceMap": false
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}

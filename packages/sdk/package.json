@@ -1,0 +1,26 @@
+{
+  "name": "@living-textbook/sdk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Living Textbook SDK: make living lessons from photos of textbook pages (REST API client), and embed the lesson player and the page scanner in your app.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./embed": { "types": "./dist/embed.d.ts", "import": "./dist/embed.js" }
+  },
+  "files": ["dist/*.js", "dist/*.d.ts", "README.md"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.3"
+  }
+}
