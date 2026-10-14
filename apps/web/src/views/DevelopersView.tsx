@@ -34,7 +34,7 @@ function NewKeySheet({ onClose, onMade }: { onClose: () => void; onMade: (k: Dev
         <div className="section-head"><h2>New key</h2><button className="round small" onClick={onClose} aria-label="Close"><Icon name="close" size={20} /></button></div>
         <div className="kind-grid" role="radiogroup" aria-label="Kind of key">
           <button role="radio" aria-checked={kind === 'publishable'} className={`kind-card ${kind === 'publishable' ? 'on' : ''}`} onClick={() => setKind('publishable')}>
-            <b>Publishable</b><span>For your web pages. Opens the scanner and attributes lesson plays, only on the sites you list.</span><code>ltpk_…</code>
+            <b>Publishable</b><span>For your web pages. Opens the scanner, only on the sites you list.</span><code>ltpk_…</code>
           </button>
           <button role="radio" aria-checked={kind === 'secret'} className={`kind-card ${kind === 'secret' ? 'on' : ''}`} onClick={() => setKind('secret')}>
             <b>Secret</b><span>For your server. Makes, lists and deletes lessons with the REST API. Never put it in a web page or an app.</span><code>ltsk_…</code>

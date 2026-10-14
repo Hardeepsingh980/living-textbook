@@ -32,7 +32,7 @@ export interface EmbedEvent {
 export type EmbedListener = (e: EmbedEvent) => void;
 
 export interface EmbedOptions {
-  /** Your publishable key (ltpk_...). Needed for the scanner; with the player it attributes plays to your account. */
+  /** Your publishable key (ltpk_...). The scanner needs it; the lesson player works without it. */
   publishableKey?: string;
   /** The Living Textbook address; the script tag sets it from where it was loaded. */
   host?: string;

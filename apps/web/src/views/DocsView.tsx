@@ -107,7 +107,7 @@ export function DocsView() {
             <table className="doc-table">
               <thead><tr><th>Key</th><th>Starts with</th><th>Where it goes</th><th>What it can do</th></tr></thead>
               <tbody>
-                <tr><td><b>Publishable</b></td><td><code>ltpk_</code></td><td>Your web pages (it is public by design)</td><td>Opens the scanner, only on the sites listed for the key; attributes lesson plays to you.</td></tr>
+                <tr><td><b>Publishable</b></td><td><code>ltpk_</code></td><td>Your web pages (it is public by design)</td><td>Opens the scanner, only on the sites listed for the key.</td></tr>
                 <tr><td><b>Secret</b></td><td><code>ltsk_</code></td><td>Your server only, in an environment variable</td><td>Everything in the REST API: make, read, list and delete your lessons, quizzes, usage.</td></tr>
               </tbody>
             </table>
@@ -138,7 +138,7 @@ export function DocsView() {
               </tbody>
             </table>
             <p>Without code: <code>{'<div data-lt-lesson="LESSON_ID" data-lt-height="640"></div>'}</code>. Its events arrive as DOM events named <code>livingtextbook:ready</code>, <code>livingtextbook:step</code>, <code>livingtextbook:complete</code> and so on, with the event in <code>detail</code>.</p>
-            <p>Sound needs one tap inside the player first (a rule of every browser). The microphone, for questions to the tutor, is asked for when the learner taps <i>Ask</i>.</p>
+            <p>Sound needs one tap inside the player first (a rule of every browser). The tutor listens for questions, so the browser asks for the microphone when the lesson starts (the frames the SDK makes are allowed to ask); if the learner says no, the lesson still plays, without spoken questions.</p>
           </Section>
 
           <Section id="scanner" title="The scanner">
