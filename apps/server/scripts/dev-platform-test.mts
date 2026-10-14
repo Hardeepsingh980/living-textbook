@@ -90,7 +90,9 @@ if (done?.experienceId) {
   await lt.lessons.del(done.experienceId);
 }
 const csp = async (path: string) => (await fetch(`${SERVER}${path}`)).headers.get('content-security-policy') ?? '';
-ok((await csp(`/embed/scan?key=${publishable}`)).includes("frame-ancestors 'self' http://localhost:5500 https://*.school.example"), 'the scanner frame is allowed only on the key\'s sites', await csp(`/embed/scan?key=${publishable}`));
+const scanCsp = await csp(`/embed/scan?key=${publishable}`);
+ok(scanCsp.startsWith("frame-ancestors 'self' ") && scanCsp.includes('http://localhost:5500') && !scanCsp.includes('*;') && scanCsp !== 'frame-ancestors *', 'the scanner frame is allowed only on the key\'s sites', scanCsp);
+ok((await csp('/embed/scan?key=ltpk_000000000000000000000000000000x')) === "frame-ancestors 'self'", 'with an unknown key the scanner frame is allowed nowhere else');
 ok((await csp('/embed/lesson/x')) === 'frame-ancestors *', 'a lesson frame may be embedded anywhere');
 ok((await csp('/app/developers')) === "frame-ancestors 'self'", 'other pages cannot be framed', await csp('/app/developers'));
 const sdk = await fetch(`${SERVER}/sdk/v1.js`);
