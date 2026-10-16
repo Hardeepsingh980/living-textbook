@@ -6,6 +6,7 @@ import { Firestore } from '@google-cloud/firestore';
 import { config } from './config.js';
 import { gcloudAuthClient } from './gemini.js';
 import type { ExperienceRecord } from '@living-book/scene';
+import type { StoryDoc } from './story/types.js';
 
 export type UserDoc = { uid: string; name?: string; email?: string; picture?: string; createdAt: string; lastSeenAt: string };
 export type LessonDoc = {
@@ -15,16 +16,16 @@ export type LessonDoc = {
 };
 
 /** A long generation (short video, chapter film) that runs in the background and outlives the page that asked for it. */
-export type JobKind = 'short' | 'chapter';
+export type JobKind = 'short' | 'chapter' | 'story';
 export type JobStatus = 'queued' | 'running' | 'ready' | 'failed';
 export type JobSection = { page: number; concept: string; score: number; status: 'waiting' | 'making' | 'recording' | 'done' | 'skipped'; experienceId?: string; thumb?: string; title?: string };
 export type JobDoc = {
   id: string; kind: JobKind; owner: string; createdAt: string; updatedAt: number;
   status: JobStatus; stage: string; detail: string; attempts: number;
   input: { url: string; mime: string; name?: string };
-  options: { seconds?: number; sections?: number };
+  options: { seconds?: number; sections?: number; pages?: string[] };
   title?: string; subject?: string; grade?: string; pages?: number; sections?: JobSection[]; questions?: string[];
-  experienceId?: string; url?: string; poster?: string; seconds?: number; error?: string;
+  experienceId?: string; storyId?: string; url?: string; poster?: string; seconds?: number; error?: string;
 };
 
 /** A developer's API key. Only the SHA-256 hash of the key is kept (it is also the document id); the key itself is
@@ -75,11 +76,18 @@ export interface Store {
   /** count one lesson for `owner` on `day` (and for the key); false once `limit` is reached */
   bumpDevUsage(owner: string, day: string, keyId: string, limit: number): Promise<{ allowed: boolean; used: number }>;
   getDevUsage(owner: string, days: string[]): Promise<DevUsageDoc[]>;
+  // stories made alive (see story/types.ts)
+  putStory(doc: StoryDoc): Promise<void>;
+  patchStory(id: string, patch: Partial<StoryDoc>): Promise<void>;
+  getStory(id: string): Promise<StoryDoc | null>;
+  listStories(owner: string, limit?: number): Promise<StoryDoc[]>;
 }
 
-const MIME_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/wav': 'wav', 'application/octet-stream': 'bin', 'application/json': 'json' };
+const MIME_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/wav': 'wav', 'audio/mpeg': 'mp3', 'video/mp4': 'mp4', 'application/octet-stream': 'bin', 'application/json': 'json' };
 const fileName = (name: string, mime: string) => (name.includes('.') ? name : `${name}.${MIME_EXT[mime] ?? 'bin'}`);
 const safeId = (id: string) => path.basename(id).replace(/[^A-Za-z0-9_-]/g, '');
+/** files larger than this are not kept in memory after they are served (a story has dozens of 4 MB clips) */
+const MEMO_MAX = 3 * 1024 * 1024;
 
 export class LocalStore implements Store {
   constructor(private root = path.resolve(config.dataDir)) {}
@@ -192,6 +200,16 @@ export class LocalStore implements Store {
     for (const day of days) { try { out.push(JSON.parse(await fs.readFile(this.usageFile(owner, day), 'utf8'))); } catch { /* no lessons that day */ } }
     return out;
   }
+  private storyFile(id: string) { return path.join(this.root, 'stories', `${safeId(id)}.json`); }
+  async putStory(doc: StoryDoc) { await fs.mkdir(path.join(this.root, 'stories'), { recursive: true }); await fs.writeFile(this.storyFile(doc.id), JSON.stringify(doc)); }
+  async patchStory(id: string, patch: Partial<StoryDoc>) { const cur = await this.getStory(id); if (cur) await this.putStory({ ...cur, ...patch }); }
+  async getStory(id: string) { try { return JSON.parse(await fs.readFile(this.storyFile(id), 'utf8')) as StoryDoc; } catch { return null; } }
+  async listStories(owner: string, limit = 100) {
+    const files = await fs.readdir(path.join(this.root, 'stories')).catch(() => [] as string[]);
+    const docs: StoryDoc[] = [];
+    for (const f of files) { try { const d = JSON.parse(await fs.readFile(path.join(this.root, 'stories', f), 'utf8')) as StoryDoc; if (d.owner === owner) docs.push(d); } catch { /* skip */ } }
+    return docs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  }
 }
 
 /** Cloud Storage for files (served through the API with long cache headers) and Firestore for records. */
@@ -217,7 +235,7 @@ export class CloudStore implements Store {
     const file = fileName(name, mime);
     await this.bucket.file(this.objectPath(id, file)).save(bytes, { contentType: mime, resumable: false, metadata: { cacheControl: 'public, max-age=31536000, immutable' } });
     const url = `${config.publicBase}/api/files/${safeId(id)}/${file}`;
-    this.memo.set(url, Promise.resolve({ bytes, mime })); // serve what we just wrote without a round trip
+    if (bytes.length <= MEMO_MAX) this.memo.set(url, Promise.resolve({ bytes, mime })); // serve what we just wrote without a round trip
     return url;
   }
   async getFile(id: string, name: string) {
@@ -230,6 +248,7 @@ export class CloudStore implements Store {
           const f = this.bucket.file(this.objectPath(id, path.basename(name)));
           const [bytes] = await f.download();
           const [meta] = await f.getMetadata();
+          if (bytes.length > MEMO_MAX) setTimeout(() => this.memo.delete(key), 30_000); // big media (story clips) is not kept
           return { bytes, mime: meta.contentType ?? 'application/octet-stream' };
         } catch { return null; }
       })();
@@ -346,6 +365,14 @@ export class CloudStore implements Store {
     if (!days.length) return [];
     const snaps = await this.db.getAll(...days.map((d) => this.db.collection('devusage').doc(`${safeId(owner)}_${d}`)));
     return snaps.filter((s) => s.exists).map((s) => s.data() as DevUsageDoc);
+  }
+  async putStory(doc: StoryDoc) { await this.ready; await this.db.collection('stories').doc(safeId(doc.id)).set(doc); }
+  async patchStory(id: string, patch: Partial<StoryDoc>) { await this.ready; await this.db.collection('stories').doc(safeId(id)).set(patch, { merge: true }); }
+  async getStory(id: string) { await this.ready; const s = await this.db.collection('stories').doc(safeId(id)).get(); return s.exists ? (s.data() as StoryDoc) : null; }
+  async listStories(owner: string, limit = 100) {
+    await this.ready;
+    const q = await this.db.collection('stories').where('owner', '==', owner).limit(200).get();
+    return q.docs.map((d) => d.data() as StoryDoc).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
   }
 }
 

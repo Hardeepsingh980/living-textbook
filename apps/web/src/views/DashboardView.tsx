@@ -55,6 +55,7 @@ export function DashboardView({ onPhoto }: { onPhoto: (f: File) => void }) {
         <label className="start-card"><span className="start-icon"><Icon name="upload" size={30} /></span><b>Upload a photo</b><span>A photo of a page that you took before</span>
           <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) onPhoto(f); e.target.value = ''; }} /></label>
         <button className="start-card" onClick={() => navigate('/app/new/short')}><span className="start-icon"><Icon name="film" size={30} /></span><b>Short video</b><span>One page becomes a video with a voice</span></button>
+        <button className="start-card" onClick={() => navigate('/app/new/story')}><span className="start-icon"><Icon name="play" size={30} /></span><b>A story comes alive</b><span>Story pages become a film you play with</span></button>
         <button className="start-card" onClick={() => navigate('/app/new/chapter')}><span className="start-icon"><Icon name="doc" size={30} /></span><b>Chapter film</b><span>A chapter PDF becomes a film for your class</span></button>
       </section>
 

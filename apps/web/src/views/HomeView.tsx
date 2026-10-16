@@ -16,7 +16,8 @@ import '../home.css';
 
 type Sample = { id: string; title: string; slider?: string };
 type GalleryItem = { id: string; title: string; subject: string; pageImageUrl: string; verification?: string; moving: number };
-type Showcase = { hero: Sample; explore: Sample; ask: Sample; gallery?: GalleryItem[] };
+type StoryItem = { id: string; title: string; book?: string; poster?: string; score?: number };
+type Showcase = { hero: Sample; explore: Sample; ask: Sample; gallery?: GalleryItem[]; stories?: StoryItem[] };
 const FALLBACK: Showcase = {
   hero: { id: '9aee2e9b-606b-4086-bb15-1f872b687149', title: 'Motion and Time', slider: 'L' },
   explore: { id: '26361c93-7794-401c-99a7-9c4c6c9d30c9', title: 'Resistors in Series', slider: 'V' },
@@ -155,6 +156,23 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
                 </button>
               ))}
             </div>
+          </div>
+        </section>
+      )}
+
+      {/* fiction comes alive too: a story's pages become a film the reader plays with */}
+      {(show.stories?.length ?? 0) > 0 && (
+        <section className="stories">
+          <h2 className="reveal">Stories come alive too<span className="marker-dot">.</span></h2>
+          <p className="lede reveal">Photograph the pages of a story. The book's own pictures start to move, every character speaks in their own voice, you choose what happens, and then you can talk to the characters.</p>
+          <div className="story-row reveal">
+            {show.stories!.map((s, i) => (
+              <a key={s.id} className="story-tile" href={`/story/${s.id}`} style={{ '--rot': `${((i % 3) - 1) * 1.2}deg` } as CSSProperties}>
+                {s.poster && <img src={s.poster} alt="" loading="lazy" />}
+                <span className="story-play"><Icon name="play" size={22} /></span>
+                <b>{s.title}</b>{s.book && <span className="muted">{s.book}</span>}
+              </a>
+            ))}
           </div>
         </section>
       )}

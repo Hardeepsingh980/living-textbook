@@ -11,7 +11,10 @@ export const SHOWCASE = {
 // pages the homepage shows in its gallery: the verified textbook samples
 const GALLERY_IDS = ['9aee2e9b-606b-4086-bb15-1f872b687149', '26361c93-7794-401c-99a7-9c4c6c9d30c9', '376abcca-c784-459a-96d6-549b598a7314', '82071d9a-f9c4-449a-9ac4-0dc0e98f9db3', '582d7438-5ac7-4ed5-a8c6-2d8bd3a60e5b', 'd9f920c7-a321-43dd-9410-57ae8c618b15'];
 type GalleryItem = { id: string; title: string; subject: string; pageImageUrl: string; verification?: string; moving: number };
-let galleryCache: { at: number; items: GalleryItem[] } | null = null;
+// stories made alive that the homepage offers to play (fiction pages: a school reader, a comic, a folk tale)
+const STORY_IDS: string[] = (process.env.SHOWCASE_STORIES || '').split(',').filter(Boolean);
+type StoryItem = { id: string; title: string; book?: string; poster?: string; score?: number };
+let galleryCache: { at: number; items: GalleryItem[]; stories: StoryItem[] } | null = null;
 export async function showcase() {
   if (!galleryCache || Date.now() - galleryCache.at > 10 * 60_000) {
     const items: GalleryItem[] = [];
@@ -21,9 +24,14 @@ export async function showcase() {
       const moving = rec.scene.elements.filter((e) => e.anim?.length || e.type === 'particles').length;
       items.push({ id, title: rec.quick.title, subject: rec.quick.subject, pageImageUrl: rec.page.imageUrl, verification: rec.verification?.status, moving });
     }
-    galleryCache = { at: Date.now(), items };
+    const stories: StoryItem[] = [];
+    for (const id of STORY_IDS) {
+      const s = await store.getStory(id).catch(() => null);
+      if (s?.status === 'ready') stories.push({ id, title: s.title, book: s.book, poster: s.film?.poster ?? s.shots[0]?.keyframeUrl, score: s.reviews.at(-1)?.overall });
+    }
+    galleryCache = { at: Date.now(), items, stories };
   }
-  return { ...SHOWCASE, gallery: galleryCache.items };
+  return { ...SHOWCASE, gallery: galleryCache.items, stories: galleryCache.stories };
 }
 
 // a handful of questions a minute per visitor keeps the preview cheap

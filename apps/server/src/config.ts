@@ -18,6 +18,9 @@ export const config = {
     imageRef: { id: 'gemini-nano-banana-2.1', fallback: 'gemini-3.1-flash-lite-image' },
     tts: { id: 'gemini-3.8-flash-lite-tts', fallback: 'gemini-3.8-flash-tts' },
     live: { id: 'gemini-3.8-live', fallback: 'gemini-3.8-live' },
+    // stories: the plan and the review of each film need the strongest model; it watches whole films
+    storyPlan: { id: process.env.STORY_PLAN_MODEL || 'gemini-4-argon', fallback: 'gemini-3.8-flash' },
+    storyReview: { id: process.env.STORY_REVIEW_MODEL || 'gemini-4-argon', fallback: 'gemini-3.1-pro-preview' },
   },
   // USD per 1M tokens (standard tier, Oct 2026); images per image; used for the per-experience cost line
   prices: {
@@ -29,6 +32,8 @@ export const config = {
     'gemini-3.8-flash-tts': { in: 0.5, out: 9 },
     'gemini-3.1-flash-lite-image': { in: 0.25, out: 30 },
     'gemini-nano-banana-2.1': { in: 0.25, out: 30 },
+    'gemini-4-argon': { in: 2, out: 10 },
+    'gemini-3.1-pro-preview': { in: 2, out: 12 },
   } as Record<string, { in: number; out: number }>,
   voices: {
     narrator: { en: 'Kore', hi: 'Kore' },

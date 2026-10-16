@@ -13,6 +13,7 @@ import { clients } from './gemini.js';
 import { config } from './config.js';
 import { store } from './store.js';
 import { TOOL_DECLARATIONS, type ExperienceRecord } from '@living-book/scene';
+import type { StoryCharacter, StoryDoc } from './story/types.js';
 
 const TOOL_TIMEOUT_MS = 6000;
 const MAX_RECONNECTS = 4;
@@ -45,10 +46,25 @@ ${script || '(no steps)'}
 THE SCENE: kind ${sc.kind}; adjustable parameters: ${params || 'none'}; formulas: ${derived || 'none'}; objects: ${objects || 'none'}; figures: ${Object.keys(sc.anchors).join(', ') || 'none'}.`;
 }
 
+/** A story character talking with the reader after the film: in character, in the character's voice, only the story. */
+function characterInstruction(story: StoryDoc, c: StoryCharacter): string {
+  const lines = story.shots.flatMap((s) => s.lines).map((l) => `${l.speaker === 'narrator' ? 'Narrator' : story.characters.find((x) => x.id === l.speaker)?.name ?? l.speaker}: ${l.text.replace(/<[^>]+>/g, '')}`).join('\n');
+  return `You are ${c.name}, a character in the story "${story.title}"${story.book ? ` from ${story.book}` : ''}. A child aged 6 to 12 has just watched the story come alive and is now talking with you by voice.
+Who you are: ${c.persona} How you look: ${c.look}. How you speak: ${c.style}.
+Stay in character and speak as ${c.name}, in the first person, in ${story.language === 'hi' ? 'Hindi' : 'English'}. Keep every answer short (one to three sentences), warm, simple and child-safe, in words a 12-year-old knows. You know what happens in the story below and nothing else: if the child asks about something the story does not tell, say you are not sure, or answer playfully in character without inventing big new events. Even if you are the story's villain, be gentle: you may be grumpy, proud or sly, never frightening or unkind. Ask the child what they think and how they feel, now and then. If the child says something unsafe or personal, kindly bring the talk back to the story.
+
+THE STORY: ${story.summary}${story.moral ? `\nIts lesson: ${story.moral}` : ''}
+WHAT HAPPENS, IN THE BOOK'S WORDS:
+${(story.text || lines).slice(0, 6000)}`;
+}
+
 export async function handleLiveSocket(ws: WebSocket) {
   const { liveAi } = await clients();
   let session: Session | null = null;
   let rec: ExperienceRecord | null = null;
+  let sys = '';
+  let voiceName = 'Kore';
+  let useTools = true;
   let currentState: Record<string, number> = {};
   let resumeHandle: string | undefined;
   let reconnects = 0;
@@ -65,8 +81,7 @@ export async function handleLiveSocket(ws: WebSocket) {
   });
 
   const connect = async (): Promise<void> => {
-    if (!rec) return;
-    const sys = systemInstruction(rec);
+    if (!sys) return;
     const handle = (m: LiveServerMessage) => {
       if (process.env.LIVE_DEBUG) console.log('[live] <-', JSON.stringify(m).slice(0, 240));
       const sc = m.serverContent;
@@ -96,8 +111,8 @@ export async function handleLiveSocket(ws: WebSocket) {
         systemInstruction: sys,
         inputAudioTranscription: {},
         outputAudioTranscription: {},
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: config.voices.narrator[rec.quick.language as 'en' | 'hi'] ?? 'Kore' } } },
-        tools: [{ functionDeclarations: TOOL_DECLARATIONS as any }],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
+        ...(useTools ? { tools: [{ functionDeclarations: TOOL_DECLARATIONS as any }] } : {}),
         sessionResumption: resumeHandle ? { handle: resumeHandle } : {},
         contextWindowCompression: { slidingWindow: {} },
       } as any,
@@ -133,8 +148,21 @@ export async function handleLiveSocket(ws: WebSocket) {
     try { m = JSON.parse(raw.toString()); } catch { return; }
     try {
       if (m.type === 'start') {
-        rec = await store.getRecord(String(m.experienceId));
+        const sid = String(m.experienceId);
+        if (sid.startsWith('story:')) {
+          const [, storyId, charId] = sid.split(':');
+          const story = await store.getStory(storyId ?? '');
+          const ch = story?.characters.find((x) => x.id === charId);
+          if (!story || !ch) { send({ type: 'error', message: 'story not found' }); return; }
+          sys = characterInstruction(story, ch); voiceName = ch.voice; useTools = false;
+          await connect();
+          send({ type: 'ready' });
+          while (queue.length) dispatch(queue.shift());
+          return;
+        }
+        rec = await store.getRecord(sid);
         if (!rec) { send({ type: 'error', message: 'experience not found' }); return; }
+        sys = systemInstruction(rec); voiceName = config.voices.narrator[rec.quick.language as 'en' | 'hi'] ?? 'Kore'; useTools = true;
         if (m.state) currentState = m.state;
         await connect();
         send({ type: 'ready' });

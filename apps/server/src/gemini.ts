@@ -137,7 +137,7 @@ export async function generateJson<T = any>(opts: GenJsonOptions): Promise<GenJs
 export type ImageResult = { bytes: Buffer; mime: string; usage: Usage };
 
 /** Generate one image. `refs` are reference images for character consistency (only honoured by imageRef models). */
-export async function generateImage(opts: { prompt: string; model?: ModelKey; aspect?: string; refs?: Buffer[] }): Promise<ImageResult> {
+export async function generateImage(opts: { prompt: string; model?: ModelKey; aspect?: string; refs?: Buffer[]; noFallback?: boolean }): Promise<ImageResult> {
   const { ai } = await clients();
   const key = opts.model ?? (opts.refs?.length ? 'imageRef' : 'image');
   const m = config.models[key];
@@ -150,13 +150,13 @@ export async function generateImage(opts: { prompt: string; model?: ModelKey; as
       config: { responseModalities: [Modality.IMAGE], imageConfig: { aspectRatio: opts.aspect ?? '1:1' } } as any,
     });
     const part = res.candidates?.[0]?.content?.parts?.find((p) => p.inlineData);
-    if (!part?.inlineData?.data) throw new Error('no image in response');
+    if (!part?.inlineData?.data) { const c = res.candidates?.[0]; const said = c?.content?.parts?.map((p) => p.text).filter(Boolean).join(' ').slice(0, 160); throw new Error(`no image in response (${c?.finishReason ?? (res as any).promptFeedback?.blockReason ?? 'unknown'}${said ? `: ${said}` : ''})`); }
     const u = res.usageMetadata;
     const inTokens = u?.promptTokenCount ?? 0, outTokens = u?.candidatesTokenCount ?? 0;
     return { bytes: Buffer.from(part.inlineData.data, 'base64'), mime: part.inlineData.mimeType ?? 'image/png',
       usage: { model: modelId, inTokens, outTokens, thoughtTokens: 0, images: 1, costUsd: costOf(modelId, inTokens, outTokens), ms: Date.now() - t0 } };
   };
-  try { return await run(m.id); } catch (e: any) { if (m.fallback !== m.id) { console.warn(`[gemini] image: ${m.id} failed (${String(e?.message).slice(0, 120)}); retrying with ${m.fallback}`); return run(m.fallback); } throw e; }
+  try { return await run(m.id); } catch (e: any) { if (m.fallback !== m.id && !opts.noFallback) { console.warn(`[gemini] image: ${m.id} failed (${String(e?.message).slice(0, 120)}); retrying with ${m.fallback}`); return run(m.fallback); } throw e; }
 }
 
 export type TtsResult = { wav: Buffer; durationMs: number; usage: Usage };

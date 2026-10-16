@@ -16,6 +16,7 @@ export function NewSheet({ onClose, onPhoto }: { onClose: () => void; onPhoto: (
           <label className="new-card"><span className="new-icon"><Icon name="upload" size={28} /></span><b>Upload a photo</b><span>A photo of a page you already took</span>
             <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) { onClose(); onPhoto(f); } e.target.value = ''; }} /></label>
           <button className="new-card" onClick={() => go('/app/new/short')}><span className="new-icon"><Icon name="film" size={28} /></span><b>Short video</b><span>One page becomes a video with a voice</span></button>
+          <button className="new-card" onClick={() => go('/app/new/story')}><span className="new-icon"><Icon name="play" size={28} /></span><b>A story comes alive</b><span>Story pages become a film you play with</span></button>
           <button className="new-card" onClick={() => go('/app/new/chapter')}><span className="new-icon"><Icon name="doc" size={28} /></span><b>Chapter film</b><span>A chapter PDF becomes a film for your class</span></button>
         </div>
         <button className="link" onClick={onClose}>Close</button>

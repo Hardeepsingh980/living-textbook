@@ -241,3 +241,13 @@
 .teachers-frame { position: relative; width: min(94vw, 880px); background: var(--white); border: 3px solid var(--pencil); border-radius: var(--wobbly-md); box-shadow: var(--shadow-lg); padding: 10px; transform: rotate(-0.6deg); }
 .teachers-clip { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; background: var(--paper-deep); }
 @media (prefers-reduced-motion: reduce) { .demo-bars span { animation: none; } }
+
+/* stories made alive: film stills on paper cards, played on tap */
+.stories { padding-top: var(--space-6); padding-bottom: var(--space-7); display: grid; gap: var(--space-4); }
+.story-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--space-5); }
+.story-tile { position: relative; display: grid; gap: 4px; padding: 10px 10px 14px; background: var(--white); color: var(--pencil); text-decoration: none; border: 2.5px solid var(--pencil); border-radius: var(--wobbly-md); box-shadow: var(--shadow); transform: rotate(var(--rot, 0deg)); transition: transform var(--fast), box-shadow var(--fast); }
+.story-tile:hover { transform: rotate(0) translate(-2px, -2px); box-shadow: var(--shadow-lg); }
+.story-tile img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border: 2px solid var(--pencil); border-radius: 6px; }
+.story-tile b { font-family: var(--font-head); font-size: 20px; line-height: 1.2; }
+.story-tile .muted { font-size: 15px; }
+.story-play { position: absolute; top: 18px; left: 18px; width: 42px; height: 42px; display: grid; place-items: center; background: var(--marker); color: var(--white); border: 2.5px solid var(--pencil); border-radius: var(--rough-circle); box-shadow: var(--shadow-sm); }

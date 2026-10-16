@@ -23,6 +23,9 @@ import { postToHost, onHostCommand, type HostCommand } from '../lib/embed';
 import { useReader, useSignInAvailable, signIn } from '../lib/firebase';
 import { track } from '../lib/progress';
 import type { LessonMeta } from '../lib/types';
+import { storyFromLesson } from '../lib/stories';
+import { getJob } from '../lib/api';
+import { navigate } from '../lib/nav';
 
 /** `embed`: inside a partner's app (the embed SDK); `fromScanner`: the lesson was just made in the scanner embed. */
 type Props = { onBack: () => void; embed?: boolean; fromScanner?: boolean };
@@ -95,6 +98,18 @@ export function ExperienceView({ onBack, embed = false, fromScanner = false }: P
   const [whatIf, setWhatIf] = useState(false);
   const [quizOpen, setQuizOpen] = useState(false);
   const reader = useReader();
+  // a story page can also become a film (the story engine, a few minutes); the reader lands on the story as it is made
+  const quickKind = quick?.kind;
+  const [filming, setFilming] = useState(false);
+  const makeFilm = async () => {
+    if (!experienceId) return;
+    setFilming(true);
+    try {
+      const job = await storyFromLesson(experienceId);
+      for (let i = 0; i < 40; i++) { const j = await getJob(job.id, 5000); if (j.storyId) { navigate(`/story/${j.storyId}`); return; } if (j.status === 'failed') break; }
+      navigate(`/app/jobs/${job.id}`);
+    } catch (e: any) { alert(String(e?.message || e)); setFilming(false); }
+  };
   const signInAvailable = useSignInAvailable();
   const [lessonDone, setLessonDone] = useState(false);
   const questionTimer = useRef<number | null>(null);
@@ -660,6 +675,7 @@ export function ExperienceView({ onBack, embed = false, fromScanner = false }: P
             <button className={`pill tutor ${tutor === 'off' || tutor === 'ready' ? '' : tutor}`} onClick={toggleMic} aria-label={micOn ? 'Stop listening' : 'Ask a question'} disabled={status !== 'ready'} title={tutorNote || undefined}>{micOn ? <Icon name="mic" size={18} /> : <GeminiSpark size={18} state={tutor === 'unavailable' ? 'error' : 'idle'} />}{micLabel}</button>
             {sliders.length > 0 && <button className={`pill ${whatIf ? 'on' : ''}`} onClick={toggleWhatIf} aria-pressed={whatIf}><Icon name="knob" size={18} />What if?</button>}
             {experienceId && <button className={`pill quiz-pill ${lessonDone ? 'ready' : ''}`} onClick={openQuiz}><Icon name="check" size={18} />Quiz</button>}
+            {experienceId && !CONTAIN && reader && (quickKind === 'story' || quickKind === 'picture-book') && <button className="pill film-pill" disabled={filming} onClick={() => void makeFilm()} title="Turn this story page into a film you can play with"><Icon name="film" size={18} />{filming ? 'Starting' : 'Make it a film'}</button>}
             {!reader && signInAvailable && <button className="pill save-pill narrow-only" onClick={() => { void signIn().catch(() => {}); }} title="Sign in with Google to keep this page and your progress"><Icon name="check" size={16} />Save</button>}
             {scene.steps.length > 1 && !tutorLive.current && <button className="round small" onClick={nextStep} aria-label="Next" title="Next"><Icon name="next" size={20} /></button>}
           </div>

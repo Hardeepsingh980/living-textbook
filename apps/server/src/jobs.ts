@@ -7,6 +7,7 @@ import { store, type JobDoc, type JobKind } from './store.js';
 import { config } from './config.js';
 import { runShort } from './reels.js';
 import { runChapter } from './chapters.js';
+import { runStoryJob } from './story/job.js';
 
 const STALE_MS = 4 * 60_000;          // a running job with no heartbeat for this long is taken over
 const LOST_MS = 3 * 60_000;           // a queued job nobody has started for this long is dispatched again
@@ -57,8 +58,7 @@ export async function runJob(id: string): Promise<'done' | 'taken' | 'missing'> 
     const report = (patch: Partial<JobDoc>) => { pending = { ...pending, ...patch }; if (!timer) timer = setTimeout(flush, 1200); };
     const heartbeat = setInterval(() => { if (!timer) void store.patchJob(id, { updatedAt: Date.now() }).catch(() => {}); }, 20_000);
     try {
-      const file = await fetchInput(job);
-      const result = job.kind === 'short' ? await runShort(job, file, report) : await runChapter(job, file, report);
+      const result = job.kind === 'story' ? await runStoryJob(job, report) : job.kind === 'short' ? await runShort(job, await fetchInput(job), report) : await runChapter(job, await fetchInput(job), report);
       if (timer) clearTimeout(timer); await flush();
       await store.patchJob(id, { ...result, status: 'ready', stage: 'ready', detail: 'Ready', error: undefined, updatedAt: Date.now() });
       console.log(`[jobs] ${job.kind} ${id} ready`);

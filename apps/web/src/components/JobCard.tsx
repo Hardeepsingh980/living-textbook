@@ -4,7 +4,7 @@ import { Link } from '../lib/nav';
 import { Icon } from './Icon';
 import { GeminiSpark } from './GeminiSpark';
 
-export const KIND_LABEL: Record<Job['kind'], string> = { short: 'Short video', chapter: 'Chapter film' };
+export const KIND_LABEL: Record<Job['kind'], string> = { short: 'Short video', chapter: 'Chapter film', story: 'Story' };
 export const active = (j: Job) => j.status === 'queued' || j.status === 'running';
 
 /** How far along a job is, 0..1, from its stage and the counts in its detail line. */

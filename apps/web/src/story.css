@@ -1,0 +1,87 @@
+/* The story player: a dark stage like the lesson screen, the film in a paper frame, captions on a paper strip,
+   choices as post-its. Phone first; on a wide screen the film grows and the strip stays under it. */
+.story { position: fixed; inset: 0; display: grid; grid-template-rows: auto 1fr; background: var(--stage); color: var(--paper); overflow: hidden; }
+.story .grow { flex: 1; }
+.story-top { display: flex; align-items: center; gap: var(--space-3); padding: calc(var(--space-3) + var(--safe-top)) var(--space-4) var(--space-2); z-index: 3; }
+.story-title { font-family: var(--font-head); font-weight: 700; font-size: 18px; color: var(--pencil); background: var(--postit); border: 2px solid var(--pencil); border-radius: var(--wobbly-sm); padding: 4px 12px; transform: rotate(-1.5deg); max-width: 60vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.story-message { margin: auto; display: grid; justify-items: center; gap: var(--space-4); text-align: center; padding: var(--space-5); max-width: 520px; grid-row: 1 / -1; }
+.story-message h2 { color: var(--paper); }
+
+/* making */
+.story-message.making { gap: var(--space-4); }
+.making-page { width: min(220px, 50vw); border: 3px solid var(--paper); border-radius: var(--wobbly-md); transform: rotate(-2deg); box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.5); }
+.making-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); text-align: left; font-size: 19px; }
+.making-steps li { display: flex; align-items: center; gap: var(--space-2); color: rgba(253, 251, 247, 0.5); }
+.making-steps li.done { color: var(--paper); }
+.making-steps li.now { color: var(--postit); font-family: var(--font-head); }
+.story .muted { color: rgba(253, 251, 247, 0.65); }
+
+/* the cover: the page, its printed picture marked, then the picture grows to fill the screen */
+.story-cover { display: flex; align-items: center; justify-content: center; gap: var(--space-6); padding: var(--space-4); overflow: hidden; flex-wrap: wrap; }
+.cover-page { position: relative; height: min(70dvh, 760px); width: fit-content; transform: rotate(-1.5deg); transition: transform 1.2s var(--ease-inout), filter 1.2s; box-shadow: 8px 8px 0 rgba(0, 0, 0, 0.5); border: 3px solid var(--paper); border-radius: 6px; overflow: hidden; background: var(--white); }
+.cover-page img:first-child { display: block; height: 100%; width: auto; }
+.cover-mark { position: absolute; border: 4px solid var(--marker); border-radius: var(--wobbly-sm); box-shadow: 0 0 0 4px rgba(255, 77, 77, 0.25); animation: mark-pulse 1.6s var(--ease-inout) infinite; pointer-events: none; }
+@keyframes mark-pulse { 50% { box-shadow: 0 0 0 10px rgba(255, 77, 77, 0.12); } }
+.cover-frame { position: absolute; object-fit: cover; opacity: 0; animation: frame-in 0.6s 0.7s ease-out forwards; }
+@keyframes frame-in { to { opacity: 1; } }
+.cover-page.zooming { box-shadow: none; }
+.cover-page.zooming .cover-mark { opacity: 0; transition: opacity 0.3s; }
+.cover-card { width: min(440px, 100%); background: var(--paper); color: var(--pencil); border: 3px solid var(--pencil); border-radius: var(--wobbly); box-shadow: var(--shadow-lg); padding: var(--space-5); display: grid; gap: var(--space-3); transform: rotate(0.8deg); }
+.cover-card h1 { font-size: 38px; }
+.cover-card .muted { color: var(--pencil-soft); }
+.story.opening .story-cover { gap: 0; }
+@media (max-width: 760px) { .cover-page { height: 46dvh; } .cover-card { padding: var(--space-4); } .cover-card h1 { font-size: 30px; } }
+
+/* the stage */
+.story-stage { display: grid; align-content: center; justify-items: center; gap: var(--space-3); padding: 0 var(--space-4) calc(var(--space-4) + var(--safe-bottom)); min-height: 0; }
+.story-screen { position: relative; width: min(100%, calc((100dvh - 250px) * 16 / 9), 1280px); aspect-ratio: 16 / 9; background: #000; border: 3px solid var(--paper); border-radius: var(--wobbly-md); overflow: hidden; box-shadow: 8px 8px 0 rgba(0, 0, 0, 0.55); animation: page-in var(--slow) var(--ease-out) 1; }
+.story-screen video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.story-tag { position: absolute; top: 12px; left: 12px; background: var(--marker); color: var(--white); font-family: var(--font-head); font-size: 17px; padding: 3px 12px; border: 2px solid var(--pencil); border-radius: var(--wobbly-sm); transform: rotate(-2deg); }
+.story-under { width: min(100%, calc((100dvh - 250px) * 16 / 9), 1280px); display: grid; gap: var(--space-3); }
+.story-caption { min-height: 64px; background: var(--paper); color: var(--pencil); border: 2.5px solid var(--pencil); border-radius: var(--wobbly-sm); padding: 10px 18px; font-size: 22px; line-height: 1.35; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; opacity: 0.35; transition: opacity var(--standard); }
+.story-caption.on { opacity: 1; }
+.story-caption .speaker { font-family: var(--font-head); font-weight: 700; color: var(--pen); }
+.story-controls { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.story-dots { flex: 1; display: flex; gap: 7px; align-items: center; min-width: 80px; }
+.story-dots span { width: 11px; height: 11px; border: 2px solid var(--paper); border-radius: var(--rough-circle); }
+.story-dots span.done { background: var(--paper); }
+.story-dots span.on { background: var(--postit); border-color: var(--postit); transform: scale(1.3); }
+@media (max-width: 760px) { .story-caption { font-size: 19px; min-height: 58px; } .story-screen, .story-under { width: 100%; } }
+
+/* the choice: the moment holds, two post-its */
+.story-choice { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: var(--space-4); padding: var(--space-4); background: rgba(20, 18, 16, 0.55); animation: page-in var(--standard) var(--ease-out) 1; }
+.story-choice h2 { color: var(--paper); text-align: center; font-size: clamp(22px, 3.2vw, 36px); max-width: 90%; text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6); }
+.choice-options { display: flex; gap: var(--space-4); flex-wrap: wrap; justify-content: center; }
+.choice-card { display: flex; align-items: center; gap: var(--space-3); font-family: var(--font-head); font-weight: 700; font-size: clamp(18px, 2.4vw, 26px); color: var(--pencil); background: var(--postit); border: 3px solid var(--pencil); border-radius: var(--wobbly); box-shadow: var(--shadow); padding: 14px 22px; transform: rotate(-1.5deg); }
+.choice-card.b { background: var(--white); transform: rotate(1.5deg); }
+.choice-card:hover { background: var(--marker); color: var(--white); transform: rotate(0) translate(2px, 2px); box-shadow: 2px 2px 0 0 var(--pencil); }
+.choice-letter { display: inline-grid; place-items: center; width: 34px; height: 34px; border: 2.5px solid currentColor; border-radius: var(--rough-circle); font-size: 18px; }
+
+/* the end */
+.story-end { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: var(--space-3); padding: var(--space-4); background: rgba(253, 251, 247, 0.94); color: var(--pencil); text-align: center; animation: page-in var(--slow) var(--ease-out) 1; }
+.story-end h2 { font-size: clamp(30px, 4.5vw, 52px); }
+.story-end .moral { font-family: var(--font-head); font-size: clamp(18px, 2.2vw, 24px); max-width: 80%; }
+.story-end .think { color: var(--pencil-soft); max-width: 80%; }
+.end-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; justify-content: center; }
+@media (max-width: 760px) { .end-actions .primary, .end-actions .secondary { font-size: 16px; min-height: 40px; padding: 6px 14px; } }
+
+/* talking to a character, how it was made */
+.talk-card, .made-card { color: var(--pencil); }
+.talk-card { justify-items: center; text-align: center; }
+.talk-state { display: flex; align-items: center; gap: var(--space-3); font-family: var(--font-head); font-size: 20px; }
+.talk-said { font-size: 21px; max-width: 460px; }
+.talk-heard { color: var(--pen); }
+.talk-suggest { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: center; }
+.talk-suggest .chip { background: var(--white); border: 2px solid var(--pencil); border-radius: var(--wobbly-sm); padding: 6px 12px; font-size: 16px; box-shadow: var(--shadow-sm); }
+.made-steps { margin: 0; padding-left: 22px; display: grid; gap: 6px; font-size: 17px; }
+.made-round { border-top: 2px dashed var(--paper-deep); padding-top: var(--space-3); display: grid; gap: 6px; }
+.made-score { display: flex; align-items: center; gap: var(--space-3); font-family: var(--font-head); }
+.score-bar { flex: 1; height: 12px; border: 2px solid var(--pencil); border-radius: 8px; overflow: hidden; background: var(--white); }
+.score-bar span { display: block; height: 100%; background: var(--marker); }
+.quiz-score { display: grid; place-items: center; width: 120px; height: 120px; border: 3px solid var(--pencil); border-radius: var(--rough-circle); background: var(--postit); box-shadow: var(--shadow); }
+.quiz-score b { font-size: 46px; font-family: var(--font-head); line-height: 1; }
+.quiz-option.right { background: #dff5e1; }
+.quiz-option.wrong { background: #ffe0e0; }
+.quiz-option.dim { opacity: 0.55; }
+.quiz-letter { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 2px solid var(--pencil); border-radius: var(--rough-circle); margin-right: 8px; flex: none; }
+.quiz-why { color: var(--pencil-soft); }

@@ -34,6 +34,7 @@ COPY --from=build /app/apps/server/dist ./apps/server/dist
 COPY --from=build /app/apps/web/dist ./apps/web/dist
 COPY --from=build /app/packages/sdk/dist ./packages/sdk/dist
 COPY packages/scene/src ./packages/scene/src
+COPY apps/server/assets ./apps/server/assets
 WORKDIR /app/apps/server
 ENV PORT=8080 WEB_DIST=/app/apps/web/dist SDK_DIST=/app/packages/sdk/dist DATA_DIR=/tmp/living-book-data
 EXPOSE 8080

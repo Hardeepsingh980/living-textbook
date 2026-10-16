@@ -17,6 +17,7 @@ import { userFromRequest, ownerOf } from './auth.js';
 import { recordEvent, touchUser, me, insights } from './progress.js';
 import { quizFor } from './quiz.js';
 import { createJob, runJob, heal, retryJob } from './jobs.js';
+import { createStoryJob } from './story/job.js';
 import { mountDeveloperPlatform } from './devapi.js';
 import { resolveKey, originAllowed, publicOrigin, rateLimit, touchKey, apiOwner, utcDay, frameAncestors, DEV_DAILY, EMBED_PER_VISITOR } from './devkeys.js';
 import { createHash } from 'node:crypto';
@@ -171,6 +172,62 @@ async function startJob(c: Context, kind: 'short' | 'chapter') {
   return c.json(job);
 }
 app.post('/api/shorts', (c) => startJob(c, 'short'));
+
+/** Stories made alive: photos of a fiction story's pages in, an interactive film out (a background job of several
+ *  minutes). Each one films about a minute of video, so a reader makes at most two a day and everyone together twenty. */
+app.post('/api/stories', async (c) => {
+  const user = await userFromRequest(c);
+  if (!user) return signinRequired(c, 'make stories');
+  const form = await c.req.formData().catch(() => null);
+  const files = form ? form.getAll('pages').filter((f): f is File => typeof f === 'object' && f !== null && 'arrayBuffer' in f) : [];
+  if (!files.length || files.length > 6) return c.json({ error: 'Send one to six photos of the story pages, in reading order.' }, 400);
+  const pages = await Promise.all(files.map(async (f) => Buffer.from(await f.arrayBuffer())));
+  if (pages.some((b) => b.length < 1000 || b.length > 15 * 1024 * 1024)) return c.json({ error: 'Each page must be a photo under 15 MB.' }, 400);
+  if (!exempt(c)) {
+    const mine = await store.bumpQuota(`story-u-${user.uid.replace(/[^A-Za-z0-9_-]/g, '')}-${istDay()}`, 2).catch(() => ({ allowed: true, used: 0 }));
+    if (!mine.allowed) return c.json({ error: 'You made two stories today. Try again tomorrow.', code: 'daily-limit' }, 429);
+    const all = await store.bumpQuota(`story-all-${istDay()}`, 20).catch(() => ({ allowed: true, used: 0 }));
+    if (!all.allowed) return c.json({ error: 'Many stories were made today. Try again tomorrow.', code: 'daily-limit' }, 429);
+  }
+  const job = await createStoryJob(user.uid, pages);
+  void recordEvent(user, user.uid, { event: 'story', detail: `started ${job.id}` }, c.req.header('user-agent') || '').catch(() => {});
+  return c.json(job);
+});
+/** A story page scanned as a lesson can become a film: the lesson's saved page photo goes to the story engine. */
+app.post('/api/stories/from-lesson/:id', async (c) => {
+  const user = await userFromRequest(c);
+  if (!user) return signinRequired(c, 'make stories');
+  const rec = await store.getRecord(c.req.param('id'));
+  const page = rec ? await store.getFile(rec.id, 'page.jpg') : null;
+  if (!rec || !page) return c.json({ error: 'not found' }, 404);
+  if (!exempt(c)) {
+    const mine = await store.bumpQuota(`story-u-${user.uid.replace(/[^A-Za-z0-9_-]/g, '')}-${istDay()}`, 2).catch(() => ({ allowed: true, used: 0 }));
+    if (!mine.allowed) return c.json({ error: 'You made two stories today. Try again tomorrow.', code: 'daily-limit' }, 429);
+    const all = await store.bumpQuota(`story-all-${istDay()}`, 20).catch(() => ({ allowed: true, used: 0 }));
+    if (!all.allowed) return c.json({ error: 'Many stories were made today. Try again tomorrow.', code: 'daily-limit' }, 429);
+  }
+  return c.json(await createStoryJob(user.uid, [page.bytes]));
+});
+app.get('/api/stories', async (c) => {
+  const user = await userFromRequest(c);
+  if (!user) return signinRequired(c, 'see your stories');
+  const docs = await store.listStories(user.uid, 100);
+  return c.json(docs.map(({ owner, ...d }) => d), 200, { 'Cache-Control': 'no-store' });
+});
+app.get('/api/stories/:id', async (c) => {
+  const doc = await store.getStory(c.req.param('id'));
+  if (!doc) return c.json({ error: 'not found' }, 404);
+  const { owner, ...pub } = doc;
+  return c.json(pub, 200, { 'Cache-Control': doc.status === 'ready' ? 'public, max-age=30' : 'no-store' });
+});
+app.delete('/api/stories/:id', async (c) => {
+  const user = await userFromRequest(c);
+  if (!user) return signinRequired(c, 'manage your stories');
+  const doc = await store.getStory(c.req.param('id'));
+  if (!doc || doc.owner !== user.uid) return c.json({ error: 'not found' }, 404);
+  await store.patchStory(doc.id, { owner: `deleted-${doc.owner}` });
+  return c.json({ ok: true });
+});
 app.post('/api/reels', (c) => startJob(c, 'short'));
 app.post('/api/chapters', (c) => startJob(c, 'chapter'));
 

@@ -9,6 +9,8 @@ import { JobView } from './views/JobView';
 import { NewJobView } from './views/NewJobView';
 import { DevelopersView } from './views/DevelopersView';
 import { DocsView } from './views/DocsView';
+import { StoryView } from './views/StoryView';
+import { NewStoryView } from './views/NewStoryView';
 import { isEmbed, embedKey, embedParent, embedLessonPath, embedScanPath, postToHost } from './lib/embed';
 import { AppShell, type Place } from './components/AppShell';
 import { SignInGate } from './components/SignInGate';
@@ -23,7 +25,7 @@ import { currentReader, useReader } from './lib/firebase';
 type Route =
   | { name: 'home' } | { name: 'capture' } | { name: 'experience'; id?: string }
   | { name: 'app' } | { name: 'library' } | { name: 'progress' } | { name: 'newShort' } | { name: 'newChapter' } | { name: 'job'; id: string }
-  | { name: 'developers' } | { name: 'docs' }
+  | { name: 'developers' } | { name: 'docs' } | { name: 'story'; id: string } | { name: 'newStory' }
   | { name: 'embedLesson'; id: string; fromScanner: boolean } | { name: 'embedScan' };
 
 const LEGACY: Record<string, string> = { '/me': '/app/progress', '/library': '/app/library', '/reel': '/app/new/short', '/teach': '/app/new/chapter' };
@@ -32,6 +34,8 @@ function parseRoute(): Route {
   const p = location.pathname.replace(/\/+$/, '') || '/';
   if (LEGACY[p]) { history.replaceState(null, '', LEGACY[p]); return parseRoute(); }
   const x = /^\/x\/([^/]+)/.exec(p); if (x) return { name: 'experience', id: decodeURIComponent(x[1]!) };
+  const st = /^\/story\/([^/]+)/.exec(p); if (st) return { name: 'story', id: decodeURIComponent(st[1]!) };
+  if (p === '/app/new/story') return { name: 'newStory' };
   const el = /^\/embed\/lesson\/([^/]+)/.exec(p); if (el) return { name: 'embedLesson', id: decodeURIComponent(el[1]!), fromScanner: new URLSearchParams(location.search).get('from') === 'scan' };
   if (p === '/embed/scan') return { name: 'embedScan' };
   if (p === '/app/developers') return { name: 'developers' };
@@ -123,6 +127,8 @@ export function App() {
     case 'embedLesson': return <ExperienceView embed fromScanner={route.fromScanner} onBack={() => { reset(); navigate(embedScanPath()); }} />;
     case 'embedScan': return <ScanExperience autoStart embed onCapture={onCapture} onBack={() => postToHost('close')} />;
     case 'docs': return <DocsView />;
+    case 'story': return <StoryView id={route.id} />;
+    case 'newStory': return shell('new', <NewStoryView />, 'Sign in to make stories come alive', 'Photos of a story in, a film you play with out. Free with a Google account.');
     case 'developers': return shell('developers', <DevelopersView />, 'Sign in to build with Living Textbook', 'Make API keys, watch usage and copy the code that puts living lessons in your app.');
     case 'experience': return <ExperienceView onBack={() => { reset(); navigate(home()); }} />;
     case 'capture': return <><ScanExperience autoStart onCapture={onCapture} onBack={() => navigate(home())} />{sheet}</>;
