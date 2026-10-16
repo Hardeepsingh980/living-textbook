@@ -130,7 +130,8 @@ export function ExperienceView({ onBack, embed = false, fromScanner = false }: P
 
   // ---------- progress: what the reader did, for their own record (Firestore) and the analytics (BigQuery) ----------
   const tracking = !CONTAIN;
-  const meta = (): Partial<LessonMeta> => { const q = useStore.getState().quickPartial; return { title: q?.title, subject: q?.subject, kind: q?.kind, language: q?.language, pageImageUrl: useStore.getState().pageImageUrl ?? undefined }; };
+  // the page image for the reader's progress: the saved one, never the browser-only preview shown while a page is made
+  const meta = (): Partial<LessonMeta> => { const st = useStore.getState(), q = st.quickPartial; const img = st.pageImageUrl && !/^(blob|data):/.test(st.pageImageUrl) ? st.pageImageUrl : st.id ? `/api/files/${st.id}/page.jpg` : undefined; return { title: q?.title, subject: q?.subject, kind: q?.kind, language: q?.language, pageImageUrl: img }; };
   const openedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!tracking || !revealed || !experienceId || !scene || openedFor.current === experienceId) return;

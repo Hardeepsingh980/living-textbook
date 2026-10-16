@@ -18,8 +18,10 @@ export async function recordEvent(user: User | null, owner: string, e: ProgressE
   track({ ts: now, uid: user?.uid ?? null, owner, experience_id: e.experienceId ?? null, title: e.title?.slice(0, 120) ?? null, subject: e.subject ?? null, kind: e.kind ?? null, event, detail: e.detail?.slice(0, 300) ?? null, value: e.value ?? null, duration_ms: e.durationMs ?? null, step: e.step ?? null, total_steps: e.totalSteps ?? null, device: device.slice(0, 120) });
   if (!user || !e.experienceId) return;
   const cur = await store.getLesson(user.uid, e.experienceId);
-  const doc: LessonDoc = cur ?? { experienceId: e.experienceId, title: e.title ?? '', subject: e.subject ?? '', kind: e.kind ?? '', language: e.language ?? '', pageImageUrl: e.pageImageUrl ?? '', openedAt: now, lastAt: now, opens: 0, steps: 0, totalSteps: e.totalSteps ?? 0, completed: false, seconds: 0, questions: 0 };
-  if (e.title && !doc.title) { doc.title = e.title; doc.subject = e.subject ?? doc.subject; doc.kind = e.kind ?? doc.kind; doc.language = e.language ?? doc.language; doc.pageImageUrl = e.pageImageUrl ?? doc.pageImageUrl; }
+  const image = pageImageOf(e.experienceId, e.pageImageUrl);
+  const doc: LessonDoc = cur ?? { experienceId: e.experienceId, title: e.title ?? '', subject: e.subject ?? '', kind: e.kind ?? '', language: e.language ?? '', pageImageUrl: image, openedAt: now, lastAt: now, opens: 0, steps: 0, totalSteps: e.totalSteps ?? 0, completed: false, seconds: 0, questions: 0 };
+  if (e.title && !doc.title) { doc.title = e.title; doc.subject = e.subject ?? doc.subject; doc.kind = e.kind ?? doc.kind; doc.language = e.language ?? doc.language; }
+  doc.pageImageUrl = pageImageOf(e.experienceId, doc.pageImageUrl || image);
   doc.lastAt = now;
   if (e.totalSteps) doc.totalSteps = e.totalSteps;
   switch (event) {
@@ -43,9 +45,16 @@ export async function touchUser(user: User) {
   await store.putUser(user.uid, { name: user.name, email: user.email, picture: user.picture, lastSeenAt: now, ...(cur ? {} : { createdAt: now }) });
 }
 
+/** The saved page image of a lesson. A browser-only link (blob: or data:, the preview shown while a page is being made)
+ *  is never kept: every lesson's page is saved as page.jpg next to it. */
+export function pageImageOf(experienceId: string, url?: string): string {
+  if (url && !/^(blob|data):/i.test(url)) return url;
+  return experienceId ? `/api/files/${experienceId}/page.jpg` : '';
+}
+
 export async function me(user: User): Promise<{ user: UserDoc | null; lessons: LessonDoc[] }> {
   const [u, lessons] = await Promise.all([store.getUser(user.uid), store.listLessons(user.uid, 100)]);
-  return { user: u, lessons };
+  return { user: u, lessons: lessons.map((l) => ({ ...l, pageImageUrl: pageImageOf(l.experienceId, l.pageImageUrl) })) };
 }
 
 export type Insights = {

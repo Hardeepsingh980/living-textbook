@@ -2,6 +2,20 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-16: plain English everywhere; the demo video
+
+Hardeep's ask: use the Simple English skill (github.com/AminBlg/SimpleEnglish) on the whole app and the landing page, and make a presentable demo video of the user journey with Gemini voices and captions.
+
+**Plain English (3118f3b).** Every text a reader sees was rewritten: the landing page, the dashboard, the library, the new-video and job pages, sign-in, the lesson screen and its errors, the camera hints, the quiz, the progress page, "How it was made", the developer pages and docs, and the server's messages. Short sentences, active voice, everyday words, no semicolons, dashes or contractions, and terms such as AR, SDK, publishable key and iframe explained where they first appear. Buttons keep their short labels and the landing page keeps its voice. Gemini's own wording follows the same rules: the tutor uses words a 12-year-old knows and explains a hard word from the page in a few words, narration has at most 15 words a sentence (terms and numbers stay exactly as printed), and the quiz and progress texts are plain too.
+
+**The demo video** (`scripts/demo-video`, README there; 2 min 42 s, 1920×1080, 30 fps, −16 LUFS; the file stays in `eval/output/demo-video`, which git ignores). Twelve shots: a title card, the AR clips on real books, then nine numbered steps of the journey: open the website; Gemini makes the lesson (with "How it was made" open); the tutor teaches, in Gemini Live's own voice; a student asks "Wait. What is one oscillation?" (a simulated microphone plays it to the real Gemini Live session, which answers); a what-if (the tutor sets the string to 1.5 m and the period on the page goes from 2.01 s to 2.46 s); the quiz (3 of 4, with the page's hint for the wrong answer); progress (the dashboard, then the progress page with Gemini's suggestions); videos and class films; and the developer docs, then a school's own page with the lesson player in it. It ends on a card with a QR code. The narrator is Gemini TTS (gemini-3.8-flash-tts, voice Sulafat) and the student is Leda; every narrator line has a caption drawn in the app's hand-drawn style, and the app shows the tutor's own captions. The music is one Lyria clip (lyria-002), looped and quieter under every voice.
+
+**How it is made.** Chrome's screencast gives sharp frames with their times, turned into a constant 30 fps. The app records each piece of the tutor's audio with the time it played (only when a recording asks for it), so the tutor's voice goes back at the exact place. One take covers the lesson from the photo to the quiz; the quiz, progress, films, homepage and developer shots are their own takes. The window, labels and captions are HTML photographed by Chromium, and ffmpeg puts it all together. Once, an ffmpeg run dropped two of three voice lines without an error, so each shot's sound is now mixed in a pass of its own and every voice is measured in the result.
+
+**Fixed while recording.** Lessons made from an uploaded photo had blank thumbnails on the dashboard: the lesson record kept the browser-only preview link (`blob:`). The lesson screen now sends the saved page image, the server never keeps a `blob:` or `data:` link, and old records are repaired when they are read. A test reader can have a display name (`lb.devUserName`).
+
+**AR in the embedded scanner.** The scanner inside a partner's page runs the same camera and AR code as the app, and the SDK's frame may use the camera. In a test with Chrome's simulated camera (a test pattern, not a page) the tracker found no page, so the lesson moved to the photo after 4 s, as designed. It is not yet checked on a real phone inside a partner's page.
+
 ## 2026-10-14: a developer platform (API keys, REST API, embeds, SDK, docs)
 
 Hardeep's ask: SDK and developer docs, so other learning apps can add Living Textbook as a third-party plugin, with API keys in the dashboard and an embed option.

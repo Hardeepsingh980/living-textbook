@@ -83,6 +83,7 @@ export class LiveTutor {
     const ctx = mixer.ctx!;
     if (!this.mediaStream) {
       this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      if ((window as any).__captureLive) (window as any).__micStartedAt = performance.now(); // recordings: when the microphone began
       this.source = ctx.createMediaStreamSource(this.mediaStream);
       const proc = ctx.createScriptProcessor(4096, 1, 1);
       this.processor = proc;

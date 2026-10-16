@@ -1,0 +1,19 @@
+{
+  "narratorVoice": "Sulafat",
+  "studentVoice": "Leda",
+  "question": "Wait. What is one oscillation?",
+  "scenes": [
+    { "id": "title", "label": "", "lines": ["This is Living Textbook.", "It brings any page of a school book to life."] },
+    { "id": "ar", "label": "On a real book", "lines": ["A page in a school book does not move.", "Point your phone at the page.", "Now the picture moves, right on the paper."] },
+    { "id": "home", "label": "1  Open the website", "lines": ["Anyone can try it on the website.", "Tap Try now, or use a photo of a page."] },
+    { "id": "make", "label": "2  Gemini makes the lesson", "lines": ["Here, a student uses a photo of a science page.", "Gemini reads every word, number and picture.", "It plans the lesson, records a voice, and checks every number against the page."] },
+    { "id": "lesson", "label": "3  The tutor teaches", "lines": ["In about twenty seconds, the page is alive.", "A tutor made with Gemini Live explains each step."] },
+    { "id": "ask", "label": "4  Ask a question", "lines": ["You can stop the tutor at any time and ask a question."] },
+    { "id": "whatif", "label": "5  Try a what-if", "lines": ["Change a number, and the page changes too."] },
+    { "id": "quiz", "label": "6  Take the quiz", "lines": ["At the end, a short quiz comes from the text of the page.", "A wrong answer shows what the page says."] },
+    { "id": "progress", "label": "7  Keep your progress", "lines": ["Sign in to keep every page.", "The progress page shows what you learned.", "Gemini suggests what to learn next."] },
+    { "id": "films", "label": "8  Videos and class films", "lines": ["Teachers can turn a whole chapter into a film for the class.", "Students can turn one page into a short video."] },
+    { "id": "dev", "label": "9  Inside other apps", "lines": ["Other learning apps can add all of this with one script tag.", "Here, a school website shows a lesson inside its own page."] },
+    { "id": "end", "label": "", "lines": ["Living Textbook. Any page, alive.", "Built with Gemini on Google Cloud."] }
+  ]
+}

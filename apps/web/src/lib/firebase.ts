@@ -28,7 +28,7 @@ const boot = (async () => {
     const cfg = await fetch('/api/config').then((r) => (r.ok ? r.json() : null));
     if (cfg?.devUsers) {
       try { devName = localStorage.getItem('lb.devUser'); } catch { devName = null; }
-      if (devName) { reader = { uid: `dev-${devName}`, name: 'Test Reader', email: 'test@example.com', photo: '' }; available = true; resolveAuth(); emit(); return; }
+      if (devName) { let shown = 'Test Reader'; try { shown = localStorage.getItem('lb.devUserName') || shown; } catch { /* default */ } reader = { uid: `dev-${devName}`, name: shown, email: 'test@example.com', photo: '' }; available = true; resolveAuth(); emit(); return; }
     }
     if (!cfg?.firebase?.apiKey) { resolveAuth(); return; }
     const [{ initializeApp }, mod] = await Promise.all([import('firebase/app'), import('firebase/auth')]);
