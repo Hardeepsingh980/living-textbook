@@ -88,7 +88,8 @@ async function segment(opts: {
   const reg = font('PatrickHand-Regular.ttf'), bold = font('Kalam-Bold.ttf');
   const draws: string[] = [];
   const textFile = (s: string, k: string) => { const f = path.join(work, `${name}-${k}.txt`); fs.writeFileSync(f, s); return f.replace(/:/g, '\\:'); };
-  placed.forEach((p, k) => {
+  // a choice card already shows its question, so its spoken question gets no caption underneath
+  if (!opts.card?.length) placed.forEach((p, k) => {
     const next = placed[k + 1]?.start ?? seconds;
     draws.push(`drawtext=fontfile=${reg}:textfile=${textFile(wrap(p.text), `c${k}`)}:fontsize=40:line_spacing=6:fontcolor=0x2d2d2d:box=1:boxcolor=0xfffdf7@0.92:boxborderw=18:x=(w-text_w)/2:y=h-text_h-44:enable='between(t,${(p.start - 0.05).toFixed(2)},${(next - 0.02).toFixed(2)})'`);
   });

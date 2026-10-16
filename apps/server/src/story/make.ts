@@ -222,8 +222,13 @@ export async function makeStory(o: MakeOptions): Promise<StoryDoc> {
       await persist({ film: { url: filmUrl, ms: Math.round(seconds * 1000), poster: allShots()[0]?.keyframeUrl } });
       t = Date.now();
       let review: StoryReview;
+      // a review that comes back as broken JSON is asked once more
       try { review = await reviewFilm({ doc, film: fs.readFileSync(preview), pages, segments, round, filmUrl, spend }); }
-      catch (e: any) { log(`review failed: ${String(e?.message).slice(0, 160)}`); break; }
+      catch (e: any) {
+        log(`review failed (${String(e?.message).slice(0, 120)}); asking again`);
+        try { review = await reviewFilm({ doc, film: fs.readFileSync(preview), pages, segments, round, filmUrl, spend }); }
+        catch (e2: any) { log(`review failed again: ${String(e2?.message).slice(0, 160)}`); break; }
+      }
       lap(`review-r${round}`, t);
       fs.writeFileSync(local(`review-r${round}.json`), JSON.stringify(review, null, 1));
       const worst = Math.min(...review.shots.map((s) => s.score), 10);
