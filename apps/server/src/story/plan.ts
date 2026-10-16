@@ -55,6 +55,7 @@ SHOTS. For each shot:
 - "sound": ambient sound effects only (wind, birds, footsteps, a market crowd). No speech, no music.
 - "page": the index of the page this moment is on.
 - "cast": the ids of the characters on screen. Every character who is seen, even one who never speaks, is in "characters" with a look, so all shots draw them the same way.
+- "looks": only when a character looks different in this shot than their usual look (a disguise, new clothes, a wound, wet or muddy), a map from the character's id to their look in this shot. Once a change happens, repeat it in every later shot until the story changes it back.
 
 INTERACTION. Add one choice (two if the story has two real decisions) at a moment where a character decides something: "question" is one line the narrator asks the child (style "curious, inviting"). Give two options with short labels (at most 5 words): one is what the character does in the book ("canon": true, no shots), the other is imagined ("canon": false) with exactly one shot whose narrator line starts with "Imagine" or "What if" and shows a gentle, safe outcome, and a "rejoin" narrator line that starts with "But in the story," and leads back to the book. Add "talk": one or two characters the child can talk to, each with an "opener" (one short line the character says first, in character) and three short questions a child might ask. Add a three-question "quiz" answered by the text of these pages (four options each, "answer" is the index), a one-line "moral" if the story has one, and a "think" question for the child.
 
@@ -122,6 +123,7 @@ export function normalizePlan(j: any): StoryPlan {
   const shot = (s: any, id: string): StoryShot => ({
     id, title: String(s?.title ?? id), titleShot: s?.titleShot === true || undefined, picture: String(s?.picture ?? ''), motion: String(s?.motion ?? ''), sound: String(s?.sound ?? ''),
     cast: (Array.isArray(s?.cast) ? s.cast : []).map((c: any) => String(c).toLowerCase()).filter((c: string) => ids.has(c)),
+    looks: s?.looks && typeof s.looks === 'object' ? Object.fromEntries(Object.entries(s.looks as Record<string, unknown>).map(([k, v]): [string, string] => [String(k).toLowerCase(), String(v)]).filter(([k]) => ids.has(k))) : undefined,
     fromPicture: Number.isInteger(s?.fromPicture) ? s.fromPicture : null,
     lines: (Array.isArray(s?.lines) ? s.lines : []).map((l: any) => line(l, id)).filter(Boolean) as StoryLine[],
   });

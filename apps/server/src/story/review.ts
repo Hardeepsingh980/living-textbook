@@ -23,7 +23,7 @@ Score each of these from 0 to 10:
 
 Then, for every shot and every choice card (use its id, such as "c1"), list the concrete problems you see or hear (with the time in seconds), and one fix:
 - "edit": a local visual problem in an otherwise good clip (a wrong colour, an extra object, a glitch in a face or a hand). Give "edit": one short instruction for the video model, ending with "Keep everything else the same."
-- "regenerate": the clip's action or composition is wrong, or the glitches are too many to edit. Give a new "picture" (the opening frame, one paragraph) and a new "motion" (what happens, with timecodes [0-3s] [3-7s] [7-10s]).
+- "regenerate": the clip's action or composition is wrong, or the glitches are too many to edit. Give a new "picture" (the opening frame, one paragraph) and a new "motion" (what happens, with timecodes [0-3s] [3-7s] [7-10s]). If the wrong characters are in the shot (someone who should not be there, someone missing), also give "cast": the ids of the characters who belong in it.
 - "revoice": a line is acted badly, sounds wrong for the character, or is mispronounced. Give "lines": [{"id": the line id, "style": a new acting style in a few words, "voice": a new voice only if the voice itself is wrong, "text": only if the words differ from the book}].
 - "retime": the shot needs a longer pause after the speech; give "hold" in seconds (0.5 to 2).
 - "none": the shot is good.
@@ -68,7 +68,7 @@ export async function reviewFilm(opts: {
   const j = r.json ?? {};
   const shots: StoryReviewShot[] = (Array.isArray(j.shots) ? j.shots : []).filter((s: any) => s?.id).map((s: any) => ({
     id: String(s.id), score: Number(s.score) || 0, issues: (Array.isArray(s.issues) ? s.issues : []).map(String),
-    fix: s.fix && typeof s.fix === 'object' ? { kind: ['edit', 'regenerate', 'revoice', 'retime'].includes(s.fix.kind) ? s.fix.kind : 'none', edit: s.fix.edit, picture: s.fix.picture, motion: s.fix.motion, lines: Array.isArray(s.fix.lines) ? s.fix.lines : undefined, hold: Number(s.fix.hold) || undefined } : undefined,
+    fix: s.fix && typeof s.fix === 'object' ? { kind: ['edit', 'regenerate', 'revoice', 'retime'].includes(s.fix.kind) ? s.fix.kind : 'none', edit: s.fix.edit, picture: s.fix.picture, motion: s.fix.motion, cast: Array.isArray(s.fix.cast) ? s.fix.cast.map(String) : undefined, lines: Array.isArray(s.fix.lines) ? s.fix.lines : undefined, hold: Number(s.fix.hold) || undefined } : undefined,
   }));
   return {
     round: opts.round, at: Date.now(), model: r.usage.model, filmUrl: opts.filmUrl,

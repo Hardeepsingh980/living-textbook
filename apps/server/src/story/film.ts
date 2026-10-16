@@ -111,8 +111,31 @@ async function segment(opts: {
   return { file, seconds, lines: placed };
 }
 
+/** An opening card: the book's page beside the story's title, so a viewer sees what the film was made from. */
+export async function introSegment(work: string, page: string, title: string, credit: string | undefined, seconds = 4): Promise<{ file: string; seconds: number; lines: FilmSegment['lines'] }> {
+  const bold = font('Kalam-Bold.ttf'), reg = font('PatrickHand-Regular.ttf');
+  const t = (s: string, k: string) => { const f = path.join(work, `intro-${k}.txt`); fs.writeFileSync(f, s); return f.replace(/:/g, '\\:'); };
+  const file = path.join(work, 'intro.mkv');
+  // the title block is centred whatever the number of lines (Kalam's lines are about 93 px apart at 54 px)
+  const titleLines = wrap(title, 22).split('\n').length, creditLines = credit ? wrap(credit, 40).split('\n').length : 0;
+  const block = titleLines * 93 + 16 + creditLines * 42 + 28 + 50;
+  const y0 = Math.max(40, Math.round((H - block) / 2)), yCredit = y0 + titleLines * 93 + 16, yTag = yCredit + creditLines * 42 + 28;
+  const vf = [
+    `[1:v]scale=-2:600,pad=iw+12:ih+12:6:6:color=0x2d2d2d,rotate=-0.035:fillcolor=0xfdfbf7:ow=rotw(-0.035):oh=roth(-0.035)[pg]`,
+    `[0:v][pg]overlay=70:(H-h)/2[b]`,
+    `[b]drawtext=fontfile=${bold}:textfile=${t(wrap(title, 22), 'title')}:fontsize=54:line_spacing=6:fontcolor=0x2d2d2d:x=600:y=${y0},`
+      + (credit ? `drawtext=fontfile=${reg}:textfile=${t(wrap(credit, 40), 'credit')}:fontsize=30:fontcolor=0x2d2d2d@0.7:x=604:y=${yCredit},` : '')
+      + `drawtext=fontfile=${bold}:textfile=${t('A story made alive with Gemini', 'tag')}:fontsize=26:fontcolor=white:box=1:boxcolor=0xff4d4d:boxborderw=12:x=606:y=${yTag},`
+      + `fade=t=in:st=0:d=0.4:color=0xfdfbf7,fade=t=out:st=${seconds - 0.4}:d=0.4,format=yuv420p[v]`,
+  ];
+  await ff(['-f', 'lavfi', '-t', String(seconds), '-i', `color=c=0xfdfbf7:s=${W}x${H}:r=${FPS}`, '-loop', '1', '-framerate', String(FPS), '-t', String(seconds), '-i', page,
+    '-f', 'lavfi', '-t', String(seconds), '-i', 'anullsrc=r=48000:cl=stereo',
+    '-filter_complex', vf.join(';'), '-map', '[v]', '-map', '2:a', '-t', String(seconds), '-r', String(FPS), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'pcm_s16le', '-ar', '48000', file]);
+  return { file, seconds, lines: [] };
+}
+
 /** Render the whole film. Returns the segments with their times (for the reviewer and for chapters in the player). */
-export async function renderFilm(doc: StoryDoc, assets: FilmAssets, out: string, opts: { work: string; tune?: Partial<FilmTuning>; preview?: string; holds?: Record<string, number> }): Promise<{ seconds: number; segments: FilmSegment[] }> {
+export async function renderFilm(doc: StoryDoc, assets: FilmAssets, out: string, opts: { work: string; tune?: Partial<FilmTuning>; preview?: string; holds?: Record<string, number>; intro?: { page: string } }): Promise<{ seconds: number; segments: FilmSegment[] }> {
   const tune = { ...DEFAULT_TUNING, ...(opts.tune ?? {}) };
   fs.mkdirSync(opts.work, { recursive: true });
   const names = Object.fromEntries(doc.characters.map((c) => [c.id, c.name]));
@@ -124,6 +147,7 @@ export async function renderFilm(doc: StoryDoc, assets: FilmAssets, out: string,
     segments.push({ kind, id, start: clock, end: clock + r.seconds, lines: r.lines.map((l) => ({ ...l, start: l.start + clock, end: l.end + clock })) });
     clock += r.seconds;
   };
+  if (opts.intro) push('shot', 'intro', await introSegment(opts.work, opts.intro.page, doc.title, [doc.credit, doc.book].filter(Boolean).join(', ') || undefined));
   const shotSeg = async (s: StoryShot, extra: StoryLine[] = [], tag?: string) =>
     segment({ work: opts.work, name: s.id, video: assets.clip(s.id), still: assets.still(s.id), lines: [...s.lines, ...extra], voices: assets.voice, names, tune, tag, hold: opts.holds?.[s.id], quiet: assets.quiet?.(s.id) });
   for (const s of doc.shots) {

@@ -2,6 +2,22 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-16 (night): stories come alive
+
+Hardeep's ask: interactive storytelling for fiction too, a different engine that generates video if needed, a review by a model that can watch video, take its feedback and go again, and five examples.
+
+**The engine** (`apps/server/src/story`, README there). Gemini 4 Argon reads the pages and plans the film: the book's own sentences and dialogue in the book's order, the cast with a voice and an acting style each, 5 to 8 shots, one choice, characters to talk to, a quiz and a music brief. A page that holds the story but no shot is planned again; a page that is an exercise can be marked "not the story". Nano Banana draws a cast sheet and every opening frame in the book's style; a shot whose moment is printed starts from the printed picture, extended to 16:9. Gemini Omni Flash (`gemini-omni-1.1-flash-preview`, Vertex, Interactions API) films each shot: 10 s, 720p, about 45 s and $1 a clip. Gemini 3.8 TTS acts every line (the style travels as `speechMetadata.style` and is never read aloud; tags such as `<gasp>` are performed). Lyria writes the music. The film is put together with ffmpeg.
+
+**The review loop.** Gemini 4 Argon watches each version of the film next to the pages and a timeline of every shot and line, scores eleven qualities, lists each shot's problems with times, and gives one fix per shot: edit the clip (Omni's own edit, "keep everything else the same"), film it again from a new plan, act lines again, add a pause, change the mix, or change who is in the shot. What the first reviews taught the engine, all now built in:
+- Timecodes in a clip prompt ("[0-3s] ...") make Omni cut and dissolve inside a clip; "first, then, finally" plus the `image_to_video` task keeps one continuous shot.
+- Omni sometimes adds voices (Hindi, Bengali, English) despite "no dialogue"; Gemini listens to every clip and a clip with speech plays without its own sound.
+- Filming again can make a shot worse (the stag fable went 6, 7, then 5), so every shot keeps its takes with their scores and a clearly worse take is replaced by the best one.
+- An edit that did not fix a shot is not tried again; the shot is filmed again, told which mistakes to avoid.
+- A character whose look changes (Gopal's disguise) needs the changed look in every later shot, so shots carry per-character looks.
+- Nano Banana answers "OTHER" without an image under load; it now waits longer between tries before falling back. Lyria can refuse a brief that sounds like a known piece; it then tries new seeds and a plainer brief.
+
+**The app.** `/story/:id` plays a story: the page with its printed picture marked, the picture growing to fill the screen as it starts to move, captions with the speaker's name, the choice as two post-its (the other option shown as "Imagine...", then back to the book), the end with the moral, a quiz, and a live voice chat with a character in its own voice (the live proxy takes `story:<id>:<character>`). Stories are a tab in the library, a card on the dashboard and in New, "Make it a film" on a scanned story page, and a section on the homepage. `POST /api/stories` runs as a background job, two a day per reader and twenty a day in all.
+
 ## 2026-10-16: plain English everywhere; the demo video
 
 Hardeep's ask: use the Simple English skill (github.com/AminBlg/SimpleEnglish) on the whole app and the landing page, and make a presentable demo video of the user journey with Gemini voices and captions.

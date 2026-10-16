@@ -12,7 +12,13 @@ export const SHOWCASE = {
 const GALLERY_IDS = ['9aee2e9b-606b-4086-bb15-1f872b687149', '26361c93-7794-401c-99a7-9c4c6c9d30c9', '376abcca-c784-459a-96d6-549b598a7314', '82071d9a-f9c4-449a-9ac4-0dc0e98f9db3', '582d7438-5ac7-4ed5-a8c6-2d8bd3a60e5b', 'd9f920c7-a321-43dd-9410-57ae8c618b15'];
 type GalleryItem = { id: string; title: string; subject: string; pageImageUrl: string; verification?: string; moving: number };
 // stories made alive that the homepage offers to play (fiction pages: a school reader, a comic, a folk tale)
-const STORY_IDS: string[] = (process.env.SHOWCASE_STORIES || '').split(',').filter(Boolean);
+const STORY_IDS: string[] = (process.env.SHOWCASE_STORIES || [
+  '1c80f669-d6ff-470f-8a9d-8843b57ad02c', // The Ashes That Made Trees Bloom (NCERT Honeycomb, class 7)
+  '1bdf54fc-5f20-4ff2-b24f-d481675c0a60', // The Tiger, the Brahman, and the Jackal (Indian Fairy Tales, 1892)
+  '9c405f17-094a-41cc-96e0-81c4468afc39', // the stag at the pond (NCERT Honeycomb picture reading)
+  '2d34f1b6-6f43-4ffc-b6e6-8ac88c836a04', // Gopal and the Hilsa-fish (NCERT Honeycomb, a comic)
+  'f19b0659-9163-4f1a-b4eb-5bd5331fb03f', // Three Questions (Tolstoy, NCERT Honeycomb)
+].join(',')).split(',').filter(Boolean);
 type StoryItem = { id: string; title: string; book?: string; poster?: string; score?: number };
 let galleryCache: { at: number; items: GalleryItem[]; stories: StoryItem[] } | null = null;
 export async function showcase() {

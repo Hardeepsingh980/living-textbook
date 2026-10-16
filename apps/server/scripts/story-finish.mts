@@ -31,7 +31,7 @@ const assets = {
   quiet: (id: string) => !!shots.find((s) => s.id === id)?.clipMuted,
 };
 const out = path.join(work, 'film-final.mp4'), preview = path.join(work, 'film-final-review.mp4');
-const { seconds, segments } = await renderFilm(doc, assets, out, { work: path.join(work, 'render-final'), preview });
+const { seconds, segments } = await renderFilm(doc, assets, out, { work: path.join(work, 'render-final'), preview, tune: doc.mix ? { music: doc.mix.music, ambient: doc.mix.ambient } : undefined, holds: doc.mix?.holds, intro: { page: path.join(work, 'page-0.jpg') } });
 const url = await store.putFile(doc.id, `film-final-${Date.now().toString(36)}.mp4`, fs.readFileSync(out), 'video/mp4');
 doc.film = { url, ms: Math.round(seconds * 1000), poster: doc.film?.poster ?? shots[0]?.keyframeUrl };
 if (flags.includes('--review')) {

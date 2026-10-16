@@ -30,6 +30,8 @@ export type StoryShot = {
   sound: string;
   /** character ids on screen */
   cast: string[];
+  /** how a character looks in this shot when it differs from their usual look (a disguise, new clothes, a wound) */
+  looks?: Record<string, string>;
   /** index into StoryDoc.pictures when this moment is printed on the page: the clip starts from the printed picture */
   fromPicture?: number | null;
   keyframeUrl?: string;
@@ -40,6 +42,10 @@ export type StoryShot = {
   clipModel?: string;
   /** the clip's own soundtrack has speech in it, so it plays without its sound */
   clipMuted?: boolean;
+  /** every version of the clip a review watched, with the reviewer's score for it: a worse new version is replaced by the best one */
+  takes?: { round: number; url: string; ref?: string; muted?: boolean; score: number }[];
+  /** mistakes the reviewer saw in earlier versions of this clip, which the next filming is told to avoid */
+  avoid?: string[];
   /** versions of this shot, newest last: what changed and why */
   history?: { round: number; action: string; note: string }[];
 };
@@ -69,7 +75,7 @@ export type StoryPicture = { page: number; box: [number, number, number, number]
 
 export type StoryReviewShot = {
   id: string; score: number; issues: string[];
-  fix?: { kind: 'none' | 'edit' | 'regenerate' | 'revoice' | 'retime'; edit?: string; picture?: string; motion?: string; lines?: { id: string; style?: string; text?: string; voice?: string }[]; hold?: number };
+  fix?: { kind: 'none' | 'edit' | 'regenerate' | 'revoice' | 'retime'; edit?: string; picture?: string; motion?: string; cast?: string[]; lines?: { id: string; style?: string; text?: string; voice?: string }[]; hold?: number };
 };
 
 export type StoryReview = {
@@ -100,6 +106,8 @@ export type StoryDoc = {
   think?: string;
   music?: { url?: string; prompt: string };
   film?: { url: string; ms: number; poster?: string };
+  /** the film's sound mix and pauses, as the reviews have tuned them */
+  mix?: { music: number; ambient: number; holds: Record<string, number> };
   reviews: StoryReview[];
   cost: { usd: number; byModel: Record<string, number> };
   timings: Record<string, number>;

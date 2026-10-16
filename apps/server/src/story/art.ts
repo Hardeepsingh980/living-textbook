@@ -47,7 +47,8 @@ export async function drawKeyframe(opts: {
   shot: StoryShot; printed: Buffer | null; refs: Buffer[]; cast: StoryCharacter[]; artStyle: string; spend: (m: string, usd: number) => void;
 }): Promise<Buffer> {
   const { shot, printed, refs, cast, artStyle } = opts;
-  const who = cast.length ? `Characters (draw them exactly as in the references): ${cast.map((c) => `${c.name}: ${c.look}`).join('; ')}. Only these characters appear; anyone else in the references stays out of this frame.` : 'No story characters appear in this frame.';
+  const lookOf = (c: StoryCharacter) => shot.looks?.[c.id] ? `${shot.looks[c.id]} (in this scene; otherwise as in the references)` : c.look;
+  const who = cast.length ? `Characters (draw them exactly as in the references): ${cast.map((c) => `${c.name}: ${lookOf(c)}`).join('; ')}. Only these characters appear; anyone else in the references stays out of this frame.` : 'No story characters appear in this frame.';
   const prompt = printed
     ? `Extend this book illustration into a 16:9 landscape frame for an animated film. Keep the original drawing exactly as it is, same size, in the middle of the frame, and continue the scene naturally to the left and right in exactly the same style (${artStyle}). Remove any speech bubbles, captions and printed text from the drawing and fill those spots with the scene. ${who} ${NO_TEXT}`
     : `A single frame from an animated film of a children's book, 16:9 landscape, drawn in exactly the art style of the reference illustrations: ${artStyle}. ${shot.picture} ${who} The composition leaves room for the characters to move. ${NO_TEXT}`;
@@ -66,11 +67,11 @@ export function stepsOf(motion: string): string {
 
 /** The prompt a clip is filmed from. */
 export function clipPrompt(shot: StoryShot, cast: StoryCharacter[], artStyle: string, startsFromPrint: boolean): string {
-  const looks = cast.map((c) => `${c.name} (${c.look})`).join('; ');
+  const looks = cast.map((c) => `${c.name} (${shot.looks?.[c.id] ?? c.look})`).join('; ');
   return `${startsFromPrint ? 'Bring this children\'s book illustration to life' : 'Animate this frame from a children\'s book film'} for 10 seconds. Keep exactly the art style of the image (${artStyle}): the same line, colours and texture in every frame, never photographic, never 3D.${looks ? ` Keep every character exactly as drawn: ${looks}.` : ''}
 ${stepsOf(shot.motion)}
 Each character appears exactly once, and stays where the frame shows them unless the motion moves them. Objects keep their shape. Expressive faces and bodies, natural movement.
-Continuous, unbroken shot from the first frame to the last: no cuts, no dissolves, no change of camera angle; the camera only moves slowly.
+Continuous, unbroken shot from the first frame to the last: no cuts, no dissolves, no change of camera angle; the camera only moves slowly.${shot.avoid?.length ? `\nAn earlier version had these mistakes; do not repeat them: ${shot.avoid.slice(-4).join('; ')}.` : ''}
 Sound design: ${shot.sound || 'quiet ambient sound that fits the place'}. No dialogue, no voices, no singing, no music.
 No text, no subtitles, no speech bubbles, no frame borders.`;
 }
