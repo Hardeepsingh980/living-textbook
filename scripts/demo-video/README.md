@@ -1,6 +1,6 @@
 # Demo video
 
-The scripts in this folder make the demo video of Living Textbook: 2 min 42 s, 1920×1080, 30 frames a second. Every app shot is a recording of the real app. Gemini text-to-speech speaks for the narrator and for the student. Gemini Live is the tutor, as in the app. Lyria makes the music. All output goes to `eval/output/demo-video`, which git ignores.
+The scripts in this folder make the demo video of Living Textbook: 2 min 41 s, 1920×1080, 30 frames a second. Every app shot is a recording of the real app. Gemini text-to-speech speaks for the narrator and for the student. Gemini Live is the tutor, as in the app. Lyria makes the music. All output goes to `eval/output/demo-video`, which git ignores.
 
 ## What you need
 

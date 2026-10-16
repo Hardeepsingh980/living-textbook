@@ -51,7 +51,8 @@ const SHOTS = [
   { id: 'title', kind: 'title', vo: [['title-0', 1.3], ['title-1', 3.6]] },
   { id: 'ar', kind: 'ar', vo: ['ar-0', 'ar-1', 'ar-2'], label: 'ar' },
   { id: 'home', kind: 'window', src: 'home', a: 0.4, b: 9.4, vo: ['home-0', 'home-1'], label: 'home' },
-  { id: 'make', kind: 'window', src: 'take', a: 0.3, b: 19.1, vo: ['make-0', 'make-1', 'make-2', 'lesson-0'], label: 'make', badge: 'gemini' },
+  // starts once the dashboard is gone (that take began before the test reader had a name), a little slower so the voice fits
+  { id: 'make', kind: 'window', src: 'take', a: 1.6, b: 19.1, speed: 0.955, vo: [['make-0', 0.2], ['make-1', 3.87], ['make-2', 8.22], ['lesson-0', 13.89]], label: 'make', badge: 'gemini' },
   { id: 'lesson', kind: 'window', src: 'take', a: 19.1, b: 34.6, vo: ['lesson-1'], label: 'lesson', badge: 'live', voices: true, cut: true },
   { id: 'ask', kind: 'window', src: 'take', hold: { at: 47.6, dur: 4.1 }, a: 47.6, b: 60.5, vo: ['ask-0'], label: 'ask', badge: 'voice', voices: true, question: true },
   { id: 'whatif', kind: 'window', src: 'take', a: 77.2, b: 88.5, vo: ['whatif-0'], label: 'whatif', voices: true },
