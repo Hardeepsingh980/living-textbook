@@ -47,20 +47,20 @@ export function DashboardView({ onPhoto }: { onPhoto: (f: File) => void }) {
     <div className="page dash enter-page">
       <div className="dash-hello">
         <h1>{hello}{first ? `, ${first}` : ''}<span className="marker-dot">.</span></h1>
-        <p className="muted">{fresh ? 'Pick a page from any textbook and bring it to life.' : 'Here is where you left things.'}</p>
+        <p className="muted">{fresh ? 'Pick a page from any textbook and bring it to life.' : 'Here is where you stopped.'}</p>
       </div>
 
       <section className="start-row" aria-label="Start something">
         <button className="start-card hot" onClick={() => navigate('/scan')}><span className="start-icon"><Icon name="camera" size={30} /></span><b>Scan a page</b><span>Point the camera at a textbook</span></button>
-        <label className="start-card"><span className="start-icon"><Icon name="upload" size={30} /></span><b>Upload a photo</b><span>A page you already photographed</span>
+        <label className="start-card"><span className="start-icon"><Icon name="upload" size={30} /></span><b>Upload a photo</b><span>A photo of a page that you took before</span>
           <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) onPhoto(f); e.target.value = ''; }} /></label>
-        <button className="start-card" onClick={() => navigate('/app/new/short')}><span className="start-icon"><Icon name="film" size={30} /></span><b>Short video</b><span>A page in, a narrated video out</span></button>
-        <button className="start-card" onClick={() => navigate('/app/new/chapter')}><span className="start-icon"><Icon name="doc" size={30} /></span><b>Chapter film</b><span>A chapter PDF in, a film for the class</span></button>
+        <button className="start-card" onClick={() => navigate('/app/new/short')}><span className="start-icon"><Icon name="film" size={30} /></span><b>Short video</b><span>One page becomes a video with a voice</span></button>
+        <button className="start-card" onClick={() => navigate('/app/new/chapter')}><span className="start-icon"><Icon name="doc" size={30} /></span><b>Chapter film</b><span>A chapter PDF becomes a film for your class</span></button>
       </section>
 
       {making.length > 0 && (
         <section className="dash-section">
-          <div className="section-head"><h2>Making now</h2><span className="muted small">It keeps going if you leave.</span></div>
+          <div className="section-head"><h2>Being made now</h2><span className="muted small">It keeps going if you leave.</span></div>
           <div className="job-grid">{making.map((j) => <JobCard key={j.id} job={j} />)}</div>
         </section>
       )}

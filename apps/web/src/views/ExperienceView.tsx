@@ -356,7 +356,7 @@ export function ExperienceView({ onBack, embed = false, fromScanner = false }: P
         setPhase('live');
         conductStep(conductor.current.phase === 'steps' ? conductor.current.step : from);
         report('lesson-begun');
-        if (!CONTAIN) t.listen().then(() => setMicOn(true)).catch((e: any) => { const denied = /NotAllowed|denied|dismissed/i.test(String(e?.message || e?.name)); setTutorNote(denied ? 'microphone not allowed' : ''); if (denied) say('Allow the microphone to talk to the tutor. The lesson carries on without it.', 'line'); report('mic-failed', String(e?.message || e?.name)); });
+        if (!CONTAIN) t.listen().then(() => setMicOn(true)).catch((e: any) => { const denied = /NotAllowed|denied|dismissed/i.test(String(e?.message || e?.name)); setTutorNote(denied ? 'microphone not allowed' : ''); if (denied) say('To talk to the tutor, allow the microphone. The lesson continues without it.', 'line'); report('mic-failed', String(e?.message || e?.name)); });
       } catch (e) {
         console.warn('[tutor] live lesson unavailable, using recorded narration', e);
         report('live-failed', String((e as any)?.message || e));
@@ -502,7 +502,7 @@ export function ExperienceView({ onBack, embed = false, fromScanner = false }: P
     if (t.listening) { t.mute(); setMicOn(false); return; }
     if (!tutorLive.current) { speechRef.current.clear(); if (stepTimer.current) clearTimeout(stepTimer.current); }
     try { await t.listen(); setMicOn(true); setPhase('live'); if (!tutorLive.current) say('I am listening. Ask me anything about this page.'); }
-    catch (e: any) { const denied = /NotAllowed|denied|dismissed/i.test(String(e?.message || e?.name)); setTutorNote(denied ? 'microphone not allowed' : 'voice not available'); setMicOn(false); say(denied ? 'The microphone is blocked for this site. Allow it in the browser to ask questions.' : 'Voice is not available right now.', 'line'); }
+    catch (e: any) { const denied = /NotAllowed|denied|dismissed/i.test(String(e?.message || e?.name)); setTutorNote(denied ? 'microphone not allowed' : 'voice not available'); setMicOn(false); say(denied ? 'This site cannot use the microphone. To ask questions, allow the microphone in your browser.' : 'Voice is not available now.', 'line'); }
   }
   useEffect(() => { tutorRef.current?.sendState(); }, [vars]);
 
@@ -608,7 +608,7 @@ export function ExperienceView({ onBack, embed = false, fromScanner = false }: P
   const micLabel = tutor === 'unavailable' ? (tutorNote === 'microphone not allowed' ? 'Mic off' : 'Voice off') : tutor === 'reconnecting' ? 'Reconnecting' : tutor === 'connecting' ? 'One moment' : tutor === 'acting' ? 'Changing it' : tutor === 'thinking' ? 'Thinking' : micOn ? (tutor === 'speaking' ? 'Interrupt' : 'Listening') : 'Ask';
   const title = quick?.title || quick?.subject || '';
   const mainFigure = quick?.figures?.[0]?.box as [number, number, number, number] | undefined;
-  const errorText = error?.startsWith('msg:') ? error.slice(4) : /^(camera|network|fetch|server)/i.test(error ?? '') ? 'The connection dropped while the page was being prepared.' : error === 'timeout' || error === 'no scene' || error === 'renderer' ? "I couldn't build this lesson safely yet. You can retry, or point at the main illustration or diagram." : "I couldn't confidently read this page. Try moving closer, with the whole page in the frame.";
+  const errorText = error?.startsWith('msg:') ? error.slice(4) : /^(camera|network|fetch|server)/i.test(error ?? '') ? 'The connection stopped while the lesson was being made.' : error === 'timeout' || error === 'no scene' || error === 'renderer' ? "I cannot make a good lesson from this page. Try again, or point the camera at the main picture or diagram." : "I cannot read this page clearly. Move closer, and keep the whole page in the frame.";
   const captionParts = captionBy === 'line' && /^([^:]{1,24}): (.+)$/s.test(caption) ? { who: caption.split(': ')[0]!, text: caption.slice(caption.indexOf(': ') + 2) } : null;
 
   return (
@@ -621,7 +621,7 @@ export function ExperienceView({ onBack, embed = false, fromScanner = false }: P
           {working && page && layerPlaced && !REVIEW && <GenerationOverlay phase={phase} page={page} figure={mainFigure} />}
         </div>
         {working && !layerPlaced && !REVIEW && <GenerationOverlay phase={phase} page={page ?? { w: 1000, h: 1400 }} title={title} floating />}
-        {status === 'error' && <div className="error-card enter"><b>I couldn't bring this page to life yet.</b><div className="muted">{errorText}</div><button className="primary" onClick={onBack}>Try again</button></div>}
+        {status === 'error' && <div className="error-card enter"><b>I cannot bring this page to life.</b><div className="muted">{errorText}</div><button className="primary" onClick={onBack}>Try again</button></div>}
         {arAvailable && !arLive && revealed && status !== 'error' && arState !== 'idle' && everFound.current && <div className="ar-hint note-pill">Point the camera at the page</div>}
       </div>
 

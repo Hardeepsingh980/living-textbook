@@ -65,7 +65,7 @@ export function ScanExperience({ onCapture, onBack, autoStart = false, embed = f
     const c = document.createElement('canvas'); c.width = 320; c.height = Math.round((320 * v.videoHeight) / v.videoWidth);
     const ctx = c.getContext('2d', { willReadFrequently: true })!; ctx.drawImage(v, 0, 0, c.width, c.height);
     const q = quality(ctx.getImageData(0, 0, c.width, c.height));
-    setHint(q.blur < 60 ? 'Hold still for a moment' : q.mean < 70 ? 'A little more light would help' : q.mean > 235 ? 'Tilt away from the glare' : '');
+    setHint(q.blur < 60 ? 'Hold still for a moment' : q.mean < 70 ? 'Add a little more light' : q.mean > 235 ? 'Tilt the phone away from the shine' : '');
   }
 
   async function captureFromCamera() {

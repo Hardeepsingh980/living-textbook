@@ -75,7 +75,7 @@ export function sceneSystem(quick: QuickRead, page: { w: number; h: number }, fr
 
 ${SCENE_LANGUAGE}
 
-Page: W=${page.w}, H=${page.h}. Language of all text, labels and narration: ${quick.language}.
+Page: W=${page.w}, H=${page.h}. Language of all text, labels and narration: ${quick.language}. Write narration in short sentences (at most 15 words each) and everyday words; keep every term and number exactly as the page prints it.
 Page figures already located (page units). Each is an anchor: with "anchor":"<id>", an element's x,y are RELATIVE to that box's top-left; moving objects and highlights stay inside 0..boxW × 0..boxH, while labels and geometric constructions may extend onto the page around it (sizes given here): ${JSON.stringify(quick.figures.map((f) => ({ id: f.id, label: f.label, kind: f.kind, box: f.box.map(Math.round), boxW: Math.round(f.box[2] - f.box[0]), boxH: Math.round(f.box[3] - f.box[1]) })))}
 Characters: ${JSON.stringify(quick.characters)}
 Free regions with no printed text (page units [x0,y0,x1,y1]) — put labels, readouts and plots here or inside empty parts of the figure, never elsewhere: ${JSON.stringify(freeRegions.map((r) => r.map(Math.round)))}

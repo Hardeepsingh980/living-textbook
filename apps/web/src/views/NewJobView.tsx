@@ -7,8 +7,8 @@ import { Icon } from '../components/Icon';
 import { GeminiSpark } from '../components/GeminiSpark';
 
 const COPY = {
-  short: { title: 'A page in, a short video out', line: 'Choose a photo of a textbook page (or a PDF; its first page is used). The tutor teaches it on camera and you get a narrated video to save or share.', drop: 'Choose a page', accept: 'image/*,application/pdf', hint: 'a photo or a PDF', choiceLabel: 'Length', choices: [30, 45, 60], unit: 's', def: 45 },
-  chapter: { title: 'A chapter in, a film out', line: 'Choose a chapter PDF. The pages worth seeing come alive, the tutor narrates each part, and the film ends with questions for the class.', drop: 'Choose a chapter PDF', accept: 'application/pdf,.pdf', hint: 'NCERT chapters work well; up to 40 pages are read', choiceLabel: 'Parts', choices: [3, 4, 5, 6], unit: '', def: 5 },
+  short: { title: 'Make a short video from one page', line: 'Choose a photo of a textbook page, or a PDF. For a PDF, we use its first page. The tutor teaches the page, and you get a video with a voice. You can save it or share it.', drop: 'Choose a page', accept: 'image/*,application/pdf', hint: 'a photo or a PDF', choiceLabel: 'Length', choices: [30, 45, 60], unit: 's', def: 45 },
+  chapter: { title: 'Make a class film from a chapter', line: 'Choose a chapter PDF. The best pages come alive, and the tutor explains each part. The film ends with questions for your class.', drop: 'Choose a chapter PDF', accept: 'application/pdf,.pdf', hint: 'NCERT chapters work well. We read up to 40 pages.', choiceLabel: 'Parts', choices: [3, 4, 5, 6], unit: '', def: 5 },
 } as const;
 
 export function NewJobView({ kind }: { kind: 'short' | 'chapter' }) {
@@ -36,7 +36,7 @@ export function NewJobView({ kind }: { kind: 'short' | 'chapter' }) {
         {c.choices.map((n) => <button key={n} className={`chip ${choice === n ? 'on' : ''}`} onClick={() => setChoice(n)} disabled={busy}>{n}{c.unit}</button>)}
       </div>
       {error && <p className="note" role="alert">{error}</p>}
-      <p className="muted small">It runs in the background: you can close the page and find it on your dashboard.</p>
+      <p className="muted small">It keeps working after you close this page. You will find it on your dashboard.</p>
     </div>
   );
 }

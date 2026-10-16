@@ -4,13 +4,13 @@ import { useStore, type StageState } from '../lib/store';
 
 const LABELS: Record<string, { title: string; verb: string }> = {
   upload: { title: 'Page', verb: 'Preparing the photo' },
-  track: { title: 'Anchor', verb: 'Learning what the page looks like' },
+  track: { title: 'Track', verb: 'Learning what the page looks like' },
   read: { title: 'Read', verb: 'Reading the page' },
-  understand: { title: 'Understand', verb: 'Extracting every value, fact and figure' },
-  build: { title: 'Build', verb: 'Composing the experience' },
+  understand: { title: 'Understand', verb: 'Finding every number, fact and picture' },
+  build: { title: 'Build', verb: 'Building the lesson' },
   voice: { title: 'Voice', verb: 'Giving it a voice' },
   illustrate: { title: 'Illustrate', verb: 'Drawing characters and scenes' },
-  verify: { title: 'Verify', verb: 'Checking against the page' },
+  verify: { title: 'Check', verb: 'Checking against the page' },
   save: { title: 'Save', verb: 'Saving to your library' },
 };
 
@@ -33,7 +33,7 @@ export function Theatre({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`theatre ${compact ? 'compact' : ''}`} aria-live="polite">
       <div className="theatre-head">
-        <div className="theatre-title">{status === 'generating' ? 'Bringing the page to life' : status === 'ready' ? 'Alive' : status === 'error' ? 'Something went wrong' : 'Agent theatre'}</div>
+        <div className="theatre-title">{status === 'generating' ? 'Bringing the page to life' : status === 'ready' ? 'Alive' : status === 'error' ? 'Something went wrong' : 'How it was made'}</div>
         <div className="theatre-clock">{fmt(elapsed)}{costUsd !== undefined ? ` · $${costUsd.toFixed(3)}` : ''}</div>
       </div>
       {quick?.kind && <div className="theatre-quick">{[quick.kind, quick.subject, quick.language?.toUpperCase()].filter(Boolean).join(' · ')}{quick.title ? ` — ${quick.title}` : ''}</div>}

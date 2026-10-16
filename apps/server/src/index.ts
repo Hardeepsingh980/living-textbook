@@ -41,10 +41,10 @@ app.get('/api/health', (c) => c.json({ ok: true, models: Object.fromEntries(Obje
 /** Create an experience from a page photo. Body: raw image bytes. Response: SSE stream of pipeline events. */
 app.post('/api/experiences', async (c) => {
   const mime = c.req.header('content-type') || 'image/jpeg';
-  if (!mime.startsWith('image/')) return c.json({ error: 'send the page photo as the raw body with an image/* content type' }, 400);
+  if (!mime.startsWith('image/')) return c.json({ error: 'Send the photo of the page as the body of the request, with an image/* content type.' }, 400);
   const image = Buffer.from(await c.req.arrayBuffer());
-  if (image.length < 1000) return c.json({ error: 'image too small' }, 400);
-  if (image.length > 15 * 1024 * 1024) return c.json({ error: 'image too large (15 MB max)' }, 413);
+  if (image.length < 1000) return c.json({ error: 'The image is too small to read.' }, 400);
+  if (image.length > 15 * 1024 * 1024) return c.json({ error: 'The image is too large. The limit is 15 MB.' }, 413);
   let { owner: ownerId, user } = await ownerOf(c);
   let api: ApiInfo | undefined;
   const embedKey = c.req.header('x-embed-key');
@@ -70,7 +70,7 @@ app.post('/api/experiences', async (c) => {
     const q = await store.bumpQuota(lessonKey(user?.uid ?? null, clientIp(c)), limit).catch(() => ({ allowed: true, used: 0 }));
     if (!q.allowed) return c.json(user
       ? { error: 'That is a lot of pages for one day. Try again tomorrow.', code: 'daily-limit', limit }
-      : { error: `You have used today's ${limit} free pages. Sign in to keep going; it is free.`, code: 'signin-required', limit }, 429);
+      : { error: `You used all ${limit} free pages for today. Sign in to make more. It is free.`, code: 'signin-required', limit }, 429);
   }
   const bookId = c.req.header('x-book-id') || undefined;
   const id = randomUUID();
@@ -164,7 +164,7 @@ async function startJob(c: Context, kind: 'short' | 'chapter') {
   if (kind === 'short' && (body.length < 1000 || (!isPdf && !mime.startsWith('image/')))) return c.json({ error: 'Send a photo of the page or a PDF.' }, 400);
   if (body.length > 30 * 1024 * 1024) return c.json({ error: 'The file is larger than 30 MB.' }, 413);
   const q = await store.bumpQuota(`${kind}-u-${user.uid.replace(/[^A-Za-z0-9_-]/g, '')}-${istDay()}`, kind === 'short' ? MEMBER_SHORTS : MEMBER_CHAPTERS).catch(() => ({ allowed: true, used: 0 }));
-  if (!q.allowed && !exempt(c)) return c.json({ error: kind === 'short' ? 'That is ten short videos today. Try again tomorrow.' : 'That is four chapter films today. Try again tomorrow.', code: 'daily-limit' }, 429);
+  if (!q.allowed && !exempt(c)) return c.json({ error: kind === 'short' ? 'You made ten short videos today. Try again tomorrow.' : 'You made four chapter films today. Try again tomorrow.', code: 'daily-limit' }, 429);
   const name = (c.req.header('x-file-name') || '').slice(0, 120) || undefined;
   const job = await createJob(kind, user.uid, body, isPdf ? 'application/pdf' : mime, kind === 'short' ? { seconds: Number(c.req.query('seconds')) || 45 } : { sections: Number(c.req.query('sections')) || 5 }, name);
   void recordEvent(user, user.uid, { event: kind === 'short' ? 'reel' : 'chapter', detail: `started ${job.id}` }, c.req.header('user-agent') || '').catch(() => {});

@@ -32,7 +32,7 @@ export function ProgressView({ onOpen, onScan }: Props) {
           <div className="signin-card">
             <span className="tape" aria-hidden="true" />
             <h2>Keep what you learn<span className="marker-dot">.</span></h2>
-            <p className="muted">Your pages, quiz scores and a weekly picture of how you are doing, on any device.</p>
+            <p className="muted">Keep your pages, your quiz scores and a weekly view of how you are doing, on any device.</p>
             <GoogleButton />
           </div>
         )}
@@ -79,7 +79,7 @@ export function ProgressView({ onOpen, onScan }: Props) {
 
             {ins && ins.missed.length > 0 && (
               <section>
-                <h2 className="section-title">Worth another look<span className="marker-dot">.</span></h2>
+                <h2 className="section-title">Look at these again<span className="marker-dot">.</span></h2>
                 <div className="missed" style={{ marginTop: 16 }}>
                   {ins.missed.slice(0, 4).map((m, k) => (
                     <div key={k} className="missed-item"><Icon name="question" size={20} /><span className="q"><b>{m.title}</b>: {m.question}</span>{m.experienceId && <button className="secondary small" onClick={() => onOpen(m.experienceId!)}>Revisit</button>}</div>
@@ -122,7 +122,7 @@ export function ProgressView({ onOpen, onScan }: Props) {
                 ))}
               </div>
             </section>
-            {ins && <p className="fine">Day-by-day activity and quiz answers are analysed in BigQuery; suggestions are written by Gemini from those numbers.</p>}
+            {ins && <p className="fine">BigQuery counts your activity and your quiz answers for each day. Gemini writes the suggestions from those numbers.</p>}
           </>
         )}
       </div>
@@ -139,7 +139,7 @@ function Days({ daily }: { daily: Insights['daily'] }) {
   const max = Math.max(1, ...days.map((d) => by.get(d)?.minutes ?? 0));
   return (
     <section>
-      <h2 className="section-title">Two weeks<span className="marker-dot">.</span></h2>
+      <h2 className="section-title">The last two weeks<span className="marker-dot">.</span></h2>
       <div className="days" style={{ marginTop: 16 }} aria-label="Minutes learned per day, last fourteen days">
         {days.map((d, k) => { const m = by.get(d)?.minutes ?? 0; return <span key={d} className={`bar ${m === 0 && !(by.get(d)?.opens) ? 'zero' : ''} ${k === 13 ? 'today' : ''}`} style={{ height: `${Math.max(4, (m / max) * 100)}%` }} title={`${d}: ${m} min`} />; })}
       </div>

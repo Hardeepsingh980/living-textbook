@@ -50,7 +50,7 @@ function getOnce(url: URL, maxBytes: number, timeoutMs: number): Promise<{ statu
     const overall = setTimeout(() => req.destroy(new ImageFetchError('image_url_timeout', 'The image URL took too long to answer.')), timeoutMs);
     req.on('close', () => clearTimeout(overall));
     req.on('timeout', () => req.destroy(new ImageFetchError('image_url_timeout', 'The image URL took too long to answer.')));
-    req.on('error', (e) => reject(e instanceof ImageFetchError ? e : new ImageFetchError('image_url_unreachable', `The image URL could not be fetched (${String((e as any)?.code || e.message).slice(0, 60)}).`)));
+    req.on('error', (e) => reject(e instanceof ImageFetchError ? e : new ImageFetchError('image_url_unreachable', `We cannot download the image from image_url (${String((e as any)?.code || e.message).slice(0, 60)}).`)));
   });
 }
 

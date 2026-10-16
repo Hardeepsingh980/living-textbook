@@ -10,7 +10,7 @@ import { KIND_LABEL, jobProgress, jobTitle, active } from '../components/JobCard
 
 const STAGES: Record<Job['kind'], { key: string; label: string }[]> = {
   short: [{ key: 'queued', label: 'Waiting to start' }, { key: 'generating', label: 'Bringing the page to life' }, { key: 'recording', label: 'Recording the lesson with the tutor' }, { key: 'encoding', label: 'Saving the video' }, { key: 'ready', label: 'Ready' }],
-  chapter: [{ key: 'queued', label: 'Waiting to start' }, { key: 'reading', label: 'Reading the chapter' }, { key: 'choosing', label: 'Choosing the pages to bring to life' }, { key: 'making', label: 'Making and recording each part' }, { key: 'composing', label: 'Setting the film' }, { key: 'ready', label: 'Ready' }],
+  chapter: [{ key: 'queued', label: 'Waiting to start' }, { key: 'reading', label: 'Reading the chapter' }, { key: 'choosing', label: 'Choosing the pages to bring to life' }, { key: 'making', label: 'Making and recording each part' }, { key: 'composing', label: 'Putting the film together' }, { key: 'ready', label: 'Ready' }],
 };
 const PART_WORD: Record<string, string> = { waiting: 'waiting', making: 'bringing it to life', recording: 'recording', done: 'recorded', skipped: 'left out' };
 

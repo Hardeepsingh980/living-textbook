@@ -22,9 +22,9 @@ export async function runShort(job: JobDoc, input: Buffer, report: Report): Prom
   const jpeg = await sharp(image, { failOn: 'none' }).rotate().jpeg({ quality: 90 }).toBuffer();
   let revealed = false;
   const rec = await runPipeline({ image: jpeg, mime: 'image/jpeg', ownerId: job.owner }, (e: PipelineEvent) => {
-    if (e.type === 'quick') report({ title: e.data.title, subject: e.data.subject, detail: 'Sketching the scene' });
+    if (e.type === 'quick') report({ title: e.data.title, subject: e.data.subject, detail: 'Drawing on the page' });
     if (e.type === 'scene' && e.version === 1) report({ detail: 'Checking it against the page' });
-    if (e.type === 'ready') { revealed = true; report({ experienceId: e.experienceId, detail: 'Scene verified; the richer version is on its way' }); }
+    if (e.type === 'ready') { revealed = true; report({ experienceId: e.experienceId, detail: 'The lesson is checked. A richer version is coming.' }); }
     if (e.type === 'error' && !e.recoverable) throw new Error(e.message);
   });
   if (!revealed || !rec.scene) throw new Error('no usable scene on this page');

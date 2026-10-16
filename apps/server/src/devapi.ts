@@ -28,7 +28,7 @@ async function readLessonInput(c: Context): Promise<{ image: Buffer; mime: strin
   let image: Buffer | undefined, ext: unknown, meta: unknown;
   try {
     if (ct.startsWith('multipart/form-data')) {
-      const form = await c.req.parseBody().catch(() => { throw new InputError(400, 'invalid_body', 'The multipart body could not be read.'); });
+      const form = await c.req.parseBody().catch(() => { throw new InputError(400, 'invalid_body', 'We cannot read the multipart body.'); });
       const f = form['image'] ?? form['file'];
       if (f && typeof f !== 'string') image = Buffer.from(await (f as File).arrayBuffer());
       else if (typeof form['image_url'] === 'string') image = (await fetchImage(form['image_url'], MAX_IMAGE)).bytes;
@@ -63,7 +63,7 @@ async function secretKey(c: Context): Promise<DevKeyDoc | Response> {
   if (!raw) return fail(c, 401, 'authentication_error', 'missing_api_key', 'Send your secret key as "Authorization: Bearer ltsk_...".');
   if (raw.startsWith('ltpk_')) return fail(c, 403, 'permission_error', 'publishable_key', 'A publishable key (ltpk_) only opens the scanner embed. Call the REST API from your server with a secret key (ltsk_).');
   const doc = await resolveKey(raw);
-  if (!doc) return fail(c, 401, 'authentication_error', 'invalid_api_key', 'This API key is not valid, or it has been revoked.');
+  if (!doc) return fail(c, 401, 'authentication_error', 'invalid_api_key', 'This API key is not valid, or it was revoked.');
   if (doc.kind !== 'secret') return fail(c, 403, 'permission_error', 'publishable_key', 'Call the REST API with a secret key (ltsk_).');
   touchKey(doc);
   return doc;
@@ -126,7 +126,7 @@ export function mountDeveloperPlatform(app: Hono) {
   };
   app.patch('/api/dev/keys/:id', async (c) => {
     const r = await ownKey(c); if (r.error) return r.error; const doc = r.doc!;
-    if (doc.revokedAt) return c.json({ error: 'This key has been revoked.' }, 400);
+    if (doc.revokedAt) return c.json({ error: 'This key was revoked.' }, 400);
     const body = await c.req.json().catch(() => ({} as any));
     const patch: Partial<DevKeyDoc> = {};
     if (typeof body?.name === 'string' && body.name.trim()) patch.name = body.name.trim().slice(0, 60);
@@ -198,7 +198,7 @@ export function mountDeveloperPlatform(app: Hono) {
           if ('error' in r) write('error', { error: r.error }); else write('lesson', r.lesson);
         } catch (e: any) {
           console.error('[v1] generation failed', String(e?.message || e).slice(0, 200));
-          write('error', { error: { type: 'api_error', code: 'generation_failed', message: 'The lesson could not be made. Please try again.' } });
+          write('error', { error: { type: 'api_error', code: 'generation_failed', message: 'We cannot make the lesson now. Please try again.' } });
         } finally { clearInterval(keepAlive); await chain; }
       });
     }
@@ -208,7 +208,7 @@ export function mountDeveloperPlatform(app: Hono) {
       return c.json(r.lesson, 201, rateHeaders(rl));
     } catch (e: any) {
       console.error('[v1] generation failed', String(e?.message || e).slice(0, 200));
-      return fail(c, 502, 'api_error', 'generation_failed', 'The lesson could not be made. Please try again.', rateHeaders(rl));
+      return fail(c, 502, 'api_error', 'generation_failed', 'We cannot make the lesson now. Please try again.', rateHeaders(rl));
     }
   });
 
@@ -238,7 +238,7 @@ export function mountDeveloperPlatform(app: Hono) {
     const key = await secretKey(c); if (key instanceof Response) return key;
     const rec = await ownLesson(c, key); if (rec instanceof Response) return rec;
     const quiz = await quizFor(rec.id).catch(() => null);
-    if (!quiz) return fail(c, 404, 'not_found_error', 'quiz_unavailable', 'A quiz could not be made for this lesson.');
+    if (!quiz) return fail(c, 404, 'not_found_error', 'quiz_unavailable', 'We cannot make a quiz for this lesson.');
     return c.json({ object: 'quiz', lesson_id: rec.id, language: quiz.language, questions: quiz.questions.map((q) => ({ question: q.q, options: q.options, answer_index: q.answer, explanation: q.why })) });
   });
   app.get('/v1/usage', async (c) => {

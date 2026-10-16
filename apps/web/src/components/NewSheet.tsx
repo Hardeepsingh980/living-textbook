@@ -12,11 +12,11 @@ export function NewSheet({ onClose, onPhoto }: { onClose: () => void; onPhoto: (
         <span className="tape" aria-hidden="true" />
         <h2>Make something<span className="marker-dot">.</span></h2>
         <div className="new-grid">
-          <button className="new-card" onClick={() => go('/scan')}><span className="new-icon"><Icon name="camera" size={28} /></span><b>Scan a page</b><span>Point the camera; the page comes alive</span></button>
+          <button className="new-card" onClick={() => go('/scan')}><span className="new-icon"><Icon name="camera" size={28} /></span><b>Scan a page</b><span>Point the camera. The page comes alive.</span></button>
           <label className="new-card"><span className="new-icon"><Icon name="upload" size={28} /></span><b>Upload a photo</b><span>A photo of a page you already took</span>
             <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) { onClose(); onPhoto(f); } e.target.value = ''; }} /></label>
-          <button className="new-card" onClick={() => go('/app/new/short')}><span className="new-icon"><Icon name="film" size={28} /></span><b>Short video</b><span>A page in, a narrated video out</span></button>
-          <button className="new-card" onClick={() => go('/app/new/chapter')}><span className="new-icon"><Icon name="doc" size={28} /></span><b>Chapter film</b><span>A chapter PDF in, a film for the class</span></button>
+          <button className="new-card" onClick={() => go('/app/new/short')}><span className="new-icon"><Icon name="film" size={28} /></span><b>Short video</b><span>One page becomes a video with a voice</span></button>
+          <button className="new-card" onClick={() => go('/app/new/chapter')}><span className="new-icon"><Icon name="doc" size={28} /></span><b>Chapter film</b><span>A chapter PDF becomes a film for your class</span></button>
         </div>
         <button className="link" onClick={onClose}>Close</button>
       </div>

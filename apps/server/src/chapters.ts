@@ -127,13 +127,13 @@ async function makeChapter(job: ChapterJob, input: { pdf: Buffer; ownerId: strin
       voice('outro', questions.length ? `Questions for the class. ${questions.join(' ')}` : 'That is the chapter. Try it on your own page.'),
       ...parts.map((p) => voice(`part-${p.n}`, `Part ${p.n}. ${p.concept}.`)),
     ]);
-    job.detail = 'Setting the film';
+    job.detail = 'Putting the film together';
     const segs: string[] = [];
     segs.push(await cardSegment(work, 'seg-intro', pngs.intro, introV, 5));
     for (const [k, l] of lessons.entries()) {
       segs.push(await cardSegment(work, `seg-card-${k}`, pngs.parts[k]!, partV[k] ?? null, 3));
       segs.push(await lessonSegment(work, `seg-lesson-${k}`, pngs.frames[k]!, l.file));
-      job.detail = `Setting the film (${k + 1} of ${lessons.length})`;
+      job.detail = `Putting the film together (${k + 1} of ${lessons.length})`;
     }
     segs.push(await cardSegment(work, 'seg-outro', pngs.outro, outroV, 6));
     const list = path.join(work, 'list.txt');

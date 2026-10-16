@@ -18,11 +18,11 @@ export function QrModal({ open, url, onClose, onContinue }: { open: boolean; url
       <div className="modal-card enter" onClick={(e) => e.stopPropagation()}>
         <span className="tape" aria-hidden="true" />
         <h2>Try it on your phone<span className="marker-dot">.</span></h2>
-        <p className="muted">Scan, then point the camera at any textbook page.</p>
+        <p className="muted">Scan this code with your phone. Then point the camera at a textbook page.</p>
         <div className="qr" aria-label={`QR code for ${url}`} dangerouslySetInnerHTML={{ __html: svg }} />
         <p className="muted small">{url.replace(/^https?:\/\//, '')}</p>
         <div className="modal-actions">
-          <button className="primary" onClick={onContinue}><Icon name="camera" size={22} /> Continue here</button>
+          <button className="primary" onClick={onContinue}><Icon name="camera" size={22} /> Use this computer</button>
           <button className="link" onClick={onClose}>Close</button>
         </div>
       </div>

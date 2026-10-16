@@ -70,17 +70,17 @@ export function DocsView() {
         <main className="docs-main">
           <div className="docs-hero">
             <h1>Living lessons inside your learning app<span className="marker-dot">.</span></h1>
-            <p className="lede">A learner photographs any textbook page; the page's own figures start to move, a narrator explains them step by step, every number is checked against the page, a voice tutor answers questions, and a quiz comes from the page's own text. Add it to your app with a script tag, or call it from your server.</p>
+            <p className="lede">A learner takes a photo of a textbook page. The pictures on the page start to move, and a narrator explains them step by step. Every number is checked against the page. A voice tutor answers questions, and a quiz comes from the text of the page. You can add this to your app with one script tag, or call it from your server.</p>
           </div>
 
           <Section id="overview" title="Overview">
-            <p>There are three ways in. Use one or all of them:</p>
+            <p>There are three ways to use it. Use one of them or all of them. A publishable key is a key that is safe to put in your web pages. A secret key stays on your server.</p>
             <ul className="doc-cards">
-              <li><b>The scanner</b><span>A button in your app opens the camera; the learner gets a living lesson on top of their page. Two lines of HTML and a publishable key.</span><a href="#scanner">The scanner</a></li>
+              <li><b>The scanner</b><span>A button in your app opens the camera. The learner gets a living lesson on top of their page. You need two lines of HTML and a publishable key.</span><a href="#scanner">The scanner</a></li>
               <li><b>The lesson player</b><span>Show any lesson inside your pages: one your server made, or one a learner made in the scanner.</span><a href="#embed">Show a lesson</a></li>
               <li><b>The REST API</b><span>Your server sends page images and gets lessons, lists them per learner, fetches quizzes, deletes them.</span><a href="#api">REST API</a></li>
             </ul>
-            <p>Every lesson is made by Google Gemini from the page itself, at the moment it is asked for: there is no catalogue to integrate, and any book in English or Hindi works.</p>
+            <p>Google Gemini makes each lesson from the page itself, at the moment that a learner asks for it. You do not connect a catalogue of content. Any book in English or Hindi works.</p>
           </Section>
 
           <Section id="quickstart" title="Quick start">
@@ -90,7 +90,7 @@ export function DocsView() {
             </ol>
             <CodeBlock label="HTML" code={`<script src="${H}/sdk/v1.js" data-key="ltpk_YOUR_PUBLISHABLE_KEY"></script>`} />
             <ol className="doc-steps" start={3}>
-              <li><b>Add a button.</b> The scanner opens full screen; when the lesson is ready the button receives it.</li>
+              <li><b>Add a button.</b> The scanner opens full screen. When the lesson is ready, the button receives it.</li>
             </ol>
             <CodeBlock label="HTML" code={`<button data-lt-scanner>Scan a page</button>
 
@@ -112,11 +112,11 @@ export function DocsView() {
               </tbody>
             </table>
             <p><b>Sites.</b> A publishable key lists up to 10 sites: an exact site (<code>https://school.example</code>), all subdomains of one (<code>https://*.school.example</code>), or <code>http://localhost:&lt;port&gt;</code> for development. Anywhere else the browser refuses to show the scanner.</p>
-            <p><b>Secret keys are shown once</b>, when they are made; store them right away. Only a hash is kept on our side. If a secret key leaks, revoke it in the dashboard: it stops working within a minute. Up to 10 active keys per account.</p>
+            <p><b>You see a secret key only once</b>, when you make it. Store it at that time. We keep only a hash of the key (a one-way fingerprint of it). If a secret key leaks, revoke it in the dashboard. It stops working within a minute. Each account can have up to 10 active keys.</p>
           </Section>
 
           <Section id="embed" title="Show a lesson">
-            <p>The lesson player takes the width of its container. It shows the page whole with the animation on top, captions beside it (below it on phones), and a voice tutor that narrates every step and that the learner can interrupt with a question. (In the <a href="#scanner">scanner</a>, a lesson made with the camera also stays on the printed page as the learner moves the phone: AR.)</p>
+            <p>The lesson player takes the width of its container. It shows the whole page with the animation on top. Captions show beside the page, or below it on phones. A voice tutor explains every step, and the learner can stop the tutor with a question. In the <a href="#scanner">scanner</a>, a lesson made with the camera also stays on the printed page when the learner moves the phone. This is AR (augmented reality: pictures that sit on the real page).</p>
             <CodeBlock label="HTML" code={`<script src="${H}/sdk/v1.js" data-key="ltpk_YOUR_PUBLISHABLE_KEY"></script>
 
 <div id="lesson"></div>
@@ -138,11 +138,11 @@ export function DocsView() {
               </tbody>
             </table>
             <p>Without code: <code>{'<div data-lt-lesson="LESSON_ID" data-lt-height="640"></div>'}</code>. Its events arrive as DOM events named <code>livingtextbook:ready</code>, <code>livingtextbook:step</code>, <code>livingtextbook:complete</code> and so on, with the event in <code>detail</code>.</p>
-            <p>Sound needs one tap inside the player first (a rule of every browser). The tutor listens for questions, so the browser asks for the microphone when the lesson starts (the frames the SDK makes are allowed to ask); if the learner says no, the lesson still plays, without spoken questions.</p>
+            <p>Every browser needs one tap inside the player before it plays sound. The tutor listens for questions, so the browser asks for the microphone when the lesson starts. The frames that the SDK makes have permission to ask. If the learner says no, the lesson still plays, but without spoken questions.</p>
           </Section>
 
           <Section id="scanner" title="The scanner">
-            <p>The scanner opens the camera (or lets the learner choose a photo), makes the lesson in 10 to 30 seconds, and shows it on the page; with the camera, the lesson stays on the printed page as the phone moves (AR). It needs your publishable key and works only on the key's sites.</p>
+            <p>The scanner opens the camera, or lets the learner choose a photo. It makes the lesson in 10 to 30 seconds and shows it on the page. With the camera, the lesson stays on the printed page when the phone moves (AR). The scanner needs your publishable key. It works only on the sites of that key.</p>
             <CodeBlock label="JavaScript" code={`const scanner = LivingTextbook().scanner({
   onLesson: (lesson) => {
     // { id, title, share_url, embed_url }: keep it with the learner
@@ -154,7 +154,7 @@ export function DocsView() {
 // later, if you want to close it yourself:
 scanner.close();`} />
             <p>By default it opens full screen over your page (a sheet on large screens). To place it in your layout instead, pass <code>target</code>: <code>{"LivingTextbook().scanner({ target: '#slot', height: 720 })"}</code>.</p>
-            <p>Lessons made in the scanner belong to your account: they count against your daily allowance, appear in <code>GET /v1/lessons</code> with <code>"source": "embed"</code>, and each visitor can make up to 15 a day on your key.</p>
+            <p>Lessons made in the scanner belong to your account. They count against your daily allowance. They appear in <code>GET /v1/lessons</code> with <code>"source": "embed"</code>. Each visitor can make up to 15 lessons a day with your key.</p>
           </Section>
 
           <Section id="events" title="Events and commands">
@@ -170,7 +170,7 @@ scanner.close();`} />
                 <tr><td><code>error</code></td><td>Something failed (an invalid key, a daily limit, a missing lesson).</td><td><code>code</code>, <code>message</code></td></tr>
               </tbody>
             </table>
-            <p>Commands on a player: <code>player.play()</code>, <code>player.pause()</code>, <code>player.goTo(index)</code> (the tutor explains that step), <code>player.setMuted(true)</code>, <code>player.destroy()</code>. <code>player.on(type, fn)</code> returns a function that stops listening; <code>"*"</code> listens to everything.</p>
+            <p>Commands on a player: <code>player.play()</code>, <code>player.pause()</code>, <code>player.goTo(index)</code> (the tutor explains that step), <code>player.setMuted(true)</code>, <code>player.destroy()</code>. <code>player.on(type, fn)</code> returns a function that stops listening. The type <code>"*"</code> listens to all events.</p>
           </Section>
 
           <Section id="api" title="REST API">
@@ -180,8 +180,8 @@ scanner.close();`} />
               <p>Makes a lesson from a page image: reads the page, builds the animation, voices it and checks it against the page. It takes 10 to 30 seconds and answers <code>201</code> with the <a href="#lesson-object">lesson</a> when it is ready.</p>
               <p>Send the image in any of these ways (JPEG, PNG or WebP, up to 15 MB):</p>
               <ul>
-                <li><code>multipart/form-data</code> with the file in <code>image</code>, plus optional <code>external_user_id</code> and <code>metadata</code> (a JSON object as text);</li>
-                <li>JSON: <code>{'{ "image_url": "https://..." }'}</code> (a public https address) or <code>{'{ "image_base64": "..." }'}</code>, with optional <code>external_user_id</code> and <code>metadata</code>;</li>
+                <li><code>multipart/form-data</code>: the file goes in <code>image</code>. You can also send <code>external_user_id</code> and <code>metadata</code> (a JSON object as text).</li>
+                <li>JSON: <code>{'{ "image_url": "https://..." }'}</code> (a public https address) or <code>{'{ "image_base64": "..." }'}</code>. You can also send <code>external_user_id</code> and <code>metadata</code>.</li>
                 <li>the raw image as the body (<code>Content-Type: image/jpeg</code>), with <code>?external_user_id=</code>.</li>
               </ul>
               <CodeBlock label="shell" code={`curl ${H}/v1/lessons \\
@@ -194,7 +194,7 @@ scanner.close();`} />
   -H "Content-Type: application/json" \\
   -d '{"image_url":"https://cdn.your-school.app/pages/ch3-p29.jpg","external_user_id":"student-42"}'`} />
               <p><b>Progress as it happens:</b> add <code>?stream=true</code> to receive server-sent events: <code>progress</code> for each stage (<code>{'{ "stage": "read", "status": "done", "detail": "..." }'}</code>), then <code>lesson</code> with the lesson, or <code>error</code>.</p>
-              <p><code>external_user_id</code> is your own id for the learner (up to 128 characters, opaque to us); <code>metadata</code> holds up to 20 short values. Both come back with the lesson, and lists can be filtered by the first.</p>
+              <p><code>external_user_id</code> is your own id for the learner, up to 128 characters. We do not read it. <code>metadata</code> holds up to 20 short values. Both come back with the lesson. You can also filter lists by <code>external_user_id</code>.</p>
             </Endpoint>
 
             <Endpoint method="GET" path="/v1/lessons/{id}"><p>One of your lessons.</p></Endpoint>
@@ -217,7 +217,7 @@ scanner.close();`} />
                 <tr><td><code>status</code></td><td><code>ready</code>, or <code>processing</code> for a moment while a lesson is still being finished.</td></tr>
                 <tr><td><code>language</code></td><td>The page's language, detected (<code>en</code>, <code>hi</code>, ...). Narration and the tutor use it.</td></tr>
                 <tr><td><code>steps</code></td><td>What the narrator explains, in order.</td></tr>
-                <tr><td><code>verification</code></td><td>How the lesson was checked against the page: <code>verified-page</code> (its numbers match the page's own worked answers), <code>checked-independently</code>, <code>faithful</code> (everything it says is on the page), or <code>failed</code> (a check did not pass; the lesson says so to the learner).</td></tr>
+                <tr><td><code>verification</code></td><td>How the lesson was checked against the page. <code>verified-page</code>: its numbers match the worked answers on the page. <code>checked-independently</code>: a second calculation agrees. <code>faithful</code>: everything it says is on the page. <code>failed</code>: a check failed, and the lesson tells the learner.</td></tr>
                 <tr><td><code>share_url</code></td><td>The lesson in Living Textbook, for anyone with the link.</td></tr>
                 <tr><td><code>embed_url</code></td><td>For an iframe, or use the player.</td></tr>
                 <tr><td><code>source</code></td><td><code>api</code> (made with a secret key) or <code>embed</code> (made in your scanner).</td></tr>
@@ -247,18 +247,18 @@ scanner.close();`} />
             <table className="doc-table">
               <tbody>
                 <tr><td>Lessons per account</td><td>50 a day (UTC), all keys and the scanner together, during the preview</td></tr>
-                <tr><td>Lessons per key</td><td>6 a minute; <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> and <code>X-RateLimit-Reset</code> report it</td></tr>
+                <tr><td>Lessons per key</td><td>6 a minute. The headers <code>X-RateLimit-Limit</code>, <code>X-RateLimit-Remaining</code> and <code>X-RateLimit-Reset</code> report it.</td></tr>
                 <tr><td>Scanner, per visitor</td><td>15 lessons a day on one key</td></tr>
                 <tr><td>Images</td><td>JPEG, PNG or WebP, 1 KB to 15 MB, one page each</td></tr>
-                <tr><td>Your references</td><td><code>external_user_id</code> up to 128 characters; <code>metadata</code> up to 20 keys of up to 500 characters</td></tr>
-                <tr><td>Keys</td><td>10 active keys; 10 sites per publishable key</td></tr>
+                <tr><td>Your references</td><td><code>external_user_id</code>: up to 128 characters. <code>metadata</code>: up to 20 keys, each up to 500 characters.</td></tr>
+                <tr><td>Keys</td><td>10 active keys, and 10 sites for each publishable key</td></tr>
               </tbody>
             </table>
             <p>Reading, listing and deleting lessons are not counted against the daily allowance.</p>
           </Section>
 
           <Section id="node" title="Node SDK">
-            <p>A typed client for Node 18 and later (also Deno, Bun and edge runtimes). Install it from this site:</p>
+            <p>The SDK (a small code library for your app) has a typed client for Node 18 and later. It also works in Deno, Bun and edge runtimes. Install it from this site:</p>
             <CodeBlock label="shell" code={`npm install ${H}/sdk/living-textbook-sdk.tgz`} />
             <CodeBlock label="TypeScript" code={`import { LivingTextbook, LivingTextbookError } from '@living-textbook/sdk';
 import { readFile } from 'node:fs/promises';
@@ -282,7 +282,7 @@ catch (e) { if (e instanceof LivingTextbookError) console.log(e.status, e.code, 
           </Section>
 
           <Section id="iframes" title="Plain iframes">
-            <p>The SDK is a thin layer over two frames; you can use them directly. Keep <code>allow</code> (camera and microphone) and <code>referrerpolicy="origin"</code> (the scanner uses it to check it is on one of your sites).</p>
+            <p>The SDK only creates two frames, and you can use them directly. An iframe is a frame that shows one web page inside another. Keep <code>allow</code>, which lets the frame use the camera and the microphone. Keep <code>referrerpolicy="origin"</code> too. The scanner uses it to make sure that it is on one of your sites.</p>
             <CodeBlock label="HTML" code={`<iframe src="${H}/embed/lesson/LESSON_ID"
   allow="camera; microphone; autoplay; fullscreen" referrerpolicy="origin"
   style="width:100%;height:640px;border:0"></iframe>
@@ -299,7 +299,7 @@ catch (e) { if (e instanceof LivingTextbookError) console.log(e.status, e.code, 
               <li><b>Secret keys never leave your server.</b> The SDK refuses to run in a page with one. If one leaks, revoke it.</li>
               <li><b>Publishable keys are meant to be seen.</b> What they can do is narrow: open the scanner on your sites, within your daily allowance and a per-visitor cap.</li>
               <li><b>No learner accounts.</b> Learners do not sign in inside your app. <code>external_user_id</code> is your opaque id: do not send names, emails or other personal details.</li>
-              <li><b>What is kept:</b> the page image and the lesson made from it (with its voice clips and pictures), until you delete it. A lesson's <code>share_url</code> opens it for anyone with the link; ids are random and unguessable.</li>
+              <li><b>What is kept:</b> the page image and the lesson made from it (with its voice clips and pictures), until you delete it. The <code>share_url</code> of a lesson opens it for anyone who has the link. Lesson ids are random, so nobody can guess them.</li>
               <li><b>Image URLs</b> are fetched over https from public addresses only, with a size and time limit.</li>
             </ul>
           </Section>

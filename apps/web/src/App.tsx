@@ -70,7 +70,7 @@ export function App() {
     const lessonId = route.name === 'experience' || route.name === 'embedLesson' ? route.id : undefined;
     if (lessonId === 'new' && status === 'idle') { navigate(route.name === 'embedLesson' ? embedScanPath() : home(), true); return; }
     if (lessonId && lessonId !== 'new' && lessonId !== currentId && status !== 'generating') {
-      getExperience(lessonId).then(loadRecord).catch((e) => { fail(String(e?.message || e)); if (route.name === 'embedLesson') postToHost('error', { code: 'lesson_not_found', message: 'This lesson could not be found.' }); });
+      getExperience(lessonId).then(loadRecord).catch((e) => { fail(String(e?.message || e)); if (route.name === 'embedLesson') postToHost('error', { code: 'lesson_not_found', message: 'We cannot find this lesson.' }); });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route]);
@@ -111,7 +111,7 @@ export function App() {
   // a signed-out reader who has used today's free pages hears it before taking the photo, not after
   useEffect(() => {
     if (route.name !== 'capture' || reader) return;
-    getQuota().then((q) => { if (q && !q.signedIn && q.remaining <= 0) setSigninMessage(`You have used today's ${q.limit} free pages. Sign in to keep going; it is free.`); });
+    getQuota().then((q) => { if (q && !q.signedIn && q.remaining <= 0) setSigninMessage(`You used all ${q.limit} free pages for today. Sign in to make more. It is free.`); });
   }, [route.name, reader]);
 
   const sheet = signinMessage && !reader ? <SignInSheet message={signinMessage} onClose={() => setSigninMessage('')} /> : null;

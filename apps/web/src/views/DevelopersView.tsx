@@ -42,7 +42,7 @@ function NewKeySheet({ onClose, onMade }: { onClose: () => void; onMade: (k: Dev
         </div>
         <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === 'secret' ? 'Production server' : 'School website'} maxLength={60} /></label>
         {kind === 'publishable' && (
-          <label className="field"><span>Sites that may show the scanner, one per line</span>
+          <label className="field"><span>Sites that can show the scanner, one per line</span>
             <textarea rows={3} value={sites} onChange={(e) => setSites(e.target.value)} placeholder={'https://your-school.app\nhttps://*.your-school.app\nhttp://localhost:3000'} />
             <small className="muted">https only, except localhost. *.your-site.com covers its subdomains.</small>
           </label>
@@ -221,7 +221,7 @@ console.log(lesson.embed_url);`,
           <button role="tab" aria-selected={tab === 'server'} className={`tab-chip ${tab === 'server' ? 'on' : ''}`} onClick={() => setTab('server')}><Icon name="code" size={18} /> From your server</button>
         </div>
         <CodeBlock code={snippets[tab]} label={tab === 'server' ? 'shell and Node' : 'HTML'} />
-        {tab !== 'server' && !pk && <p className="small muted">Make a publishable key first; the code above then carries it.</p>}
+        {tab !== 'server' && !pk && <p className="small muted">Make a publishable key first. Then the code above contains it.</p>}
         {tab === 'scanner' && pk && (
           <div className="preview">
             {!preview

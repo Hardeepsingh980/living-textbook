@@ -12,7 +12,7 @@ export function SignInSheet({ message, onClose }: { message: string; onClose: ()
         <span className="tape" aria-hidden="true" />
         <h2>Keep going<span className="marker-dot">.</span></h2>
         <p>{message}</p>
-        <GoogleButton label="Sign in with Google, free" />
+        <GoogleButton label="Sign in with Google (free)" />
         <button className="link" onClick={onClose}>Not now</button>
       </div>
     </div>

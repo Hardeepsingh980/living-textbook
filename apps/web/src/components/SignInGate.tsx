@@ -19,10 +19,10 @@ export function SignInGate({ children, title = 'Sign in to continue', line }: { 
         <h1>{title}<span className="marker-dot">.</span></h1>
         {line && <p className="muted">{line}</p>}
         <ul className="gate-list">
-          <li>Every page you bring to life, in your library on any device</li>
-          <li>Short videos from any page, narrated by the tutor</li>
-          <li>Chapter films for the class projector</li>
-          <li>Quiz scores, streaks and what to look at next</li>
+          <li>Every page that you bring to life, kept in your library, on any device</li>
+          <li>Short videos from any page, with the tutor's voice</li>
+          <li>Chapter films to show your class</li>
+          <li>Your quiz scores, your streak and what to learn next</li>
         </ul>
         <GoogleButton />
         <Link to="/" className="link">Back to the homepage</Link>

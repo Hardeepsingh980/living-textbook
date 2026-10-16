@@ -86,7 +86,7 @@ export async function heal(job: JobDoc): Promise<JobDoc> {
   const lost = (job.status === 'running' && age > STALE_MS) || (job.status === 'queued' && age > LOST_MS);
   if (!lost) return job;
   if ((job.attempts ?? 0) >= 3) {
-    const patch = { status: 'failed' as const, stage: 'failed', detail: 'It stopped part way', error: 'interrupted', updatedAt: Date.now() };
+    const patch = { status: 'failed' as const, stage: 'failed', detail: 'It stopped before the end', error: 'interrupted', updatedAt: Date.now() };
     await store.patchJob(job.id, patch); return { ...job, ...patch };
   }
   const patch = { status: 'queued' as const, stage: 'queued', detail: 'Starting again', updatedAt: Date.now() };

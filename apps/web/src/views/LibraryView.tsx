@@ -41,8 +41,8 @@ export function LibraryView() {
 
       {tab !== 'pages' && (jobs === null ? <div className="row-wait"><GeminiSpark state="thinking" size={26} /></div> : (tab === 'videos' ? shorts : films).length === 0 ? (
         tab === 'videos'
-          ? <Empty line="A short video turns one page into a narrated explainer you can save and share." cta="Make a short video" onClick={() => navigate('/app/new/short')} />
-          : <Empty line="A chapter film turns a whole chapter PDF into an explainer for the class projector." cta="Make a chapter film" onClick={() => navigate('/app/new/chapter')} />
+          ? <Empty line="A short video turns one page into a video with a voice. You can save it and share it." cta="Make a short video" onClick={() => navigate('/app/new/short')} />
+          : <Empty line="A chapter film turns a whole chapter PDF into a lesson film for your class." cta="Make a chapter film" onClick={() => navigate('/app/new/chapter')} />
       ) : (
         <div className="job-grid">
           {(tab === 'videos' ? shorts : films).map((j) => (

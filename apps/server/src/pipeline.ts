@@ -72,12 +72,12 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
   const trackingGate = new Promise<void>((r) => { releaseTracking = r; });
   const trackingP = (async () => {
     await trackingGate;
-    stage('track', 'start', { detail: 'learning what the page looks like, for anchoring' });
+    stage('track', 'start', { detail: 'learning what the page looks like, so the lesson stays on it' });
     const t = Date.now();
     try {
       const r = await compileTracking(new Uint8Array(greyRaw.buffer, greyRaw.byteOffset, greyRaw.byteLength), page.w, page.h);
       const url = await store.putFile(id, 'tracking.mind', Buffer.from(r.buffer), 'application/octet-stream');
-      stage('track', 'done', { ms: Date.now() - t, detail: `${r.trackPts.join('/')} tracking points` });
+      stage('track', 'done', { ms: Date.now() - t, detail: `${r.trackPts.join(' + ')} points to follow on the page` });
       const tracking = { url, width: page.w, height: page.h, trackPts: r.trackPts };
       send({ type: 'tracking', ...tracking, t: T() });
       return tracking;
@@ -152,7 +152,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
   releaseTracking(); // the compile is CPU-heavy; it starts once the scene requests are on their way
   const anchorsFromQuick = Object.fromEntries(quick.figures.map((f) => [f.id, f.box]));
   const sceneP = (async (): Promise<{ scene: Scene; issues: Issue[]; version: number }> => {
-    stage('build', 'start', { detail: 'composing the experience', model: config.models.scene.id });
+    stage('build', 'start', { detail: 'building the lesson', model: config.models.scene.id });
     const t = Date.now();
     const parts = sceneParts;
     let issues: Issue[] = [];
@@ -163,23 +163,23 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
       issues = n1.issues;
       if (!n1.scene) console.warn('[build] v1 invalid:', issues.slice(0, 4).map((i) => `${i.where}: ${i.message}`).join(' | ').slice(0, 300), '| raw:', JSON.stringify(r1.json).slice(0, 400));
       if (n1.scene) {
-        stage('build', 'done', { ms: Date.now() - t, detail: `${n1.scene.elements.length} elements, ${n1.scene.steps.length} steps${issues.length ? `, ${issues.length} repairs` : ''}`, model: r1.usage.model });
+        stage('build', 'done', { ms: Date.now() - t, detail: `${n1.scene.elements.length} parts, ${n1.scene.steps.length} steps${issues.length ? `, ${issues.length} fixes` : ''}`, model: r1.usage.model });
         return { scene: n1.scene, issues, version: 1 };
       }
       const r2 = await withTimeout(generateJson({ model: 'scene', system, parts: [...parts, { text: `Your previous output was invalid: ${issues.slice(0, 6).map((i) => `${i.where}: ${i.message}`).join('; ')}. Output a corrected LivingScene JSON.` }], maxTokens: 2200, thinking: 'low', mediaResolution: 'medium', temperature: 0.3, label: 'scene-repair' }), 30000, 'scene repair');
       usages.push(r2.usage);
       const n2 = normalize({ ...r2.json, page, v: 1, anchors: { ...anchorsFromQuick, ...(r2.json.anchors ?? {}) } }, { dropTexts: [quick.title] });
-      if (n2.scene) { stage('build', 'done', { ms: Date.now() - t, detail: `repaired: ${n2.scene.elements.length} elements`, model: r2.usage.model }); return { scene: n2.scene, issues: [...issues, ...n2.issues], version: 1 }; }
+      if (n2.scene) { stage('build', 'done', { ms: Date.now() - t, detail: `fixed: ${n2.scene.elements.length} parts`, model: r2.usage.model }); return { scene: n2.scene, issues: [...issues, ...n2.issues], version: 1 }; }
       issues = [...issues, ...n2.issues];
     } catch (e: any) { issues.push({ level: 'error', where: 'build', message: String(e?.message || e) }); }
     const fb = fallbackScene({ page, title: quick.title, figures: quick.figures.map((f) => f.box), lang: quick.language });
-    stage('build', 'done', { ms: Date.now() - t, detail: 'fallback scene (page cut-outs)' });
+    stage('build', 'done', { ms: Date.now() - t, detail: 'a simple version made from parts of the page' });
     return { scene: fb, issues, version: 1 };
   })();
 
   // ---- understand: deep extraction ----
   const extractionP = (async (): Promise<Extraction | undefined> => {
-    stage('understand', 'start', { detail: 'reading every word, value and figure', model: config.models.extract.id });
+    stage('understand', 'start', { detail: 'reading every word, number and picture', model: config.models.extract.id });
     const t = Date.now();
     try {
       const r = await withTimeout(generateJson<any>({ model: 'extract', system: EXTRACT_SYSTEM, parts: [imagePart(hiresJpeg), { text: `Page language hint: ${quick.language}. Extract now.` }], maxTokens: 3000, thinking: 'minimal', mediaResolution: 'high', temperature: 0.1, label: 'extract' }), 40000, 'extraction');
@@ -189,7 +189,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         text: String(x.text ?? ''), headings: x.headings ?? [], values: x.values ?? [], worked: x.worked ?? [], equations: x.equations ?? [], entities: x.entities ?? [],
         setting: x.setting || undefined, dialogue: x.dialogue ?? [], steps: x.steps ?? [], claims: x.claims ?? [], language: x.language ?? quick.language,
       };
-      stage('understand', 'done', { ms: Date.now() - t, detail: `${ex.values.length} values, ${ex.worked.length} worked examples, ${ex.claims.length} claims`, model: r.usage.model });
+      stage('understand', 'done', { ms: Date.now() - t, detail: `${ex.values.length} numbers, ${ex.worked.length} worked examples, ${ex.claims.length} facts`, model: r.usage.model });
       send({ type: 'extraction', data: ex, t: T() });
       return ex;
     } catch (e: any) { stage('understand', 'error', { detail: String(e?.message || e) }); return undefined; }
@@ -223,7 +223,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
           if (n3.scene && motionReport(n3.scene).moving.length > m.moving.length) { rich = n3.scene; richIssues = [...richIssues, ...n3.issues, { level: 'warn', where: 'scene', message: `motion pass: ${m.moving.length} → ${motionReport(n3.scene).moving.length} moving elements` }]; }
         } catch (e: any) { console.warn('[build] motion pass failed:', String(e?.message || e).slice(0, 120)); }
       }
-      stage('build', 'done', { ms: Date.now() - t, detail: `richer version: ${rich.elements.length} elements, ${rich.steps.length} steps, ${motionReport(rich).moving.length} moving`, model: r.usage.model });
+      stage('build', 'done', { ms: Date.now() - t, detail: `a richer version: ${rich.elements.length} parts, ${rich.steps.length} steps, ${motionReport(rich).moving.length} that move`, model: r.usage.model });
       send({ type: 'scene', data: rich, issues: richIssues, version: 2, t: T(), ...sceneMetrics(rich, richIssues) });
       return rich;
     } catch (e: any) { console.warn('[build] rich scene failed:', String(e?.message || e).slice(0, 160)); return undefined; }
@@ -265,13 +265,13 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
     const limit = pLimit(3);
     const jobs: Promise<void>[] = [];
     const t = Date.now();
-    stage('voice', 'start', { detail: `voicing ${sc.steps.filter((s) => s.narration).length} narration steps and ${sc.audio.lines.length} lines`, model: config.models.tts.id });
+    stage('voice', 'start', { detail: `recording the voice for ${sc.steps.filter((s) => s.narration).length} steps and ${sc.audio.lines.length} lines`, model: config.models.tts.id });
     const say = (clipId: string, text: string, kind: 'narration' | 'line', extra: { stepId?: string; lineId?: string; speaker?: string; voice: string }) => jobs.push(limit(() => synthClip(sc, version, clipId, text, kind, extra)));
     for (const s of sc.steps) if (s.narration) say(`step-${s.id}`, s.narration, 'narration', { stepId: s.id, voice: narratorVoice });
     for (const l of sc.audio.lines) say(`line-${l.id}`, l.text, 'line', { lineId: l.id, speaker: l.speaker, voice: voiceFor(sc, l.speaker) });
     for (const s of sc.steps) for (const [i, l] of (s.say ?? []).entries()) say(`say-${s.id}-${i}`, l.text, 'line', { stepId: s.id, speaker: l.speaker, voice: voiceFor(sc, l.speaker) });
     await Promise.all(jobs);
-    stage('voice', 'done', { ms: Date.now() - t, detail: `${jobs.length} clips (v${version})` });
+    stage('voice', 'done', { ms: Date.now() - t, detail: `${jobs.length} voice clips (version ${version})` });
   };
   const voiceP = voiceScene(scene, 1);
   const richVoiceP = richP.then((sc) => (sc ? voiceScene(sc, 2) : undefined));
@@ -316,7 +316,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
   // ---- verify: against the page's own answers, independently, and for faithfulness ----
   const verifyScene = async (ex: Extraction, sc: Scene, version: number): Promise<{ v: Verification; scene: Scene }> => {
     let scene = sc;
-    stage('verify', 'start', { detail: 'checking values and facts against the page', model: config.models.verify.id });
+    stage('verify', 'start', { detail: 'checking numbers and facts against the page', model: config.models.verify.id });
     const t = Date.now();
     try {
       const r = await withTimeout(generateJson<any>({
@@ -333,12 +333,12 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         for (const m of Array.isArray(r.json.mapping) ? r.json.mapping : []) {
           const w = ex.worked[m.worked];
           if (!w || !m.derived || typeof m.answer !== 'number') continue;
-          if (!sc.derived.some((d) => d.id === m.derived)) { out.push({ name: `worked example ${m.worked + 1}`, method: 'page-answer', expected: `${m.answer} ${m.unit ?? w.unit ?? ''}`.trim(), got: 'not computed', pass: false, detail: `the scene does not compute "${m.derived}"; nothing to compare` }); continue; }
+          if (!sc.derived.some((d) => d.id === m.derived)) { out.push({ name: `worked example ${m.worked + 1}`, method: 'page-answer', expected: `${m.answer} ${m.unit ?? w.unit ?? ''}`.trim(), got: 'not computed', pass: false, detail: `the lesson does not calculate "${m.derived}", so there is nothing to compare` }); continue; }
           const vals = rt.evaluateWith(m.assign ?? {});
           const got = vals[m.derived];
-          if (got === undefined) { out.push({ name: `worked example ${m.worked + 1}`, method: 'page-answer', expected: m.answer, got: 'n/a', pass: false, detail: `scene has no value "${m.derived}"` }); continue; }
+          if (got === undefined) { out.push({ name: `worked example ${m.worked + 1}`, method: 'page-answer', expected: m.answer, got: 'n/a', pass: false, detail: `the lesson has no value "${m.derived}"` }); continue; }
           const rel = Math.abs(got - m.answer) / Math.max(Math.abs(m.answer), 1e-9);
-          out.push({ name: `worked example ${m.worked + 1}: ${m.derived}`, method: 'page-answer', expected: `${m.answer} ${m.unit ?? w.unit ?? ''}`.trim(), got: `${Number(got.toFixed(4))} ${m.unit ?? w.unit ?? ''}`.trim(), pass: rel <= 0.02, detail: `computed from the scene's formula with the page's inputs ${JSON.stringify(m.assign ?? {})}; difference ${(rel * 100).toFixed(1)}%` });
+          out.push({ name: `worked example ${m.worked + 1}: ${m.derived}`, method: 'page-answer', expected: `${m.answer} ${m.unit ?? w.unit ?? ''}`.trim(), got: `${Number(got.toFixed(4))} ${m.unit ?? w.unit ?? ''}`.trim(), pass: rel <= 0.02, detail: `calculated with the lesson's formula and the page's numbers ${JSON.stringify(m.assign ?? {})}. Difference: ${(rel * 100).toFixed(1)}%` });
         }
         return out;
       };
@@ -412,7 +412,7 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
       }
       // a claim that is correct and agrees with the page, but is not printed on it, stays visible as a note for the reader
       const beyondText = checks.filter((c) => c.beyond && !c.pass).map((c) => `${typeof c.got === 'string' ? c.got : ''} ${c.detail}`.toLowerCase());
-      for (const c of checks) if (c.beyond && !c.pass && c.method === 'faithfulness') { c.pass = true; c.name = `Beyond this page: ${c.name}`; c.detail = `Correct, but this page does not state it. ${c.detail}`; }
+      for (const c of checks) if (c.beyond && !c.pass && c.method === 'faithfulness') { c.pass = true; c.name = `Beyond this page: ${c.name}`; c.detail = `This is correct, but the page does not say it. ${c.detail}`; }
       let unsupported: string[] = (Array.isArray(r.json.unsupported) ? r.json.unsupported.filter((s: any) => typeof s === 'string') : []).filter((u: string) => !beyondText.some((b) => b.includes(u.toLowerCase().slice(0, 40))));
       // a failing check that names a character line ("l2", "line l2") counts as a complaint about that line's text
       for (const c of checks) {
@@ -474,14 +474,14 @@ export async function runPipeline(input: PipelineInput, emit: Emit): Promise<Exp
         else unsupported.push(...invented.map((x) => `number not on the page: ${x}`));
       }
       // a slider's starting value is a control the reader will move, not a claim: it is noted, not failed
-      if (inventedVars.length) checks.push({ name: 'slider starting values are illustrative', method: 'faithfulness', pass: true, detail: `not printed on the page: ${inventedVars.join('; ').slice(0, 160)}` });
+      if (inventedVars.length) checks.push({ name: 'slider start values are examples', method: 'faithfulness', pass: true, detail: `not printed on the page: ${inventedVars.join('; ').slice(0, 160)}` });
       const all = [...det, ...checks.filter((c) => c.method !== 'page-answer')];
-      if (unsupported.length) all.push({ name: 'faithfulness', method: 'faithfulness', pass: false, detail: `not supported by the page: ${unsupported.slice(0, 3).join(' | ')}` });
-      else if (!all.some((c) => c.method === 'faithfulness')) all.push({ name: 'faithfulness', method: 'faithfulness', pass: true, detail: 'labels, dialogue and narration are supported by the page text' });
+      if (unsupported.length) all.push({ name: 'faithfulness', method: 'faithfulness', pass: false, detail: `not on the page: ${unsupported.slice(0, 3).join(' | ')}` });
+      else if (!all.some((c) => c.method === 'faithfulness')) all.push({ name: 'faithfulness', method: 'faithfulness', pass: true, detail: 'the labels, dialogue and narration all come from the page' });
       const failed = all.filter((c) => !c.pass);
       const status: Verification['status'] = failed.length ? 'failed' : det.length ? 'verified-page' : all.some((c) => c.method === 'independent') ? 'checked-independently' : all.length ? 'faithful' : 'unverified';
       const v: Verification = { status, checks: all, repaired, summary: String(r.json.summary ?? (failed.length ? `${failed.length} check(s) failed` : 'All checks passed')) };
-      stage('verify', 'done', { ms: Date.now() - t, detail: `${all.filter((c) => c.pass).length}/${all.length} checks passed${repaired ? ', scene repaired' : ''}`, model: r.usage.model });
+      stage('verify', 'done', { ms: Date.now() - t, detail: `${all.filter((c) => c.pass).length} of ${all.length} checks passed${repaired ? ', lesson fixed' : ''}`, model: r.usage.model });
       if (repaired) send({ type: 'scene', data: scene, issues: [], version, t: T(), ...sceneMetrics(scene, []) });
       send({ type: 'verification', data: v, version, t: T() });
       return { v, scene };

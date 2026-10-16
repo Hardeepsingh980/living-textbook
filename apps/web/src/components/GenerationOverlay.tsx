@@ -7,7 +7,7 @@ import { GeminiSpark } from './GeminiSpark';
 import type { Phase } from '../lib/store';
 
 export const PHASE_WORDS: Record<Phase, string> = {
-  idle: '', capturing: 'Looking at the page', analyzing: 'Reading the page', generating: 'Sketching the scene', validating: 'Checking it against the page',
+  idle: '', capturing: 'Looking at the page', analyzing: 'Reading the page', generating: 'Drawing on the page', validating: 'Checking it against the page',
   preparing: 'Bringing it to life', ready: '', live: '', failed: '', cancelled: '',
 };
 

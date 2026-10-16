@@ -20,7 +20,7 @@ async function makeQuiz(id: string): Promise<Quiz | null> {
     text: (ex?.text ?? '').slice(0, 6000), claims: ex?.claims?.slice(0, 20), values: ex?.values?.slice(0, 20), worked: ex?.worked?.slice(0, 4), equations: ex?.equations?.slice(0, 10),
     lesson: rec.scene.steps.map((s: any) => s.narration ?? s.say ?? s.text).filter(Boolean).slice(0, 8),
   };
-  const system = `Write a short quiz about ONE textbook page for a school student, in ${rec.quick.language || 'en'} (the page's language).
+  const system = `Write a short quiz about ONE textbook page for a school student, in ${rec.quick.language || 'en'} (the page's language). Use short sentences and everyday words in questions, options and explanations; keep the page's own terms.
 Rules: 4 questions; each has exactly 4 options with one correct answer and three plausible wrong ones; everything must be answerable from the page material given (its text, facts, values and worked example) and nothing else; mix one recall question, two understanding questions ("why" / "what happens if") and, when the page has a worked example or numbers, one short numeric question with the page's own numbers; wording simple and friendly; "why" is one sentence that points to the page's reason. Never invent facts, numbers or names. Return JSON {"questions":[{"q":"...","options":["...","...","...","..."],"answer":<0-3>,"why":"..."}]}`;
   const r = await generateJson<{ questions: Quiz['questions'] }>({
     model: 'extract', system, parts: [{ text: JSON.stringify(material) }], maxTokens: 1400, temperature: 0.3, label: 'quiz',

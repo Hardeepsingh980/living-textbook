@@ -54,7 +54,7 @@ export function QuizSheet({ experienceId, meta, onClose, onExplain, onScore }: P
   }
   function again() { setAttempt((a) => a + 1); setI(0); setPicked(null); setScore(0); setDone(false); }
   const verdict = total ? score / total : 0;
-  const message = verdict === 1 ? 'Every one right!' : verdict >= 0.75 ? 'Nearly all of it.' : verdict >= 0.5 ? 'Good start. One more look at the page?' : 'Let the page show you again, then try once more.';
+  const message = verdict === 1 ? 'Every one right!' : verdict >= 0.75 ? 'Nearly all of it.' : verdict >= 0.5 ? 'Good start. Look at the page one more time.' : 'Look at the page again, then try once more.';
 
   return (
     <div className="quiz-back" onClick={onClose} role="dialog" aria-modal="true" aria-label="Quiz">

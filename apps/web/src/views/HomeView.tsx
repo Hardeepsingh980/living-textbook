@@ -24,12 +24,12 @@ const FALLBACK: Showcase = {
 };
 const QUESTIONS = ['What is one oscillation?', 'How is the time period measured?', 'Where is the mean position?'];
 const ROOM = [
-  { src: '/home/ar-desk.mp4', poster: '/home/ar-desk.jpg', tag: 'Locked to the page', label: 'Hands holding a phone over the pendulum page; on the screen the app swings the pendulum on the printed figure' },
-  { src: '/home/ar-kitchen.mp4', poster: '/home/ar-kitchen.jpg', tag: 'Live values', label: 'A phone over the series-circuit page; on the screen electrons flow along the printed wires and the readouts update' },
-  { src: '/home/ar-class.mp4', poster: '/home/ar-class.jpg', tag: 'Any table', label: 'A phone over the distance-time graph page; on the screen the app marks the bus along the printed graph' },
+  { src: '/home/ar-desk.mp4', poster: '/home/ar-desk.jpg', tag: 'Stays on the page', label: 'Hands hold a phone over the pendulum page. On the screen, the pendulum swings on the printed picture.' },
+  { src: '/home/ar-kitchen.mp4', poster: '/home/ar-kitchen.jpg', tag: 'Numbers change live', label: 'A phone over the page about a series circuit. On the screen, electrons move along the printed wires and the numbers change.' },
+  { src: '/home/ar-class.mp4', poster: '/home/ar-class.jpg', tag: 'Any table works', label: 'A phone over the page with a distance-time graph. On the screen, a dot moves along the printed graph.' },
 ];
 const STEPS: { icon: string; word: string }[] = [
-  { icon: 'camera', word: 'Point' }, { icon: 'library', word: 'It reads the page' }, { icon: 'layers', word: 'Draws on it' }, { icon: 'sound', word: 'Speaks' }, { icon: 'check', word: 'Checks itself' },
+  { icon: 'camera', word: 'Point your phone' }, { icon: 'library', word: 'It reads the page' }, { icon: 'layers', word: 'It draws on the page' }, { icon: 'sound', word: 'It talks' }, { icon: 'check', word: 'It checks its work' },
 ];
 const REDUCED = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
@@ -76,9 +76,9 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
       <section className="hero">
         <Doodles />
         <div className="hero-words reveal">
-          <span className="postit ar-tag"><span className="live-dot" aria-hidden="true" />AR, on the real page</span>
+          <span className="postit ar-tag"><span className="live-dot" aria-hidden="true" />AR: moving pictures on your real book</span>
           <h1>Your textbook,<br /><span className="alive-word">alive<MarkerUnderline /></span><span className="bang">!</span></h1>
-          <p className="lede">Point your phone at a page. The diagram moves on the page itself, a tutor speaks, and it answers you.</p>
+          <p className="lede">Point your phone at a page of your textbook. The picture on the page starts to move. A tutor explains it and answers your questions.</p>
         </div>
         <div className="hero-stage-wrap reveal">
           <Stage />
@@ -87,13 +87,13 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
           <button className="primary big" onClick={tryNow}><Icon name="camera" size={26} /> Try now</button>
           <label className="secondary"><Icon name="upload" size={20} /> Use a photo{photo}</label>
           <HeroArrow />
-          {!reader && quota && <p className="try-note muted">{quota.remaining > 0 ? `Free to try: ${quota.remaining} ${quota.remaining === 1 ? 'page' : 'pages'} left today.` : 'Today\'s free pages are used up.'} Sign in for more, plus short videos and chapter films.</p>}
+          {!reader && quota && <p className="try-note muted">{quota.remaining > 0 ? `You can try ${quota.remaining} more ${quota.remaining === 1 ? 'page' : 'pages'} free today.` : 'You used all the free pages for today.'} Sign in to get more pages, short videos and chapter films.</p>}
         </div>
       </section>
 
       {/* in the room */}
       <section className="room">
-        <h2 className="reveal">In the room<span className="marker-dot">.</span></h2>
+        <h2 className="reveal">On a real desk<span className="marker-dot">.</span></h2>
         <div className="room-row">
           {ROOM.map((c, i) => (
             <article key={c.src} className="room-card reveal" style={{ '--rot': `${i === 1 ? 1.2 : i === 0 ? -1.6 : -0.6}deg` } as CSSProperties}>
@@ -102,13 +102,13 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
             </article>
           ))}
         </div>
-        <p className="fineprint muted">The screen shows the app's own recording; the hands and the room were made with Gemini and Veo.</p>
+        <p className="fineprint muted">The phone screen shows a real recording of the app. Gemini and Veo made the hands and the room.</p>
       </section>
 
       {/* the same page: print on the right, the real engine on the left */}
       <section className="wipe-section">
         <h2 className="reveal">Same page<span className="marker-dot">.</span></h2>
-        <p className="section-line muted reveal">Drag the line. Drag the length.</p>
+        <p className="section-line muted reveal">Move the line to compare the printed page and the live page. Move the slider to change a number.</p>
         <div className="reveal"><WipeLive id={show.hero.id} slider={show.hero.slider} /></div>
       </section>
 
@@ -118,10 +118,10 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
           <Way tag="Learn" rot="-1.5deg" decoration="tape" line="The tutor teaches the page, step by step.">
             <LoopClip src="/home/learn.mp4" poster="/home/learn.jpg" label="The tutor teaching a page about refraction" />
           </Way>
-          <Way tag="Explore" rot="1.2deg" decoration="tack" line="Change a value. Watch the page respond.">
+          <Way tag="Explore" rot="1.2deg" decoration="tack" line="Change a number. Watch the page change.">
             <LoopClip src="/home/explore.mp4" poster="/home/explore.jpg" label="A voltage slider changing the live values on a circuit page" />
           </Way>
-          <Way tag="Story" rot="-0.8deg" decoration="tape" line="Storybook characters speak their printed lines.">
+          <Way tag="Story" rot="-0.8deg" decoration="tape" line="Characters in story books say their lines aloud.">
             <StorySketch />
           </Way>
         </div>
@@ -151,7 +151,7 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
                 <button key={`${g.id}-${i}`} className="page-card" style={{ '--rot': `${((i % 3) - 1) * 1.4}deg` } as CSSProperties} onClick={() => onOpen(g.id)} aria-label={`Open ${g.title}`}>
                   <img src={g.pageImageUrl} alt="" loading="lazy" draggable={false} />
                   <span className="page-title">{g.title}</span>
-                  {g.verification && <span className="page-check" title="verified against the page"><Icon name="check" size={16} /></span>}
+                  {g.verification && <span className="page-check" title="checked against the page"><Icon name="check" size={16} /></span>}
                 </button>
               ))}
             </div>
@@ -161,11 +161,11 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
 
       {/* a page in, a film out */}
       <section className="film">
-        <h2 className="reveal">A page in, a short video out<span className="marker-dot">.</span></h2>
+        <h2 className="reveal">Make a short video from one page<span className="marker-dot">.</span></h2>
         <div className="film-card reveal">
           <span className="tape" aria-hidden="true" />
           <SoundClip src="/home/reel.mp4" poster="/home/reel.jpg" label="A thirty-second explainer reel of the pendulum page, narrated by the tutor" />
-          <span className="postit film-tag">30 s, narrated</span>
+          <span className="postit film-tag">30 seconds, with a voice</span>
         </div>
         <button className="secondary reveal" onClick={onShort}><Icon name="film" size={20} /> Make a short video</button>
       </section>
@@ -176,7 +176,7 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
 
       {/* it checks what stuck: the quiz and the reader's progress */}
       <section className="stuck">
-        <h2 className="reveal">It checks what stuck<span className="marker-dot">.</span></h2>
+        <h2 className="reveal">It checks what you learned<span className="marker-dot">.</span></h2>
         <div className="stuck-row">
           <QuizDemo />
           <ProgressDemo />
@@ -187,7 +187,7 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
       {/* for teachers */}
       <section className="teachers">
         <span className="postit teachers-tag reveal">For teachers</span>
-        <h2 className="reveal">A chapter in, a film out<span className="marker-dot">.</span></h2>
+        <h2 className="reveal">Make a class film from a chapter<span className="marker-dot">.</span></h2>
         <div className="teachers-frame reveal">
           <span className="tape" aria-hidden="true" />
           <LoopClip src="/home/chapter.mp4" poster="/home/chapter.jpg" label="A chapter film: a title card, then each part's lesson beside its key ideas" className="teachers-clip" />
@@ -197,7 +197,7 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
 
       <section className="final">
         <div className="final-desk" aria-hidden="true" />
-        <h2 className="reveal">Point it at a page<span className="marker-dot">.</span></h2>
+        <h2 className="reveal">Point your phone at a page<span className="marker-dot">.</span></h2>
         <div className="final-actions reveal">
           <button className="primary big" onClick={tryNow}><Icon name="camera" size={26} /> Try now</button>
           <label className="secondary"><Icon name="upload" size={20} /> Use a photo{photo}</label>
@@ -205,7 +205,7 @@ export function HomeView({ onScan, onPhoto, onOpen }: Props) {
         </div>
         <footer className="home-foot">
           <span className="muted">Built with Gemini on Google Cloud</span>
-          <button className="link" onClick={() => navigate('/developers')}>Developers: put it in your app</button>
+          <button className="link" onClick={() => navigate('/developers')}>For developers: add it to your app</button>
           {reader ? <button className="link" onClick={() => navigate('/app')}>Dashboard</button> : <button className="link" onClick={() => void signIn().catch(() => {})}>Sign in</button>}
         </footer>
       </section>
@@ -360,7 +360,7 @@ function ProgressDemo() {
       <span className="tack" aria-hidden="true" />
       <div className="demo-tiles"><div><b>12</b>pages</div><div><b>47</b>minutes</div><div><b>83%</b>right</div><div className="hot"><b>4</b>day streak</div></div>
       <div className="demo-bars" aria-hidden="true">{bars.map((b, k) => <span key={k} className={`${b === 0 ? 'zero' : ''} ${k === bars.length - 1 ? 'today' : ''}`} style={{ height: `${Math.max(6, b * 10)}%` }} />)}</div>
-      <div className="demo-note"><GeminiSpark size={18} /> Revisit Ohm's law: ask the tutor what happens when the resistance doubles.</div>
+      <div className="demo-note"><GeminiSpark size={18} /> Look at Ohm's law again. Ask the tutor what happens if the resistance doubles.</div>
     </div>
   );
 }
@@ -386,7 +386,7 @@ function AskCard({ sample, onOpen }: { sample: Sample; onOpen: (id: string) => v
     try {
       const r = await fetch('/api/showcase/ask', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: sample.id, question }) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || 'the tutor is busy');
+      if (!r.ok) throw new Error(j.error || 'The tutor is busy. Try again in a moment.');
       setAnswer(String(j.answer || ''));
     } catch (e: any) { setError(String(e?.message || e)); }
     finally { setBusy(false); }
@@ -396,20 +396,20 @@ function AskCard({ sample, onOpen }: { sample: Sample; onOpen: (id: string) => v
     <div className="ask-card reveal">
       <span className="tape" aria-hidden="true" />
       <div className="ask-head"><GeminiSpark state={state} size={30} /><h2>Ask the page</h2></div>
-      <p className="ask-sub muted">The sample page is {sample.title}.</p>
+      <p className="ask-sub muted">Sample page: {sample.title}.</p>
       <div className="chips">{QUESTIONS.map((q) => <button key={q} className="chip" onClick={() => ask(q)} disabled={busy}>{q}</button>)}</div>
       <form className="ask-form" onSubmit={(e) => { e.preventDefault(); void ask(text); }}>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Or ask your own" maxLength={200} aria-label="Your question" />
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Or type your own question" maxLength={200} aria-label="Your question" />
         <button className="round" type="submit" aria-label="Ask" disabled={busy || !text.trim()}><Icon name="question" /></button>
       </form>
       <div className={`ask-answer ${asked ? 'show' : ''}`} aria-live="polite">
-        {!asked && <span className="ask-hint muted">The tutor answers here, from the page.</span>}
+        {!asked && <span className="ask-hint muted">The tutor answers here, using only the page.</span>}
         {asked && <span className="ask-you">{asked}</span>}
         {busy && <span className="ask-wait">thinking</span>}
         {error && <span className="ask-error">{error}</span>}
         {typed && <span className="ask-tutor">{typed}{typed.length < answer.length && <span className="caret" aria-hidden="true" />}</span>}
       </div>
-      <button className="primary" onClick={() => onOpen(sample.id)}><Icon name="mic" size={22} /> Hear it live</button>
+      <button className="primary" onClick={() => onOpen(sample.id)}><Icon name="mic" size={22} /> Hear the tutor</button>
     </div>
   );
 }
