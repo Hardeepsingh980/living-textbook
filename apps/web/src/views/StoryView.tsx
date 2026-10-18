@@ -274,7 +274,8 @@ function StoryPlayer({ story, scan }: { story: Story; scan: StoryScan | null }) 
     const y0 = (H * (1 - visH)) / 2 + 70 / s, y1 = H - (H * (1 - visH)) / 2 - 190 / s; // the top bar, the words and buttons
     const pic = b ? { x: (b[1] / 1000) * W, y: (b[0] / 1000) * H, w: ((b[3] - b[1]) / 1000) * W, h: ((b[2] - b[0]) / 1000) * H } : null;
     const cx = pic ? pic.x + pic.w / 2 : W / 2, cy = pic ? pic.y + pic.h / 2 : H * 0.42;
-    const fw = Math.min(pic ? Math.max(pic.w, (pic.h * 16) / 9) : W * 0.84, x1 - x0, (Math.max(H * 0.2, y1 - y0) * 16) / 9), fh = (fw * 9) / 16;
+    // at least most of the screen's width, so a small printed picture still opens a film that is easy to watch
+    const fw = Math.min(Math.max(pic ? Math.max(pic.w, (pic.h * 16) / 9) : 0, (x1 - x0) * 0.8), x1 - x0, (Math.max(H * 0.2, y1 - y0) * 16) / 9), fh = (fw * 9) / 16;
     const film = { x: Math.min(Math.max(cx - fw / 2, x0), x1 - fw), y: Math.min(Math.max(cy - fh / 2, y0), y1 - fh), w: fw, h: fh };
     return { pic: pic ?? film, film };
   }, [scan, view, W, H]);

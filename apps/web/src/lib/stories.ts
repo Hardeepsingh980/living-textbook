@@ -59,9 +59,19 @@ export type PageMatch = { storyId: string; page: number; score: number; exact: b
 export async function matchStoryPage(photo: Blob, timeoutMs = 9000): Promise<PageMatch | null> {
   const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    const r = await fetch('/api/pages/match', { method: 'POST', body: photo, headers: { 'content-type': photo.type || 'image/jpeg' }, signal: ctl.signal });
+    const body = await smaller(photo, 1280); // the server looks at 1280 pixels at most: less to send on a phone
+    const r = await fetch('/api/pages/match', { method: 'POST', body, headers: { 'content-type': 'image/jpeg' }, signal: ctl.signal });
     return r.ok ? ((await r.json()).match ?? null) : null;
   } catch { return null; } finally { clearTimeout(t); }
+}
+
+async function smaller(photo: Blob, max: number): Promise<Blob> {
+  const bmp = await createImageBitmap(photo).catch(() => null);
+  if (!bmp || Math.max(bmp.width, bmp.height) <= max) return photo;
+  const s = max / Math.max(bmp.width, bmp.height), c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+  c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
+  return new Promise((r) => c.toBlob((b) => r(b ?? photo), 'image/jpeg', 0.85));
 }
 
 /** A story page the scanner found: the camera keeps running and the film plays on the page itself. */
