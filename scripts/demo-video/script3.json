@@ -1,0 +1,20 @@
+{
+  "narratorVoice": "Sulafat",
+  "studentVoice": "Leda",
+  "question": "Dog-Spirit, why did you help the old man?",
+  "scenes": [
+    { "id": "cold", "label": "", "lines": ["This is a page from a class seven science book.", "Point a phone at it, and the drawing comes alive on the paper."] },
+    { "id": "title", "label": "", "lines": ["This is Living Textbook.", "Science pages become lessons. Story pages become films. All on the paper itself."] },
+    { "id": "make", "label": "1  Gemini builds the lesson", "lines": ["Gemini reads every word, number and picture on the page.", "It builds a live simulation, and checks every number against the page."] },
+    { "id": "tutor", "label": "2  A tutor you can interrupt", "lines": ["A Gemini Live tutor teaches it. Interrupt it any time, with your voice."] },
+    { "id": "whatif", "label": "3  What if?", "lines": ["Change a number, and the page changes too."] },
+    { "id": "quiz", "label": "4  A quiz from the page", "lines": ["Then a quiz, made from the page itself."] },
+    { "id": "story", "label": "5  A story page becomes a film", "lines": ["Story pages come alive too."] },
+    { "id": "choice", "label": "6  You choose what happens", "lines": ["At the turning point, you choose what happens."] },
+    { "id": "talk", "label": "7  Talk to the characters", "lines": ["Then talk to the characters. They answer in their own voice."] },
+    { "id": "made", "label": "8  Made and checked by Google AI", "lines": ["Every film is made by Google AI.", "Gemini plans it, Nano Banana draws it in the book's own style, and Gemini Omni films it.", "Then Gemini watches the film like a critic, and sends weak shots back to be made again."] },
+    { "id": "shared", "label": "9  The same film for everyone", "lines": ["Every page is remembered.", "The next student who scans it, or any other page of the story, gets the same film in seconds."] },
+    { "id": "dash", "label": "10  For classrooms and other apps", "lines": ["On the web, students see their progress, and teachers make chapter films for the class.", "Other learning apps can add it all with one line of code."] },
+    { "id": "end", "label": "", "lines": ["Living Textbook. Any page, alive.", "Built with Gemini on Google Cloud."] }
+  ]
+}

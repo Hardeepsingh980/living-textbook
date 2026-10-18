@@ -1,0 +1,14 @@
+{
+  "t-cold": { "who": "Tutor", "text": "A simple pendulum moves back and forth in what we call an oscillatory motion." },
+  "t-swing": { "who": "Tutor", "text": "You can watch it swing from one side to the other." },
+  "q1": { "who": "Student", "text": "Wait. What is one oscillation?" },
+  "t-ans1": { "who": "Tutor", "text": "One oscillation is completed when the bob starts at the mean position, moves to extreme position A," },
+  "t-ans2": { "who": "Tutor", "text": "goes to extreme position B, and then returns to the mean position." },
+  "t-whatif": { "who": "Tutor", "text": "By increasing the pendulum's length to 1.5 m, the time period becomes longer, meaning each swing takes more time." },
+  "s-l1": { "who": "Story", "text": "Not long after that, the good old man dreamed again," },
+  "s-l2": { "who": "Dog-Spirit", "text": "Take the ashes of the mill, sprinkle them on the withered trees, and they will bloom again." },
+  "leader": { "who": "Leader of the Van", "text": "Get down on your knees! Get down on your knees!" },
+  "imagine": { "who": "Story", "text": "Imagine if the old man climbed down to kneel quietly..." },
+  "q2": { "who": "Student", "text": "Dog-Spirit, why did you help the old man?" },
+  "dog-a": { "who": "Dog-Spirit", "text": "I helped him because he was always so kind to me. And I wanted to bring him joy and wonder, just like he brought to me." }
+}

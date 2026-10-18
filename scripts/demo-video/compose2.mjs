@@ -211,7 +211,9 @@ for (const [n, s] of SHOTS.entries()) {
       af.push(`[${k}:a]atrim=${x.from.toFixed(3)}:${(x.from + x.len).toFixed(3)},asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,${x.vol && x.vol !== 1 ? `volume=${x.vol},` : ''}${fade}adelay=${Math.round(x.at * 1000)}:all=1[s${k}]`);
     });
     ain.push('-f', 'lavfi', '-t', String(dur), '-i', 'anullsrc=r=48000:cl=stereo');
-    af.push(`${sounds.map((_, k) => `[s${k}]`).join('')}[${sounds.length}:a]amix=inputs=${sounds.length + 1}:normalize=0:duration=longest,atrim=0:${dur},asetpts=PTS-STARTPTS${dipIn ? ',afade=t=in:st=0:d=0.05' : ''}${dipOut ? `,afade=t=out:st=${(dur - 0.15).toFixed(3)}:d=0.15` : ''}[aout]`);
+    // the silence that runs the whole shot goes first: amix ends with its first input (with "longest", a mix whose
+    // first sound starts late ended with that sound, and the shot's sound came out short)
+    af.push(`[${sounds.length}:a]${sounds.map((_, k) => `[s${k}]`).join('')}amix=inputs=${sounds.length + 1}:normalize=0:duration=first,atrim=0:${dur},asetpts=PTS-STARTPTS${dipIn ? ',afade=t=in:st=0:d=0.05' : ''}${dipOut ? `,afade=t=out:st=${(dur - 0.15).toFixed(3)}:d=0.15` : ''}[aout]`);
     const wav = `${base}-${narr ? 'full' : 'nonarr'}.wav`;
     ff([...ain, '-filter_complex', af.join(';'), '-map', '[aout]', '-t', String(dur), '-c:a', 'pcm_s16le', '-ar', '48000', wav]);
   }
@@ -250,7 +252,7 @@ finish(pic.clean, snd.nonarr, path.join(D, 'living-textbook-demo-no-narrator.mp4
 const narr = [];
 for (const [n, s] of SHOTS.entries()) for (const [id, at] of s.vo) narr.push({ file: voOf(id).file, at: timeline[n].start + at });
 const nin = narr.flatMap((x) => ['-i', x.file]);
-ff([...nin, '-f', 'lavfi', '-t', String(total), '-i', 'anullsrc=r=48000:cl=mono', '-filter_complex', `${narr.map((x, k) => `[${k}:a]aresample=48000,adelay=${Math.round(x.at * 1000)}:all=1[n${k}]`).join(';')};${narr.map((_, k) => `[n${k}]`).join('')}[${narr.length}:a]amix=inputs=${narr.length + 1}:normalize=0:duration=longest,atrim=0:${total.toFixed(3)}[a]`, '-map', '[a]', '-c:a', 'pcm_s16le', path.join(D, 'narration.wav')]);
+ff([...nin, '-f', 'lavfi', '-t', String(total), '-i', 'anullsrc=r=48000:cl=mono', '-filter_complex', `${narr.map((x, k) => `[${k}:a]aresample=48000,adelay=${Math.round(x.at * 1000)}:all=1[n${k}]`).join(';')};[${narr.length}:a]${narr.map((_, k) => `[n${k}]`).join('')}amix=inputs=${narr.length + 1}:normalize=0:duration=first,atrim=0:${total.toFixed(3)}[a]`, '-map', '[a]', '-c:a', 'pcm_s16le', path.join(D, 'narration.wav')]);
 const ts = (x) => { const ms = Math.round(x * 1000), h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60, sec = Math.floor(ms / 1000) % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')}`; };
 srt.sort((a, b) => a.from - b.from);
 fs.writeFileSync(path.join(D, 'captions.srt'), srt.map((c, i) => `${i + 1}\n${ts(c.from)} --> ${ts(Math.min(c.to, srt[i + 1]?.from ?? Infinity))}\n${c.text}\n`).join('\n'));
