@@ -90,6 +90,21 @@ export interface Store {
 const MIME_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/wav': 'wav', 'audio/mpeg': 'mp3', 'video/mp4': 'mp4', 'application/octet-stream': 'bin', 'application/json': 'json' };
 const fileName = (name: string, mime: string) => (name.includes('.') ? name : `${name}.${MIME_EXT[mime] ?? 'bin'}`);
 const safeId = (id: string) => path.basename(id).replace(/[^A-Za-z0-9_-]/g, '');
+/** Firestore refuses an array inside an array (a lesson's text boxes, a scene's points): such an inner array is kept
+ *  as {__json: "..."} and read back as it was. Records saved before keep their arrays and read the same. */
+function packNested(v: any, inArray = false): any {
+  if (Array.isArray(v)) return inArray ? { __json: JSON.stringify(v) } : v.map((x) => packNested(x, true));
+  if (v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, packNested(x)]));
+  return v;
+}
+function unpackNested(v: any): any {
+  if (Array.isArray(v)) return v.map(unpackNested);
+  if (v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
+    if (typeof v.__json === 'string' && Object.keys(v).length === 1) { try { return JSON.parse(v.__json); } catch { return v; } }
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, unpackNested(x)]));
+  }
+  return v;
+}
 /** files larger than this are not kept in memory after they are served (a story has dozens of 4 MB clips) */
 const MEMO_MAX = 3 * 1024 * 1024;
 
@@ -272,19 +287,19 @@ export class CloudStore implements Store {
   async putRecord(rec: ExperienceRecord) {
     await this.ready;
     const { events, ...doc } = rec;
-    await this.db.collection('experiences').doc(rec.id).set({ ...doc, eventsCount: events.length });
+    await this.db.collection('experiences').doc(rec.id).set(packNested({ ...doc, eventsCount: events.length }));
     await this.bucket.file(this.objectPath(rec.id, 'events.json')).save(JSON.stringify(events), { contentType: 'application/json', resumable: false });
   }
   async getRecord(id: string) {
     await this.ready;
     const snap = await this.db.collection('experiences').doc(safeId(id)).get();
     if (!snap.exists) return null;
-    return { events: [], ...(snap.data() as Omit<ExperienceRecord, 'events'>) } as ExperienceRecord;
+    return { events: [], ...(unpackNested(snap.data()) as Omit<ExperienceRecord, 'events'>) } as ExperienceRecord;
   }
   async patchRecord(id: string, patch: Partial<ExperienceRecord>) {
     await this.ready;
     const { events, ...doc } = patch as any;
-    await this.db.collection('experiences').doc(safeId(id)).set(doc, { merge: true });
+    await this.db.collection('experiences').doc(safeId(id)).set(packNested(doc), { merge: true });
   }
   async getUser(uid: string) { await this.ready; const s = await this.db.collection('users').doc(safeId(uid)).get(); return s.exists ? (s.data() as UserDoc) : null; }
   async putUser(uid: string, doc: Partial<UserDoc>) { await this.ready; await this.db.collection('users').doc(safeId(uid)).set({ ...doc, uid }, { merge: true }); }
@@ -341,7 +356,7 @@ export class CloudStore implements Store {
     await this.ready;
     // single-field filter only (no composite index needed); sorted in memory
     const q = await this.db.collection('experiences').where('ownerId', '==', ownerId).limit(300).get();
-    return q.docs.map((d) => ({ events: [], ...(d.data() as Omit<ExperienceRecord, 'events'>) }) as ExperienceRecord)
+    return q.docs.map((d) => ({ events: [], ...(unpackNested(d.data()) as Omit<ExperienceRecord, 'events'>) }) as ExperienceRecord)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
   }
   async deleteOwner(ownerId: string) {
