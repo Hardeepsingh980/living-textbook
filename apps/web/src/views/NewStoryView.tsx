@@ -19,6 +19,8 @@ export function NewStoryView() {
     setBusy(true); setError('');
     try {
       const job = await startStory(files);
+      // these pages already have a story: open it (the same film everyone sees)
+      if ('reused' in job) { navigate(`/story/${job.storyId}`, true); return; }
       // the story gets its id once the job starts; then the story page shows the making
       for (let i = 0; i < 40; i++) { const j = await getJob(job.id, 5000); if (j.storyId) { navigate(`/story/${j.storyId}`, true); return; } if (j.status === 'failed') throw new Error(j.error || 'It could not start'); }
       navigate(`/app/jobs/${job.id}`, true);

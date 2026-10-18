@@ -12,6 +12,7 @@ import { clipPrompt, cropPicture, drawCast, drawKeyframe } from './art.js';
 import { clipHasSpeech, compose, editClip, filmClip, gate, speak } from './media.js';
 import { DEFAULT_TUNING, renderFilm, type FilmTuning } from './film.js';
 import { reviewFilm } from './review.js';
+import { indexStoryPages } from './pages.js';
 import type { StoryDoc, StoryLine, StoryReview, StoryShot } from './types.js';
 
 export type MakeOptions = {
@@ -129,6 +130,9 @@ export async function makeStory(o: MakeOptions): Promise<StoryDoc> {
         moral: plan.moral, narrator: plan.narrator, characters: plan.characters, shots: plan.shots, choices: plan.choices, talk: plan.talk, quiz: plan.quiz,
         think: plan.think, music: { prompt: plan.music }, pictures: plan.pictures,
       });
+
+      // the pages go into the shared index now, so whoever scans them next gets this story (even while it is made)
+      void indexStoryPages(doc, pages).then((n) => log(`indexed ${n} page${n === 1 ? '' : 's'}`)).catch((e) => log(`page index failed: ${String(e?.message).slice(0, 100)}`));
 
       // ---------------------------------------------------------------- pictures, cast, opening frames
       await stage('drawing', 'Drawing the cast and the opening frames');

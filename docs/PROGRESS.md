@@ -2,6 +2,18 @@
 
 Running record of what works, what was measured, and what changed in the plan. Newest first. Times are IST.
 
+## 2026-10-18: a story page plays its film on the page, for everyone
+
+Hardeep's ask: keep the pages, so that the same page starts its film quickly in an AR frame; save it so that everyone who scans the same page, or another page of the same story, sees the same film; and a PDF of the pages for the demo.
+
+**One shared page index** (`apps/server/src/story/pages.ts`). Every page of every story is embedded with Gemini's multimodal embedding (`gemini-embedding-2` on Vertex, 3072 numbers, about 0.85 s a page) and stored in Firestore (`pageindex`, one document per page). A story is indexed as soon as it is planned, so a second reader who scans a page while its film is still being made gets that story and not a second one. `scripts/story-index.mts` indexed the five examples (19 pages).
+
+**Recognition.** Measured on page scans and on "phone photos" (turned, darker, blurred, cropped) of the five stories: the page itself scores 0.94 to 0.99; another page of the same story 0.77 to 0.91, and always 0.04 to 0.09 above every other story; a page of no story scores about the same against every story (at most 0.01 apart). So the gap to the next story decides (at least 0.03 above 0.76), and Gemini confirms any match that is not the page itself. Gemini also finds the printed picture in the photo (the picture the film opens with, or the main picture of another page). Tests: all five indexed pages, seven pages of the Ashes and Gopal chapters that were never used for a film, and seven pages of the printed demo PDF found their story; nine pages of other NCERT books found none. `POST /api/pages/match` answers in about 1.5 s for a page of no story and 2.5 to 4 s for a story page. Making a story from pages that already have one opens that story instead (no cost, no daily limit used).
+
+**On the page.** The scanner asks the index before it makes a lesson. A story page opens `/story/<id>?ar=1` with the camera still on: the printed picture is outlined in red, the film window grows out of it to 16:9 and plays on the page, held there by the same page tracking as lessons; captions, choices and the end card stay on the screen. When the page is out of view for a while the film plays on the photo taken. The scanner's tap readies the sound, so the film starts with its voices and music on a phone. The next clip loads while a shot plays. Uploaded photos of a story page open the usual story player.
+
+**The demo PDF** (`eval/output/stories/living-textbook-story-pages.pdf`, 23 A4 pages, git ignores it): a cover with a QR code to the scanner and the steps, the 19 pages the five films were made from, and three more pages of the Ashes chapter that open the same film.
+
 ## 2026-10-16 (night): stories come alive
 
 Hardeep's ask: interactive storytelling for fiction too, a different engine that generates video if needed, a review by a model that can watch video, take its feedback and go again, and five examples.

@@ -7,6 +7,7 @@ import { config } from './config.js';
 import { gcloudAuthClient } from './gemini.js';
 import type { ExperienceRecord } from '@living-book/scene';
 import type { StoryDoc } from './story/types.js';
+import type { PageEntry } from './story/pages.js';
 
 export type UserDoc = { uid: string; name?: string; email?: string; picture?: string; createdAt: string; lastSeenAt: string };
 export type LessonDoc = {
@@ -81,6 +82,9 @@ export interface Store {
   patchStory(id: string, patch: Partial<StoryDoc>): Promise<void>;
   getStory(id: string): Promise<StoryDoc | null>;
   listStories(owner: string, limit?: number): Promise<StoryDoc[]>;
+  // story pages recognised from photos, shared by everyone (see story/pages.ts)
+  putPageEntry(entry: PageEntry): Promise<void>;
+  listPageEntries(): Promise<PageEntry[]>;
 }
 
 const MIME_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/wav': 'wav', 'audio/mpeg': 'mp3', 'video/mp4': 'mp4', 'application/octet-stream': 'bin', 'application/json': 'json' };
@@ -209,6 +213,14 @@ export class LocalStore implements Store {
     const docs: StoryDoc[] = [];
     for (const f of files) { try { const d = JSON.parse(await fs.readFile(path.join(this.root, 'stories', f), 'utf8')) as StoryDoc; if (d.owner === owner) docs.push(d); } catch { /* skip */ } }
     return docs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  }
+  async putPageEntry(entry: PageEntry) { await fs.mkdir(path.join(this.root, 'pageindex'), { recursive: true }); await fs.writeFile(path.join(this.root, 'pageindex', `${safeId(entry.id)}.json`), JSON.stringify(entry)); }
+  async listPageEntries() {
+    const dir = path.join(this.root, 'pageindex');
+    const files = await fs.readdir(dir).catch(() => [] as string[]);
+    const out: PageEntry[] = [];
+    for (const f of files) { try { out.push(JSON.parse(await fs.readFile(path.join(dir, f), 'utf8'))); } catch { /* skip */ } }
+    return out;
   }
 }
 
@@ -374,6 +386,8 @@ export class CloudStore implements Store {
     const q = await this.db.collection('stories').where('owner', '==', owner).limit(200).get();
     return q.docs.map((d) => d.data() as StoryDoc).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
   }
+  async putPageEntry(entry: PageEntry) { await this.ready; await this.db.collection('pageindex').doc(safeId(entry.id)).set(entry); }
+  async listPageEntries() { await this.ready; const q = await this.db.collection('pageindex').limit(5000).get(); return q.docs.map((d) => d.data() as PageEntry); }
 }
 
 export const store: Store = process.env.STORE === 'cloud'

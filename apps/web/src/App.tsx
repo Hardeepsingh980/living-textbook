@@ -17,8 +17,10 @@ import { SignInGate } from './components/SignInGate';
 import { SignInSheet } from './components/SignInSheet';
 import { useStore } from './lib/store';
 import { createExperience, getExperience, getQuota, ApiError } from './lib/api';
+import { getStory, matchStoryPage, scannedStory } from './lib/stories';
 import { navigate } from './lib/nav';
 import { currentReader, useReader } from './lib/firebase';
+import { GeminiSpark } from './components/GeminiSpark';
 
 // The journey: the homepage (anyone can try a page, a few a day) → sign in → the app: Home (dashboard), Library,
 // Progress, and New (scan, photo, short video, chapter film). Lessons open at /x/<id> for anyone with the link.
@@ -53,6 +55,7 @@ function parseRoute(): Route {
 export function App() {
   const [route, setRoute] = useState<Route>(parseRoute);
   const [signinMessage, setSigninMessage] = useState('');
+  const [reading, setReading] = useState(false);
   const reader = useReader();
   const status = useStore((s) => s.status);
   const beginGeneration = useStore((s) => s.beginGeneration);
@@ -82,6 +85,22 @@ export function App() {
   const onCapture = useCallback(async ({ blob, previewUrl: preview, size, session }: CaptureResult) => {
     const back = home();
     const embedded = isEmbed(); // the scanner inside a partner's app: the lesson is made with their publishable key
+    // a page of a story someone already brought to life plays that story's film, on the page when the camera is on:
+    // nothing is made again (about a second to find out when it is not one)
+    if (!embedded) {
+      setReading(true);
+      try {
+        const found = await matchStoryPage(blob);
+        if (found) {
+          const story = await getStory(found.storyId).catch(() => null);
+          const live = !!session && session.tracker.state !== 'idle' && found.status === 'ready';
+          if (live) scannedStory.current = { match: found, story, session: session!, previewUrl: preview, size };
+          else session?.stop();
+          navigate(`/story/${encodeURIComponent(found.storyId)}${live ? '?ar=1' : ''}`);
+          return;
+        }
+      } finally { setReading(false); }
+    }
     const signal = beginGeneration(preview, size); // a newer capture or leaving the page aborts this request
     useStore.getState().setMode(session && session.tracker.state !== 'idle' ? 'ar' : 'photo');
     const lessonPath = (id: string) => (embedded ? `${embedLessonPath(id)}${embedLessonPath(id).includes('?') ? '&' : '?'}from=scan` : `/x/${id}`);
@@ -118,7 +137,10 @@ export function App() {
     getQuota().then((q) => { if (q && !q.signedIn && q.remaining <= 0) setSigninMessage(`You used all ${q.limit} free pages for today. Sign in to make more. It is free.`); });
   }, [route.name, reader]);
 
-  const sheet = signinMessage && !reader ? <SignInSheet message={signinMessage} onClose={() => setSigninMessage('')} /> : null;
+  const sheet = <>
+    {signinMessage && !reader ? <SignInSheet message={signinMessage} onClose={() => setSigninMessage('')} /> : null}
+    {reading && route.name !== 'capture' ? <div className="scan-reading" role="status"><GeminiSpark state="thinking" size={20} />Reading the page</div> : null}
+  </>;
   const shell = (place: Place, body: React.ReactNode, title?: string, line?: string) => (
     <SignInGate title={title} line={line}><AppShell place={place} onPhoto={onPhoto}>{body}</AppShell>{sheet}</SignInGate>
   );

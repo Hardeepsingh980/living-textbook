@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { mixer } from '../audio/mixer';
 import { quality } from '../lib/quality';
 import { CameraSession } from '../ar/camera';
+import { readyStoryAudio } from '../lib/stories';
 import { Icon } from '../components/Icon';
 import { GeminiSpark } from '../components/GeminiSpark';
 
@@ -41,7 +42,7 @@ export function ScanExperience({ onCapture, onBack, autoStart = false, embed = f
     setCameraError(null);
     try {
       const session = CameraSession.getOrCreate();
-      await session.start({ sim: simParam });
+      await session.start({ sim: simParam, simPage: new URLSearchParams(location.search).get('simpage') });
       session.attach(stageRef.current!);
       setCameraOn(true);
       gateRef.current = window.setInterval(() => checkQuality(session), 700);
@@ -70,7 +71,7 @@ export function ScanExperience({ onCapture, onBack, autoStart = false, embed = f
 
   async function captureFromCamera() {
     const session = CameraSession.current; if (!session) return;
-    setBusy(true); mixer.unlock();
+    setBusy(true); mixer.unlock(); readyStoryAudio(); // the tap readies sound for a story film found on this page
     if (gateRef.current) clearInterval(gateRef.current);
     const { blob, previewUrl, size } = await session.capture();
     onCapture({ blob, previewUrl, size, session });
@@ -107,6 +108,7 @@ export function ScanExperience({ onCapture, onBack, autoStart = false, embed = f
             <div className={`guide-frame ${trackerState === 'ready' ? 'ready' : ''}`}><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d={FRAME_PATH} vectorEffect="non-scaling-stroke" /></svg></div>
             <div className="guide-text"><span>{trackerState !== 'ready' && trackerState !== 'unavailable' ? <GeminiSpark state="thinking" size={16} /> : null}{hint || (trackerState === 'ready' || trackerState === 'unavailable' ? 'Fit the whole page in the frame' : 'Getting ready')}</span></div>
           </div>
+          {busy && <div className="scan-reading" role="status"><GeminiSpark state="thinking" size={20} />Reading the page</div>}
           <div className="capture-actions">
             <label className="round" aria-label="Use a photo"><Icon name="upload" /><input type="file" accept="image/*" onChange={onFile} hidden /></label>
             <button className="primary big" onClick={captureFromCamera} disabled={busy}>Bring it to life</button>

@@ -18,6 +18,7 @@ import { recordEvent, touchUser, me, insights } from './progress.js';
 import { quizFor } from './quiz.js';
 import { createJob, runJob, heal, retryJob } from './jobs.js';
 import { createStoryJob } from './story/job.js';
+import { matchPage } from './story/pages.js';
 import { mountDeveloperPlatform } from './devapi.js';
 import { resolveKey, originAllowed, publicOrigin, rateLimit, touchKey, apiOwner, utcDay, frameAncestors, DEV_DAILY, EMBED_PER_VISITOR } from './devkeys.js';
 import { createHash } from 'node:crypto';
@@ -183,6 +184,9 @@ app.post('/api/stories', async (c) => {
   if (!files.length || files.length > 6) return c.json({ error: 'Send one to six photos of the story pages, in reading order.' }, 400);
   const pages = await Promise.all(files.map(async (f) => Buffer.from(await f.arrayBuffer())));
   if (pages.some((b) => b.length < 1000 || b.length > 15 * 1024 * 1024)) return c.json({ error: 'Each page must be a photo under 15 MB.' }, 400);
+  // pages someone has already brought to life open that story: the same film for everyone, nothing made again
+  const known = await matchPage(pages[0]!).catch(() => null);
+  if (known) return c.json({ reused: true, storyId: known.storyId, status: known.status, title: known.title });
   if (!exempt(c)) {
     const mine = await store.bumpQuota(`story-u-${user.uid.replace(/[^A-Za-z0-9_-]/g, '')}-${istDay()}`, 2).catch(() => ({ allowed: true, used: 0 }));
     if (!mine.allowed) return c.json({ error: 'You made two stories today. Try again tomorrow.', code: 'daily-limit' }, 429);
@@ -200,6 +204,8 @@ app.post('/api/stories/from-lesson/:id', async (c) => {
   const rec = await store.getRecord(c.req.param('id'));
   const page = rec ? await store.getFile(rec.id, 'page.jpg') : null;
   if (!rec || !page) return c.json({ error: 'not found' }, 404);
+  const known = await matchPage(page.bytes).catch(() => null);
+  if (known) return c.json({ reused: true, storyId: known.storyId, status: known.status, title: known.title });
   if (!exempt(c)) {
     const mine = await store.bumpQuota(`story-u-${user.uid.replace(/[^A-Za-z0-9_-]/g, '')}-${istDay()}`, 2).catch(() => ({ allowed: true, used: 0 }));
     if (!mine.allowed) return c.json({ error: 'You made two stories today. Try again tomorrow.', code: 'daily-limit' }, 429);
@@ -207,6 +213,21 @@ app.post('/api/stories/from-lesson/:id', async (c) => {
     if (!all.allowed) return c.json({ error: 'Many stories were made today. Try again tomorrow.', code: 'daily-limit' }, 429);
   }
   return c.json(await createStoryJob(user.uid, [page.bytes]));
+});
+/** Is this photo a page of a story that already exists? Public: the scanner asks it for every page, and a hit opens
+ *  that story's film on the page (with where the printed picture is in the photo). A few dozen a minute per visitor. */
+const matchHits = new Map<string, number[]>();
+app.post('/api/pages/match', async (c) => {
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'local';
+  const now = Date.now(), hits = (matchHits.get(ip) ?? []).filter((t) => now - t < 60_000);
+  if (hits.length >= 40) return c.json({ error: 'too many pages for a minute' }, 429);
+  hits.push(now); matchHits.set(ip, hits); if (matchHits.size > 5000) matchHits.clear();
+  const body = Buffer.from(await c.req.arrayBuffer());
+  if (body.length < 1000 || body.length > 15 * 1024 * 1024) return c.json({ error: 'send a photo of a page' }, 400);
+  const t0 = Date.now();
+  const match = await matchPage(body, { locate: c.req.query('locate') !== '0' }).catch((e) => { console.warn('[pages] match failed', e?.message); return null; });
+  console.log(`[pages] ${match ? `${match.title} (${match.exact ? 'the page' : 'another page'}, ${match.score}, picture ${match.box ? 'found' : 'not found'})` : 'no story'} in ${Date.now() - t0} ms`);
+  return c.json({ match, ms: Date.now() - t0 }, 200, { 'Cache-Control': 'no-store' });
 });
 app.get('/api/stories', async (c) => {
   const user = await userFromRequest(c);

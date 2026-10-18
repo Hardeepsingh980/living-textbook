@@ -267,3 +267,6 @@ code { background: var(--paper-deep); padding: 1px 6px; border-radius: 6px 2px 6
 .reel-steps li.now { color: var(--pencil); font-family: var(--font-head); font-weight: 700; } .reel-steps li.now .dot { background: var(--marker); animation: pulse 1s infinite; }
 .reel-video { width: 100%; max-width: 360px; border: 3px solid var(--pencil); border-radius: var(--wobbly-md); box-shadow: var(--shadow-lg); background: var(--stage); transform: rotate(0.5deg); }
 .reel-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; justify-content: center; }
+
+/* the scanner checks whether the page already has a story film (a second or a few) */
+.scan-reading { position: fixed; left: 50%; top: 50%; translate: -50% -50%; rotate: -1deg; z-index: 50; display: inline-flex; align-items: center; gap: var(--space-2); background: var(--postit); color: var(--pencil); border: 2px solid var(--pencil); border-radius: var(--wobbly-sm); box-shadow: var(--shadow); padding: 10px 18px; font-family: var(--font-head); font-weight: 700; font-size: 19px; pointer-events: none; }

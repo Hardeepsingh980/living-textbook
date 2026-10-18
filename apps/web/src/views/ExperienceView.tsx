@@ -106,6 +106,7 @@ export function ExperienceView({ onBack, embed = false, fromScanner = false }: P
     setFilming(true);
     try {
       const job = await storyFromLesson(experienceId);
+      if ('reused' in job) { navigate(`/story/${job.storyId}`); return; }
       for (let i = 0; i < 40; i++) { const j = await getJob(job.id, 5000); if (j.storyId) { navigate(`/story/${j.storyId}`); return; } if (j.status === 'failed') break; }
       navigate(`/app/jobs/${job.id}`);
     } catch (e: any) { alert(String(e?.message || e)); setFilming(false); }

@@ -22,9 +22,9 @@ export class CameraSession {
 
   static getOrCreate() { return (CameraSession.current ??= new CameraSession()); }
 
-  async start(opts: { sim?: number } = {}) {
+  async start(opts: { sim?: number; simPage?: string | null } = {}) {
     if (this.stream) return { vw: this.vw, vh: this.vh };
-    if (opts.sim) { this.stream = simulatedStream(opts.sim, (stop) => { this.simStop = stop; }); this.sim = true; }
+    if (opts.sim) { this.stream = simulatedStream(opts.sim, (stop) => { this.simStop = stop; }, opts.simPage); this.sim = true; }
     else this.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
     this.video.srcObject = this.stream;
     await new Promise<void>((r) => { if (this.video.readyState >= 1) r(); else this.video.onloadedmetadata = () => r(); });
@@ -79,8 +79,9 @@ export class CameraSession {
   }
 }
 
-/** Desktop/CI stand-in for the camera: a drawn textbook page that drifts, rotates and scales. */
-function simulatedStream(motion: number, onStop: (stop: () => void) => void): MediaStream {
+/** Desktop/CI stand-in for the camera: a drawn textbook page (or a page image from this site) that drifts, rotates
+ *  and scales. */
+function simulatedStream(motion: number, onStop: (stop: () => void) => void, pageUrl?: string | null): MediaStream {
   const W = 1080, H = 1920, pageW = 1000, pageH = 1400;
   const pageCanvas = document.createElement('canvas'); pageCanvas.width = pageW; pageCanvas.height = pageH;
   const pc = pageCanvas.getContext('2d')!;
@@ -99,6 +100,7 @@ function simulatedStream(motion: number, onStop: (stop: () => void) => void): Me
   pc.strokeStyle = '#1d3557'; pc.lineWidth = 8; pc.beginPath(); pc.arc(540, 740, 90, 0, Math.PI * 2); pc.stroke();
   pc.strokeStyle = '#2a9d8f'; pc.lineWidth = 6; pc.beginPath(); pc.moveTo(180, 860); pc.lineTo(420, 580); pc.lineTo(680, 820); pc.closePath(); pc.stroke();
   pc.fillStyle = '#000'; pc.font = '36px sans-serif'; pc.fillText('h = ½ g t²', 320, 870);
+  if (pageUrl && pageUrl.startsWith('/')) { const im = new Image(); im.onload = () => { pc.fillStyle = '#fdfbf5'; pc.fillRect(0, 0, pageW, pageH); const s = Math.min(pageW / im.width, pageH / im.height); pc.drawImage(im, (pageW - im.width * s) / 2, (pageH - im.height * s) / 2, im.width * s, im.height * s); }; im.src = pageUrl; }
   const cam = document.createElement('canvas'); cam.width = W; cam.height = H;
   const cc = cam.getContext('2d')!;
   const t0 = performance.now(); let raf = 0;
