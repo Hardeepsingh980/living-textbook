@@ -1,0 +1,13 @@
+{
+  "ar1-l1": { "who": "Story", "text": "Not long after that, the good old man dreamed again," },
+  "ar1-l2": { "who": "Dog-Spirit", "text": "Take the ashes of the mill, sprinkle them on the withered trees, and they will bloom again." },
+  "tut-1": { "who": "Tutor", "text": "Look at the pendulum bob swinging back and forth." },
+  "tut-2": { "who": "Tutor", "text": "You can see the metallic ball repeating this..." },
+  "q1": { "who": "Student", "text": "Wait. What is one oscillation?" },
+  "tut-3": { "who": "Tutor", "text": "An oscillation is complete when the bob starts at its middle position, swings to one side, goes to the other side, and returns back to the middle." },
+  "tut-4": { "who": "Tutor", "text": "When we increase the string length to one point five meters, the time period gets longer." },
+  "leader": { "who": "Leader of the Van", "text": "Get down on your knees! Get down on your knees!" },
+  "imagine": { "who": "Story", "text": "Imagine if the old man climbed down to kneel quietly..." },
+  "q2": { "who": "Student", "text": "Dog-Spirit, why did you help the old man?" },
+  "dog-a": { "who": "Dog-Spirit", "text": "I helped him because he was always so kind and loving to me, and I wanted to bring joy back to his sweet heart." }
+}

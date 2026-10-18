@@ -8,7 +8,7 @@ import { config } from '../../apps/server/src/config.js';
 
 const out = path.resolve(process.argv[2] ?? 'eval/output/demo-video');
 const questionDelay = Number(process.argv[3] ?? 26);
-const script = JSON.parse(fs.readFileSync(new URL('./script.json', import.meta.url), 'utf8'));
+const script = JSON.parse(fs.readFileSync(new URL(process.env.SCRIPT || './script.json', import.meta.url), 'utf8')); // SCRIPT=./script2.json for the second video
 fs.mkdirSync(path.join(out, 'vo'), { recursive: true });
 config.models.tts.id = 'gemini-3.8-flash-tts'; // the fuller TTS model for the narrator; the lite one is its fallback
 config.models.tts.fallback = 'gemini-3.8-flash-lite-tts';
