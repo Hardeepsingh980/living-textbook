@@ -16,6 +16,18 @@ Hardeep's ask: interactive storytelling for fiction too, a different engine that
 - A character whose look changes (Gopal's disguise) needs the changed look in every later shot, so shots carry per-character looks.
 - Nano Banana answers "OTHER" without an image under load; it now waits longer between tries before falling back. Lyria can refuse a brief that sounds like a known piece; it then tries new seeds and a plainer brief.
 
+**The five examples** (owner `dev-demo`, on the homepage; films in `eval/output/stories/deliver`, each with an opening card showing the book page):
+
+| Story | Source | Shots | Film | Reviewer's scores by round | Cost |
+|---|---|---|---|---|---|
+| The Ashes That Made Trees Bloom | NCERT Honeycomb (class 7), 3 pages | 6 | 1:42 | 5, 6, 6, 6, 6, 6, 6 | $20.52 |
+| The Tiger, the Brahman, and the Jackal | Indian Fairy Tales (1892), 4 pages | 8 | 2:11 | 5, 6, 6, 6, 6, 6 | $22.74 |
+| The stag at the pond | NCERT Honeycomb picture reading, 2 pages | 7 | 1:16 | 6, 7, 5, 6, 7, 6 | $21.06 |
+| Gopal and the Hilsa-fish | NCERT Honeycomb comic, 6 pages | 8 | 2:14 | 6, 5, 6, 5, 6 | $22.63 |
+| Three Questions (Tolstoy) | NCERT Honeycomb, 4 pages | 7 | 1:49 | 6, 6, 6, 6, 6, 6, 6 | $22.96 |
+
+The reviewer is strict ("9 or more only if you would show it to children exactly as it is"): every film keeps the book's art style, voices and order, and what holds the scores at 6 to 7 is small motion glitches inside clips (a prop that morphs, a limb, a duplicate in a crowd). Scores move by about one point between reviews of the same film, so the best-take rule matters more than more rounds; after round 3, extra rounds rarely changed the score. A story costs about $20 with five or more rounds, about $12 to $15 with the two rounds the app uses. The test runs and restarts of the first evening cost about $40 more.
+
 **The app.** `/story/:id` plays a story: the page with its printed picture marked, the picture growing to fill the screen as it starts to move, captions with the speaker's name, the choice as two post-its (the other option shown as "Imagine...", then back to the book), the end with the moral, a quiz, and a live voice chat with a character in its own voice (the live proxy takes `story:<id>:<character>`). Stories are a tab in the library, a card on the dashboard and in New, "Make it a film" on a scanned story page, and a section on the homepage. `POST /api/stories` runs as a background job, two a day per reader and twenty a day in all.
 
 ## 2026-10-16: plain English everywhere; the demo video

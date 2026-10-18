@@ -51,7 +51,7 @@ export async function drawKeyframe(opts: {
   const who = cast.length ? `Characters (draw them exactly as in the references): ${cast.map((c) => `${c.name}: ${lookOf(c)}`).join('; ')}. Only these characters appear; anyone else in the references stays out of this frame.` : 'No story characters appear in this frame.';
   const prompt = printed
     ? `Extend this book illustration into a 16:9 landscape frame for an animated film. Keep the original drawing exactly as it is, same size, in the middle of the frame, and continue the scene naturally to the left and right in exactly the same style (${artStyle}). Remove any speech bubbles, captions and printed text from the drawing and fill those spots with the scene. ${who} ${NO_TEXT}`
-    : `A single frame from an animated film of a children's book, 16:9 landscape, drawn in exactly the art style of the reference illustrations: ${artStyle}. ${shot.picture} ${who} The composition leaves room for the characters to move. ${NO_TEXT}`;
+    : `A single frame from an animated film of a children's book, 16:9 landscape, drawn in exactly the art style of the reference illustrations: ${artStyle}. ${shot.picture} ${who} The composition leaves room for the characters to move. ${NO_TEXT}${shot.avoid?.length ? ` An earlier frame had these mistakes; do not repeat them: ${shot.avoid.slice(-4).join('; ')}.` : ''}`;
   const r = await drawWithRefs(prompt, printed ? [printed, ...refs.slice(0, 2)] : refs.slice(0, 6));
   opts.spend(r.usage.model, r.usage.costUsd);
   return r.bytes;

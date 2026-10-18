@@ -307,6 +307,8 @@ export async function makeStory(o: MakeOptions): Promise<StoryDoc> {
         } catch (e: any) { log(`edit ${s.id} failed (${String(e?.message).slice(0, 100)}); filming it again`); }
       }
       try {
+        // filmed again before and still wrong: the opening frame itself probably carries the mistake, so it is drawn again
+        const again = (s.avoid?.length ?? 0) > 0;
         if (rs.fix.picture) s.picture = rs.fix.picture;
         if (rs.fix.motion) s.motion = rs.fix.motion;
         s.avoid = [...(s.avoid ?? []), ...mistakes].slice(-6);
@@ -314,7 +316,7 @@ export async function makeStory(o: MakeOptions): Promise<StoryDoc> {
         const castFix = rs.fix.cast?.map((c) => c.toLowerCase()).filter((c) => doc.characters.some((x) => x.id === c));
         const recast = !!castFix && (castFix.length !== s.cast.length || castFix.some((c) => !s.cast.includes(c)));
         if (recast) { s.cast = castFix!; s.fromPicture = null; }
-        if ((rs.fix.picture || recast) && s.fromPicture == null) await drawFrame(s, nextVersion(`kf-${s.id}`) + 1);
+        if ((rs.fix.picture || recast || again) && s.fromPicture == null) await drawFrame(s, nextVersion(`kf-${s.id}`) + 1);
         await film(s, round);
         (s.history ??= []).push({ round, action: 'new plan', note: rs.issues.slice(0, 2).join('; ') });
         applied.push(`${s.id}: filmed again (${rs.issues[0] ?? 'the reviewer asked for it'})`);
