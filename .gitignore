@@ -14,3 +14,6 @@ eval/pages/private/
 *.local
 eval/output/
 eval/pages/private/
+
+# NCERT textbook pages used for evaluation: kept on disk, not published (NCERT books may not be republished)
+eval/pages-ncert/
